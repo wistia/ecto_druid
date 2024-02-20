@@ -6,6 +6,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
       app: :ecto_adapters_druid,
       version: "0.1.0",
       elixir: "~> 1.16",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -14,10 +15,12 @@ defmodule Ecto.Adapters.Druid.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
-      mod: {Ecto.Adapters.Druid.Application, []}
+      extra_applications: [:logger]
     ]
   end
+
+  defp elixirc_paths(:test), do: ["test/support", "lib"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
