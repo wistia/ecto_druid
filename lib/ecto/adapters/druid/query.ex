@@ -668,7 +668,7 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp expr({:^, [], [ix]}, _sources, _query) do
-    [?$ | Integer.to_string(ix + 1)]
+    [??]
   end
 
   defp expr({{:., _, [{:parent_as, _, [as]}, field]}, _, []}, _sources, query)

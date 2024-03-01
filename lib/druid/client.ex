@@ -19,11 +19,11 @@ defmodule Druid.Client do
 
     case response.status do
       code when code in 200..299 ->
-        response.body["json"]
+        response.body
 
       code when code in 400..599 ->
         raise RequestError,
-              "Error (#{response.status}) when querying Druid.\n\t#{inspect(response)}"
+              "Error (#{response.status}) when querying Druid.\n\t#{inspect(response.body)}"
 
       _ ->
         raise RuntimeError,

@@ -1,26 +1,30 @@
-defmodule Ecto.Adapters.Druid.ConversionEvents do
+defmodule Ecto.Adapters.Druid.Wikipedia do
   use Ecto.Schema
 
   @primary_key false
-  schema "conversion_events" do
+  schema "wikipedia" do
     field :time, :utc_datetime_usec, source: :__time
-    field :account_id, :id
-    field :page_id, :id
-    field :loads, :integer
-    field :conversions, :integer
+    field :page, :string
+    field :user, :string
+    field :added, :integer
+    field :deleted, :integer
+    field :delta, :integer
   end
 
-  def by_page_id(account_id, page_id) do
+  def by_page(page) do
     import Ecto.Query
+    import Ecto.Druid.Query
 
     from(
       m in __MODULE__,
-      where: m.account_id == ^account_id and m.page_id == ^page_id,
+      where: m.page == ^page,
       select: %{
-        account_id: m.account_id,
-        page_id: m.page_id,
-        loads: sum(m.loads),
-        conversions: sum(m.conversions)
+        added: sum(m.added),
+        deleted: sum(m.deleted),
+        delta: sum(m.delta),
+        unique_users: approx_count_distinct_ds_theta(m.user, 256),
+        delta_histogram:
+          ds_histogram(ds_quantiles_sketch(m.delta, 256), [-1000, -500, -200, 0, 200, 500, 1000])
       }
     )
   end
