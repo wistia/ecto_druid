@@ -48,7 +48,21 @@ defmodule Ecto.Adapters.Druid do
   @impl Ecto.Adapter
   defmacro __before_compile__(_env) do
     quote do
-      def to_sql(query), do: Ecto.Adapters.SQL.to_sql(:all, __MODULE__, query)
+      def to_sql(query) do
+        Ecto.Adapters.SQL.to_sql(:all, get_dynamic_repo(), query)
+      end
+
+      def insert_all(schema_or_source, entries, opts \\ []) do
+        repo = get_dynamic_repo()
+
+        Ecto.Repo.Schema.insert_all(
+          __MODULE__,
+          repo,
+          schema_or_source,
+          entries,
+          Ecto.Repo.Supervisor.tuplet(repo, prepare_opts(:insert_all, opts))
+        )
+      end
     end
   end
 
@@ -126,9 +140,33 @@ defmodule Ecto.Adapters.Druid do
     {_, _, {_, sql}} = query
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
 
-    with {:ok, results} = __MODULE__.Client.execute(sql, params, Keyword.merge(repo.config, opts)) do
-      {Enum.count(results), [results]}
-    end
+    results =
+      Druid.Client.SQL.query(sql, params, opts)
+      |> Druid.Client.request!(Keyword.merge(repo.config, opts))
+
+    {Enum.count(results), [results]}
+  end
+
+  def insert_all(
+        adapter_meta,
+        schema_meta,
+        header,
+        rows,
+        on_conflict,
+        returning,
+        placeholders,
+        opts
+      ) do
+    __MODULE__.Ingest.insert_all(
+      adapter_meta,
+      schema_meta,
+      header,
+      rows,
+      on_conflict,
+      returning,
+      placeholders,
+      opts
+    )
   end
 
   @impl Ecto.Adapter.Queryable
