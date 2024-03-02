@@ -23,10 +23,12 @@ defmodule Seeds do
       Enum.map(columns, &%{name: elem(&1, 0), type: elem(&1, 1)}) |> Jason.encode!()
 
     from(
-      e in extern_table(
-        ^file_source,
-        ^file_format,
-        ^column_mappings
+      e in table(
+        extern(
+          ^file_source,
+          ^file_format,
+          ^column_mappings
+        )
       ),
       select: ^column_names
     )
