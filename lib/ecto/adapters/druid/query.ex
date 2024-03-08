@@ -4,18 +4,17 @@ defmodule Ecto.Adapters.Druid.Query do
 
   def all(query, as_prefix \\ []) do
     sources = create_names(query, as_prefix)
-    {select_distinct, order_by_distinct} = distinct(query.distinct, sources, query)
 
     cte = cte(query, sources)
     from = from(query, sources)
-    select = select(query, select_distinct, sources)
+    select = select(query, sources)
     join = join(query, sources)
     where = where(query, sources)
     group_by = group_by(query, sources)
     having = having(query, sources)
     window = window(query, sources)
     combinations = combinations(query, as_prefix)
-    order_by = order_by(query, order_by_distinct, sources)
+    order_by = order_by(query, sources)
     limit = limit(query, sources)
     offset = offset(query, sources)
     lock = lock(query, sources)
@@ -36,221 +35,154 @@ defmodule Ecto.Adapters.Druid.Query do
     ]
   end
 
-  def update_all(%{from: %{source: source}} = query, prefix \\ nil) do
+  def update_all(query, prefix \\ nil) do
+    %{from: %{source: source}, select: select} = query
+
+    if select do
+      error!(nil, ":select is not supported in update_all by MySQL")
+    end
+
     sources = create_names(query, [])
     cte = cte(query, sources)
     {from, name} = get_source(query, sources, 0, source)
 
-    prefix = prefix || ["UPDATE ", from, " AS ", name | " SET "]
-    fields = update_fields(query, sources)
-    {join, wheres} = using_join(query, :update_all, "FROM", sources)
+    fields =
+      if prefix do
+        update_fields(:on_conflict, query, sources)
+      else
+        update_fields(:update, query, sources)
+      end
+
+    {join, wheres} = using_join(query, :update_all, sources)
+    prefix = prefix || ["UPDATE ", from, " AS ", name, join, " SET "]
     where = where(%{query | wheres: wheres ++ query.wheres}, sources)
 
-    [cte, prefix, fields, join, where | returning(query, sources)]
+    [cte, prefix, fields | where]
   end
 
-  def delete_all(%{from: from} = query) do
+  def delete_all(query) do
+    if query.select do
+      error!(nil, ":select is not supported in delete_all by MySQL")
+    end
+
     sources = create_names(query, [])
     cte = cte(query, sources)
-    {from, name} = get_source(query, sources, 0, from)
+    {_, name, _} = elem(sources, 0)
 
-    {join, wheres} = using_join(query, :delete_all, "USING", sources)
-    where = where(%{query | wheres: wheres ++ query.wheres}, sources)
+    from = from(query, sources)
+    join = join(query, sources)
+    where = where(query, sources)
 
-    [cte, "DELETE FROM ", from, " AS ", name, join, where | returning(query, sources)]
+    [cte, "DELETE ", name, ".*", from, join | where]
   end
 
-  def insert(prefix, table, header, rows, on_conflict, returning, placeholders) do
-    counter_offset = length(placeholders) + 1
-
-    values =
-      if header == [] do
-        [" VALUES " | Enum.map_intersperse(rows, ?,, fn _ -> "(DEFAULT)" end)]
-      else
-        [" (", quote_names(header), ") " | insert_all(rows, counter_offset)]
-      end
+  def insert(prefix, table, header, rows, on_conflict, [], []) do
+    fields = quote_names(header)
 
     [
       "INSERT INTO ",
-      quote_name(prefix, table),
-      insert_as(on_conflict),
-      values,
-      on_conflict(on_conflict, header) | returning(returning)
+      quote_table(prefix, table),
+      " (",
+      fields,
+      ") ",
+      insert_all(rows) | on_conflict(on_conflict, header)
     ]
   end
 
-  defp insert_as({%{sources: sources}, _, _}) do
-    {_expr, name, _schema} = create_name(sources, 0, [])
-    [" AS " | name]
+  def insert(_prefix, _table, _header, _rows, _on_conflict, _returning, []) do
+    error!(nil, ":returning is not supported in insert/insert_all by MySQL")
   end
 
-  defp insert_as({_, _, _}) do
+  def insert(_prefix, _table, _header, _rows, _on_conflict, _returning, _placeholders) do
+    error!(nil, ":placeholders is not supported by MySQL")
+  end
+
+  defp on_conflict({_, _, [_ | _]}, _header) do
+    error!(nil, ":conflict_target is not supported in insert/insert_all by MySQL")
+  end
+
+  defp on_conflict({:raise, _, []}, _header) do
     []
   end
 
-  defp on_conflict({:raise, _, []}, _header),
-    do: []
+  defp on_conflict({:nothing, _, []}, [field | _]) do
+    quoted = quote_name(field)
+    [" ON DUPLICATE KEY UPDATE ", quoted, " = " | quoted]
+  end
 
-  defp on_conflict({:nothing, _, targets}, _header),
-    do: [" ON CONFLICT ", conflict_target(targets) | "DO NOTHING"]
-
-  defp on_conflict({fields, _, targets}, _header) when is_list(fields),
-    do: [" ON CONFLICT ", conflict_target!(targets), "DO " | replace(fields)]
-
-  defp on_conflict({query, _, targets}, _header),
-    do: [" ON CONFLICT ", conflict_target!(targets), "DO " | update_all(query, "UPDATE SET ")]
-
-  defp conflict_target!([]),
-    do: error!(nil, "the :conflict_target option is required on upserts by DruidSQL")
-
-  defp conflict_target!(target),
-    do: conflict_target(target)
-
-  defp conflict_target({:unsafe_fragment, fragment}),
-    do: [fragment, ?\s]
-
-  defp conflict_target([]),
-    do: []
-
-  defp conflict_target(targets),
-    do: [?(, quote_names(targets), ?), ?\s]
-
-  defp replace(fields) do
+  defp on_conflict({fields, _, []}, _header) when is_list(fields) do
     [
-      "UPDATE SET "
+      " ON DUPLICATE KEY UPDATE "
       | Enum.map_intersperse(fields, ?,, fn field ->
           quoted = quote_name(field)
-          [quoted, " = ", "EXCLUDED." | quoted]
+          [quoted, " = VALUES(", quoted, ?)]
         end)
     ]
   end
 
-  defp insert_all(query = %Ecto.Query{}, _counter) do
+  defp on_conflict({%{wheres: []} = query, _, []}, _header) do
+    [" ON DUPLICATE KEY " | update_all(query, "UPDATE ")]
+  end
+
+  defp on_conflict({_query, _, []}, _header) do
+    error!(
+      nil,
+      "Using a query with :where in combination with the :on_conflict option is not supported by MySQL"
+    )
+  end
+
+  defp insert_all(rows) when is_list(rows) do
+    [
+      "VALUES ",
+      Enum.map_intersperse(rows, ?,, fn row ->
+        [?(, Enum.map_intersperse(row, ?,, &insert_all_value/1), ?)]
+      end)
+    ]
+  end
+
+  defp insert_all(%Ecto.Query{} = query) do
     [?(, all(query), ?)]
   end
 
-  defp insert_all(rows, counter) do
-    [
-      "VALUES ",
-      intersperse_reduce(rows, ?,, counter, fn row, counter ->
-        {row, counter} = insert_each(row, counter)
-        {[?(, row, ?)], counter}
-      end)
-      |> elem(0)
-    ]
-  end
+  defp insert_all_value(nil), do: "DEFAULT"
+  defp insert_all_value({%Ecto.Query{} = query, _params_counter}), do: [?(, all(query), ?)]
+  defp insert_all_value(_), do: ~c"?"
 
-  defp insert_each(values, counter) do
-    intersperse_reduce(values, ?,, counter, fn
-      nil, counter ->
-        {"DEFAULT", counter}
+  def update(prefix, table, fields, filters, _returning) do
+    fields = Enum.map_intersperse(fields, ", ", &[quote_name(&1), " = ?"])
 
-      {%Ecto.Query{} = query, params_counter}, counter ->
-        {[?(, all(query), ?)], counter + params_counter}
+    filters =
+      Enum.map_intersperse(filters, " AND ", fn
+        {field, nil} ->
+          [quote_name(field), " IS NULL"]
 
-      {:placeholder, placeholder_index}, counter ->
-        {[?$ | placeholder_index], counter}
-
-      _, counter ->
-        {[?$ | Integer.to_string(counter)], counter + 1}
-    end)
-  end
-
-  def update(prefix, table, fields, filters, returning) do
-    {fields, count} =
-      intersperse_reduce(fields, ", ", 1, fn field, acc ->
-        {[quote_name(field), " = $" | Integer.to_string(acc)], acc + 1}
+        {field, _value} ->
+          [quote_name(field), " = ?"]
       end)
 
-    {filters, _count} =
-      intersperse_reduce(filters, " AND ", count, fn
-        {field, nil}, acc ->
-          {[quote_name(field), " IS NULL"], acc}
-
-        {field, _value}, acc ->
-          {[quote_name(field), " = $" | Integer.to_string(acc)], acc + 1}
-      end)
-
-    [
-      "UPDATE ",
-      quote_name(prefix, table),
-      " SET ",
-      fields,
-      " WHERE ",
-      filters | returning(returning)
-    ]
+    ["UPDATE ", quote_table(prefix, table), " SET ", fields, " WHERE " | filters]
   end
 
-  def delete(prefix, table, filters, returning) do
-    {filters, _} =
-      intersperse_reduce(filters, " AND ", 1, fn
-        {field, nil}, acc ->
-          {[quote_name(field), " IS NULL"], acc}
+  def delete(prefix, table, filters, _returning) do
+    filters =
+      Enum.map_intersperse(filters, " AND ", fn
+        {field, nil} ->
+          [quote_name(field), " IS NULL"]
 
-        {field, _value}, acc ->
-          {[quote_name(field), " = $" | Integer.to_string(acc)], acc + 1}
+        {field, _value} ->
+          [quote_name(field), " = ?"]
       end)
 
-    ["DELETE FROM ", quote_name(prefix, table), " WHERE ", filters | returning(returning)]
+    ["DELETE FROM ", quote_table(prefix, table), " WHERE " | filters]
   end
-
-  # def explain_query(conn, query, params, opts) do
-  #   {explain_opts, opts} =
-  #     Keyword.split(opts, ~w[analyze verbose costs settings buffers timing summary format]a)
-
-  #   map_format? = {:format, :map} in explain_opts
-
-  #   case query(conn, build_explain_query(query, explain_opts), params, opts) do
-  #     {:ok, %Postgrex.Result{rows: rows}} when map_format? ->
-  #       {:ok, List.flatten(rows)}
-
-  #     {:ok, %Postgrex.Result{rows: rows}} ->
-  #       {:ok, Enum.map_join(rows, "\n", & &1)}
-
-  #     error ->
-  #       error
-  #   end
-  # end
 
   def build_explain_query(query, []) do
     ["EXPLAIN ", query]
     |> IO.iodata_to_binary()
   end
 
-  def build_explain_query(query, opts) do
-    {analyze, opts} = Keyword.pop(opts, :analyze)
-    {verbose, opts} = Keyword.pop(opts, :verbose)
-
-    # Given only ANALYZE or VERBOSE opts we assume the legacy format
-    # to support all Druid versions, otherwise assume the new
-    # syntax supported since v9.0
-    case opts do
-      [] ->
-        [
-          "EXPLAIN ",
-          if_do(quote_boolean(analyze) == "TRUE", "ANALYZE "),
-          if_do(quote_boolean(verbose) == "TRUE", "VERBOSE "),
-          query
-        ]
-
-      opts ->
-        opts =
-          ([analyze: analyze, verbose: verbose] ++ opts)
-          |> Enum.reduce([], fn
-            {_, nil}, acc ->
-              acc
-
-            {:format, value}, acc ->
-              [String.upcase("#{format_to_sql(value)}") | acc]
-
-            {opt, value}, acc ->
-              [String.upcase("#{opt} #{quote_boolean(value)}") | acc]
-          end)
-          |> Enum.reverse()
-          |> Enum.join(", ")
-
-        ["EXPLAIN ( ", opts, " ) ", query]
-    end
+  def build_explain_query(query, format: value) do
+    ["EXPLAIN #{String.upcase("#{format_to_sql(value)}")} ", query]
     |> IO.iodata_to_binary()
   end
 
@@ -269,7 +201,6 @@ defmodule Ecto.Adapters.Druid.Query do
     /: " / ",
     and: " AND ",
     or: " OR ",
-    ilike: " ILIKE ",
     like: " LIKE "
   ]
 
@@ -281,28 +212,36 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp handle_call(fun, _arity), do: {:fun, Atom.to_string(fun)}
 
-  defp select(%{select: %{fields: fields}} = query, select_distinct, sources) do
-    ["SELECT", select_distinct, ?\s | select_fields(fields, sources, query)]
+  defp select(%{select: %{fields: fields}, distinct: distinct} = query, sources) do
+    ["SELECT ", distinct(distinct, sources, query) | select(fields, sources, query)]
   end
 
-  defp select_fields([], _sources, _query),
+  defp distinct(nil, _sources, _query), do: []
+  defp distinct(%QueryExpr{expr: true}, _sources, _query), do: "DISTINCT "
+  defp distinct(%QueryExpr{expr: false}, _sources, _query), do: []
+
+  defp distinct(%QueryExpr{expr: exprs}, _sources, query) when is_list(exprs) do
+    error!(query, "DISTINCT with multiple columns is not supported by MySQL")
+  end
+
+  defp select([], _sources, _query),
     do: "TRUE"
 
-  defp select_fields(fields, sources, query) do
+  defp select(fields, sources, query) do
     Enum.map_intersperse(fields, ", ", fn
       {:&, _, [idx]} ->
         case elem(sources, idx) do
           {nil, source, nil} ->
             error!(
               query,
-              "DruidSQL adapter does not support selecting all fields from fragment #{source}. " <>
+              "MySQL adapter does not support selecting all fields from fragment #{source}. " <>
                 "Please specify exactly which fields you want to select"
             )
 
           {source, _, nil} ->
             error!(
               query,
-              "DruidSQL adapter does not support selecting all fields from #{source} without a schema. " <>
+              "MySQL adapter does not support selecting all fields from #{source} without a schema. " <>
                 "Please specify a schema or specify exactly which fields you want to select"
             )
 
@@ -311,24 +250,11 @@ defmodule Ecto.Adapters.Druid.Query do
         end
 
       {key, value} ->
-        [expr(value, sources, query), " AS " | quote_name(key)]
+        [expr(value, sources, query), " AS ", quote_name(key)]
 
       value ->
         expr(value, sources, query)
     end)
-  end
-
-  defp distinct(nil, _, _), do: {[], []}
-  defp distinct(%QueryExpr{expr: []}, _, _), do: {[], []}
-  defp distinct(%QueryExpr{expr: true}, _, _), do: {" DISTINCT", []}
-  defp distinct(%QueryExpr{expr: false}, _, _), do: {[], []}
-
-  defp distinct(%QueryExpr{expr: exprs}, sources, query) do
-    {[
-       " DISTINCT ON (",
-       Enum.map_intersperse(exprs, ", ", fn {_, expr} -> expr(expr, sources, query) end),
-       ?)
-     ], exprs}
   end
 
   defp from(%{from: %{source: source, hints: hints}} = query, sources) do
@@ -345,35 +271,19 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp cte(%{with_ctes: _}, _), do: []
 
-  defp cte_expr({name, opts, cte}, sources, query) do
-    materialized_opt =
-      case opts[:materialized] do
-        nil -> ""
-        true -> "MATERIALIZED"
-        false -> "NOT MATERIALIZED"
-      end
+  defp cte_expr({_name, %{materialized: materialized}, _cte}, _sources, query)
+       when is_boolean(materialized) do
+    error!(query, "MySQL adapter does not support materialized CTEs")
+  end
 
+  defp cte_expr({name, opts, cte}, sources, query) do
     operation_opt = Map.get(opts, :operation)
 
-    [quote_name(name), " AS ", materialized_opt, cte_query(cte, sources, query, operation_opt)]
+    [quote_name(name), " AS ", cte_query(cte, sources, query, operation_opt)]
   end
 
   defp cte_query(query, sources, parent_query, nil) do
     cte_query(query, sources, parent_query, :all)
-  end
-
-  defp cte_query(%Ecto.Query{} = query, sources, parent_query, :update_all) do
-    query = put_in(query.aliases[@parent_as], {parent_query, sources})
-    ["(", update_all(query), ")"]
-  end
-
-  defp cte_query(%Ecto.Query{} = query, sources, parent_query, :delete_all) do
-    query = put_in(query.aliases[@parent_as], {parent_query, sources})
-    ["(", delete_all(query), ")"]
-  end
-
-  defp cte_query(%Ecto.Query{} = query, _sources, _parent_query, :insert_all) do
-    error!(query, "Druid adapter does not support CTE operation :insert_all")
   end
 
   defp cte_query(%Ecto.Query{} = query, sources, parent_query, :all) do
@@ -381,98 +291,68 @@ defmodule Ecto.Adapters.Druid.Query do
     ["(", all(query, subquery_as_prefix(sources)), ")"]
   end
 
+  defp cte_query(%Ecto.Query{} = query, _sources, _parent_query, operation) do
+    error!(
+      query,
+      "MySQL adapter does not support data-modifying CTEs (operation: #{operation})"
+    )
+  end
+
   defp cte_query(%QueryExpr{expr: expr}, sources, query, _operation) do
     expr(expr, sources, query)
   end
 
-  defp update_fields(%{updates: updates} = query, sources) do
-    for(
-      %{expr: expr} <- updates,
-      {op, kw} <- expr,
-      {key, value} <- kw,
-      do: update_op(op, key, value, sources, query)
-    )
-    |> Enum.intersperse(", ")
-  end
-
-  defp update_op(:set, key, value, sources, query) do
-    [quote_name(key), " = " | expr(value, sources, query)]
-  end
-
-  defp update_op(:inc, key, value, sources, query) do
-    [
-      quote_name(key),
-      " = ",
-      quote_qualified_name(key, sources, 0),
-      " + "
-      | expr(value, sources, query)
-    ]
-  end
-
-  defp update_op(:push, key, value, sources, query) do
-    [
-      quote_name(key),
-      " = array_append(",
-      quote_qualified_name(key, sources, 0),
-      ", ",
-      expr(value, sources, query),
-      ?)
-    ]
-  end
-
-  defp update_op(:pull, key, value, sources, query) do
-    [
-      quote_name(key),
-      " = array_remove(",
-      quote_qualified_name(key, sources, 0),
-      ", ",
-      expr(value, sources, query),
-      ?)
-    ]
-  end
-
-  defp update_op(command, _key, _value, _sources, query) do
-    error!(query, "unknown update operation #{inspect(command)} for DruidSQL")
-  end
-
-  defp using_join(%{joins: []}, _kind, _prefix, _sources), do: {[], []}
-
-  defp using_join(%{joins: joins} = query, :update_all, prefix, sources) do
-    {inner_joins, other_joins} = Enum.split_while(joins, &(&1.qual == :inner))
-
-    if inner_joins == [] and other_joins != [] do
-      error!(
-        query,
-        "Need at least one inner join at the beginning to use other joins with update_all"
+  defp update_fields(type, %{updates: updates} = query, sources) do
+    fields =
+      for(
+        %{expr: expr} <- updates,
+        {op, kw} <- expr,
+        {key, value} <- kw,
+        do: update_op(op, update_key(type, key, query, sources), value, sources, query)
       )
-    end
 
-    froms =
-      Enum.map_intersperse(inner_joins, ", ", fn
-        %JoinExpr{qual: :inner, ix: ix, source: source} ->
-          {join, name} = get_source(query, sources, ix, source)
-          [join, " AS " | [name]]
-      end)
-
-    join_clauses = join(%{query | joins: other_joins}, sources)
-
-    wheres =
-      for %JoinExpr{on: %QueryExpr{expr: value} = expr} <- inner_joins,
-          value != true,
-          do: expr |> Map.put(:__struct__, BooleanExpr) |> Map.put(:op, :and)
-
-    {[?\s, prefix, ?\s, froms | join_clauses], wheres}
+    Enum.intersperse(fields, ", ")
   end
 
-  defp using_join(%{joins: joins} = query, kind, prefix, sources) do
+  defp update_key(:update, key, %{from: from} = query, sources) do
+    {_from, name} = get_source(query, sources, 0, from)
+
+    [name, ?. | quote_name(key)]
+  end
+
+  defp update_key(:on_conflict, key, _query, _sources) do
+    quote_name(key)
+  end
+
+  defp update_op(:set, quoted_key, value, sources, query) do
+    [quoted_key, " = " | expr(value, sources, query)]
+  end
+
+  defp update_op(:inc, quoted_key, value, sources, query) do
+    [quoted_key, " = ", quoted_key, " + " | expr(value, sources, query)]
+  end
+
+  defp update_op(command, _quoted_key, _value, _sources, query) do
+    error!(query, "Unknown update operation #{inspect(command)} for MySQL")
+  end
+
+  defp using_join(%{joins: []}, _kind, _sources), do: {[], []}
+
+  defp using_join(%{joins: joins} = query, kind, sources) do
     froms =
       Enum.map_intersperse(joins, ", ", fn
+        %JoinExpr{source: %Ecto.SubQuery{params: [_ | _]}} ->
+          error!(
+            query,
+            "MySQL adapter does not support subqueries with parameters in update_all/delete_all joins"
+          )
+
         %JoinExpr{qual: :inner, ix: ix, source: source} ->
           {join, name} = get_source(query, sources, ix, source)
           [join, " AS " | name]
 
         %JoinExpr{qual: qual} ->
-          error!(query, "DruidSQL supports only inner joins on #{kind}, got: `#{qual}`")
+          error!(query, "MySQL adapter supports only inner joins on #{kind}, got: `#{qual}`")
       end)
 
     wheres =
@@ -480,51 +360,41 @@ defmodule Ecto.Adapters.Druid.Query do
           value != true,
           do: expr |> Map.put(:__struct__, BooleanExpr) |> Map.put(:op, :and)
 
-    {[?\s, prefix, ?\s | froms], wheres}
+    {[?,, ?\s | froms], wheres}
   end
 
   defp join(%{joins: []}, _sources), do: []
 
   defp join(%{joins: joins} = query, sources) do
-    [
-      ?\s
-      | Enum.map_intersperse(joins, ?\s, fn
-          %JoinExpr{
-            on: %QueryExpr{expr: expr},
-            qual: qual,
-            ix: ix,
-            source: source,
-            hints: hints
-          } ->
-            if hints != [] do
-              error!(query, "table hints are not supported by DruidSQL")
-            end
+    Enum.map(joins, fn
+      %JoinExpr{on: %QueryExpr{expr: expr}, qual: qual, ix: ix, source: source, hints: hints} ->
+        {join, name} = get_source(query, sources, ix, source)
 
-            {join, name} = get_source(query, sources, ix, source)
-            [join_qual(qual, query), join, " AS ", name | join_on(qual, expr, sources, query)]
-        end)
-    ]
+        [
+          join_qual(qual, query),
+          join,
+          " AS ",
+          name,
+          Enum.map(hints, &[?\s | &1]) | join_on(qual, expr, sources, query)
+        ]
+    end)
   end
 
   defp join_on(:cross, true, _sources, _query), do: []
   defp join_on(:cross_lateral, true, _sources, _query), do: []
   defp join_on(_qual, expr, sources, query), do: [" ON " | expr(expr, sources, query)]
 
-  defp join_qual(:inner, _), do: "INNER JOIN "
-  defp join_qual(:inner_lateral, _), do: "INNER JOIN LATERAL "
-  defp join_qual(:left, _), do: "LEFT OUTER JOIN "
-  defp join_qual(:left_lateral, _), do: "LEFT OUTER JOIN LATERAL "
-  defp join_qual(:right, _), do: "RIGHT OUTER JOIN "
-  defp join_qual(:full, _), do: "FULL OUTER JOIN "
-  defp join_qual(:cross, _), do: "CROSS JOIN "
-  defp join_qual(:cross_lateral, _), do: "CROSS JOIN LATERAL "
+  defp join_qual(:inner, _), do: " INNER JOIN "
+  defp join_qual(:inner_lateral, _), do: " INNER JOIN LATERAL "
+  defp join_qual(:left, _), do: " LEFT OUTER JOIN "
+  defp join_qual(:left_lateral, _), do: " LEFT OUTER JOIN LATERAL "
+  defp join_qual(:right, _), do: " RIGHT OUTER JOIN "
+  defp join_qual(:full, _), do: " FULL OUTER JOIN "
+  defp join_qual(:cross, _), do: " CROSS JOIN "
+  defp join_qual(:cross_lateral, _), do: " CROSS JOIN LATERAL "
 
   defp join_qual(qual, query),
-    do:
-      error!(
-        query,
-        "join qualifier #{inspect(qual)} is not supported in the DruidSQL adapter"
-      )
+    do: error!(query, "join qualifier #{inspect(qual)} is not supported in the MySQL adapter")
 
   defp where(%{wheres: wheres} = query, sources) do
     boolean(" WHERE ", wheres, sources, query)
@@ -539,9 +409,8 @@ defmodule Ecto.Adapters.Druid.Query do
   defp group_by(%{group_bys: group_bys} = query, sources) do
     [
       " GROUP BY "
-      | Enum.map_intersperse(group_bys, ", ", fn
-          %QueryExpr{expr: expr} ->
-            Enum.map_intersperse(expr, ", ", &expr(&1, sources, query))
+      | Enum.map_intersperse(group_bys, ", ", fn %QueryExpr{expr: expr} ->
+          Enum.map_intersperse(expr, ", ", &expr(&1, sources, query))
         end)
     ]
   end
@@ -573,42 +442,31 @@ defmodule Ecto.Adapters.Druid.Query do
     expr(fragment, sources, query)
   end
 
-  defp order_by(%{order_bys: []}, _distinct, _sources), do: []
+  defp order_by(%{order_bys: []}, _sources), do: []
 
-  defp order_by(%{order_bys: order_bys} = query, distinct, sources) do
-    order_bys = Enum.flat_map(order_bys, & &1.expr)
-    order_bys = order_by_concat(distinct, order_bys)
-    [" ORDER BY " | Enum.map_intersperse(order_bys, ", ", &order_by_expr(&1, sources, query))]
+  defp order_by(%{order_bys: order_bys} = query, sources) do
+    [
+      " ORDER BY "
+      | Enum.map_intersperse(order_bys, ", ", fn %QueryExpr{expr: expr} ->
+          Enum.map_intersperse(expr, ", ", &order_by_expr(&1, sources, query))
+        end)
+    ]
   end
-
-  defp order_by_concat([head | left], [head | right]), do: [head | order_by_concat(left, right)]
-  defp order_by_concat(left, right), do: left ++ right
 
   defp order_by_expr({dir, expr}, sources, query) do
     str = expr(expr, sources, query)
 
     case dir do
       :asc -> str
-      :asc_nulls_last -> [str | " ASC NULLS LAST"]
-      :asc_nulls_first -> [str | " ASC NULLS FIRST"]
       :desc -> [str | " DESC"]
-      :desc_nulls_last -> [str | " DESC NULLS LAST"]
-      :desc_nulls_first -> [str | " DESC NULLS FIRST"]
+      _ -> error!(query, "#{dir} is not supported in ORDER BY in MySQL")
     end
   end
 
   defp limit(%{limit: nil}, _sources), do: []
 
-  defp limit(%{limit: %{with_ties: true}, order_bys: []} = query, _sources) do
-    error!(
-      query,
-      "DruidSQL adapter requires an `order_by` clause if the " <>
-        "`:with_ties` limit option is `true`"
-    )
-  end
-
-  defp limit(%{limit: %{expr: expr, with_ties: true}} = query, sources) do
-    [" FETCH FIRST ", expr(expr, sources, query) | " ROWS WITH TIES"]
+  defp limit(%{limit: %{with_ties: true}} = query, _sources) do
+    error!(query, "MySQL adapter does not support the `:with_ties` limit option")
   end
 
   defp limit(%{limit: %{expr: expr}} = query, sources) do
@@ -640,15 +498,15 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp boolean(name, [%{expr: expr, op: op} | query_exprs], sources, query) do
     [
-      name
-      | Enum.reduce(query_exprs, {op, paren_expr(expr, sources, query)}, fn
-          %BooleanExpr{expr: expr, op: op}, {op, acc} ->
-            {op, [acc, operator_to_boolean(op), paren_expr(expr, sources, query)]}
+      name,
+      Enum.reduce(query_exprs, {op, paren_expr(expr, sources, query)}, fn
+        %BooleanExpr{expr: expr, op: op}, {op, acc} ->
+          {op, [acc, operator_to_boolean(op) | paren_expr(expr, sources, query)]}
 
-          %BooleanExpr{expr: expr, op: op}, {_, acc} ->
-            {op, [?(, acc, ?), operator_to_boolean(op), paren_expr(expr, sources, query)]}
-        end)
-        |> elem(1)
+        %BooleanExpr{expr: expr, op: op}, {_, acc} ->
+          {op, [?(, acc, ?), operator_to_boolean(op) | paren_expr(expr, sources, query)]}
+      end)
+      |> elem(1)
     ]
   end
 
@@ -656,7 +514,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp operator_to_boolean(:or), do: " OR "
 
   defp parens_for_select([first_expr | _] = expr) do
-    if is_binary(first_expr) and String.match?(first_expr, ~r/^\s*select\s/i) do
+    if is_binary(first_expr) and String.match?(first_expr, ~r/^\s*select/i) do
       [?(, expr, ?)]
     else
       expr
@@ -667,18 +525,21 @@ defmodule Ecto.Adapters.Druid.Query do
     [?(, expr(expr, sources, query), ?)]
   end
 
-  defp expr({:^, [], [ix]}, _sources, _query) do
-    [??]
+  defp expr({:^, [], [_ix]}, _sources, _query) do
+    ~c"?"
   end
 
   defp expr({{:., _, [{:parent_as, _, [as]}, field]}, _, []}, _sources, query)
        when is_atom(field) do
     {ix, sources} = get_parent_sources_ix(query, as)
-    quote_qualified_name(field, sources, ix)
+    {_, name, _} = elem(sources, ix)
+    [name, ?. | quote_name(field)]
   end
 
-  defp expr({{:., _, [{:&, _, [idx]}, field]}, _, []}, sources, _query) when is_atom(field) do
-    quote_qualified_name(field, sources, idx)
+  defp expr({{:., _, [{:&, _, [idx]}, field]}, _, []}, sources, _query)
+       when is_atom(field) do
+    {_, name, _} = elem(sources, idx)
+    [name, ?. | quote_name(field)]
   end
 
   defp expr({:&, _, [idx]}, sources, _query) do
@@ -695,8 +556,13 @@ defmodule Ecto.Adapters.Druid.Query do
     [expr(left, sources, query), " IN (", args, ?)]
   end
 
-  defp expr({:in, _, [left, {:^, _, [ix, _]}]}, sources, query) do
-    [expr(left, sources, query), " = ANY($", Integer.to_string(ix + 1), ?)]
+  defp expr({:in, _, [_, {:^, _, [_, 0]}]}, _sources, _query) do
+    "false"
+  end
+
+  defp expr({:in, _, [left, {:^, _, [_, length]}]}, sources, query) do
+    args = Enum.intersperse(List.duplicate(??, length), ?,)
+    [expr(left, sources, query), " IN (", args, ?)]
   end
 
   defp expr({:in, _, [left, %Ecto.SubQuery{} = subquery]}, sources, query) do
@@ -715,6 +581,10 @@ defmodule Ecto.Adapters.Druid.Query do
     ["NOT (", expr(expr, sources, query), ?)]
   end
 
+  defp expr({:filter, _, _}, _sources, query) do
+    error!(query, "MySQL adapter does not support aggregate filters")
+  end
+
   defp expr(%Ecto.SubQuery{query: query}, sources, parent_query) do
     combinations =
       Enum.map(query.combinations, fn {type, combination_query} ->
@@ -727,7 +597,7 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp expr({:fragment, _, [kw]}, _sources, query) when is_list(kw) or tuple_size(kw) == 3 do
-    error!(query, "DruidSQL adapter does not support keyword or interpolated fragments")
+    error!(query, "MySQL adapter does not support keyword or interpolated fragments")
   end
 
   defp expr({:fragment, _, parts}, sources, query) do
@@ -738,16 +608,16 @@ defmodule Ecto.Adapters.Druid.Query do
     |> parens_for_select
   end
 
-  defp expr({:values, _, [types, idx, num_rows]}, _, _query) do
-    [?(, values_list(types, idx + 1, num_rows), ?)]
+  defp expr({:values, _, [types, _idx, num_rows]}, _, query) do
+    [?(, values_list(types, num_rows, query), ?)]
   end
 
   defp expr({:literal, _, [literal]}, _sources, _query) do
     quote_name(literal)
   end
 
-  defp expr({:splice, _, [{:^, _, [idx, length]}]}, _sources, _query) do
-    Enum.map_join(1..length, ",", &"$#{idx + &1}")
+  defp expr({:splice, _, [{:^, _, [_, length]}]}, _sources, _query) do
+    Enum.intersperse(List.duplicate(??, length), ?,)
   end
 
   defp expr({:selected_as, _, [name]}, _sources, _query) do
@@ -756,30 +626,24 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp expr({:datetime_add, _, [datetime, count, interval]}, sources, query) do
     [
+      "date_add(",
       expr(datetime, sources, query),
-      type_unless_typed(datetime, "timestamp"),
-      " + ",
-      interval(count, interval, sources, query)
+      ", ",
+      interval(count, interval, sources, query) | ")"
     ]
   end
 
   defp expr({:date_add, _, [date, count, interval]}, sources, query) do
     [
-      ?(,
+      "CAST(date_add(",
       expr(date, sources, query),
-      type_unless_typed(date, "date"),
-      " + ",
-      interval(count, interval, sources, query) | ")::date"
+      ", ",
+      interval(count, interval, sources, query) | ") AS date)"
     ]
   end
 
-  defp expr({:json_extract_path, _, [expr, path]}, sources, query) do
-    json_extract_path(expr, path, sources, query)
-  end
-
-  defp expr({:filter, _, [agg, filter]}, sources, query) do
-    aggregate = expr(agg, sources, query)
-    [aggregate, " FILTER (WHERE ", expr(filter, sources, query), ?)]
+  defp expr({:ilike, _, [_, _]}, _sources, query) do
+    error!(query, "ilike is not supported by MySQL")
   end
 
   defp expr({:over, _, [agg, name]}, sources, query) when is_atom(name) do
@@ -789,7 +653,7 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp expr({:over, _, [agg, kw]}, sources, query) do
     aggregate = expr(agg, sources, query)
-    [aggregate, " OVER ", window_exprs(kw, sources, query)]
+    [aggregate, " OVER " | window_exprs(kw, sources, query)]
   end
 
   defp expr({:{}, _, elems}, sources, query) do
@@ -798,16 +662,17 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp expr({:count, _, []}, _sources, _query), do: "count(*)"
 
-  defp expr({:==, _, [{:json_extract_path, _, [expr, path]} = left, right]}, sources, query)
-       when is_binary(right) or is_integer(right) or is_boolean(right) do
-    case Enum.split(path, -1) do
-      {path, [last]} when is_binary(last) ->
-        extracted = json_extract_path(expr, path, sources, query)
-        [?(, extracted, "@>'{", escape_json(last), ": ", escape_json(right) | "}')"]
+  defp expr({:json_extract_path, _, [expr, path]}, sources, query) do
+    path =
+      Enum.map(path, fn
+        binary when is_binary(binary) ->
+          [?., ?", escape_json_key(binary), ?"]
 
-      _ ->
-        [maybe_paren(left, sources, query), " = " | maybe_paren(right, sources, query)]
-    end
+        integer when is_integer(integer) ->
+          "[#{integer}]"
+      end)
+
+    ["json_extract(", expr(expr, sources, query), ", '$", path, "')"]
   end
 
   defp expr({fun, _, args}, sources, query) when is_atom(fun) and is_list(args) do
@@ -820,29 +685,15 @@ defmodule Ecto.Adapters.Druid.Query do
     case handle_call(fun, length(args)) do
       {:binary_op, op} ->
         [left, right] = args
-        [maybe_paren(left, sources, query), op | maybe_paren(right, sources, query)]
+        [op_to_binary(left, sources, query), op | op_to_binary(right, sources, query)]
 
       {:fun, fun} ->
         [fun, ?(, modifier, Enum.map_intersperse(args, ", ", &expr(&1, sources, query)), ?)]
     end
   end
 
-  defp expr([], _sources, _query) do
-    # We cannot compare in postgres with the empty array
-    # i. e. `where array_column = ARRAY[];`
-    # as that will result in an error:
-    #   ERROR:  cannot determine type of empty array
-    #   HINT:  Explicitly cast to the desired type, for example ARRAY[]::integer[].
-    #
-    # On the other side comparing with '{}' works
-    # because '{}' represents the pseudo-type "unknown"
-    # and thus the type gets inferred based on the column
-    # it is being compared to so `where array_column = '{}';` works.
-    "'{}'"
-  end
-
-  defp expr(list, sources, query) when is_list(list) do
-    ["ARRAY[", Enum.map_intersperse(list, ?,, &expr(&1, sources, query)), ?]]
+  defp expr(list, _sources, query) when is_list(list) do
+    error!(query, "Array type is not supported by MySQL")
   end
 
   defp expr(%Decimal{} = decimal, _sources, _query) do
@@ -851,11 +702,21 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp expr(%Ecto.Query.Tagged{value: binary, type: :binary}, _sources, _query)
        when is_binary(binary) do
-    ["'\\x", Base.encode16(binary, case: :lower) | "'::bytea"]
+    hex = Base.encode16(binary, case: :lower)
+    [?x, ?', hex, ?']
+  end
+
+  defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query)
+       when type in [:decimal, :float] do
+    [expr(other, sources, query), " + 0"]
+  end
+
+  defp expr(%Ecto.Query.Tagged{value: other, type: :boolean}, sources, query) do
+    ["IF(", expr(other, sources, query), ", TRUE, FALSE)"]
   end
 
   defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query) do
-    [maybe_paren(other, sources, query), ?:, ?: | tagged_to_db(type)]
+    ["CAST(", expr(other, sources, query), " AS ", ecto_cast_to_db(type, query), ?)]
   end
 
   defp expr(nil, _sources, _query), do: "NULL"
@@ -863,7 +724,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp expr(false, _sources, _query), do: "FALSE"
 
   defp expr(literal, _sources, _query) when is_binary(literal) do
-    [?\', escape_string(literal), ?\']
+    [?', escape_string(literal), ?']
   end
 
   defp expr(literal, _sources, _query) when is_integer(literal) do
@@ -871,83 +732,47 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp expr(literal, _sources, _query) when is_float(literal) do
-    [Float.to_string(literal) | "::float"]
+    # MySQL doesn't support float cast
+    ["(0 + ", Float.to_string(literal), ?)]
   end
 
   defp expr(expr, _sources, query) do
     error!(query, "unsupported expression: #{inspect(expr)}")
   end
 
-  defp json_extract_path(expr, [], sources, query) do
-    expr(expr, sources, query)
-  end
-
-  defp json_extract_path(expr, path, sources, query) do
-    path = Enum.map_intersperse(path, ?,, &escape_json/1)
-    [?(, expr(expr, sources, query), "#>'{", path, "}')"]
-  end
-
-  defp values_list(types, idx, num_rows) do
+  defp values_list(types, num_rows, query) do
     rows = Enum.to_list(1..num_rows)
 
     [
       "VALUES ",
-      intersperse_reduce(rows, ?,, idx, fn _, idx ->
-        {value, idx} = values_expr(types, idx)
-        {[?(, value, ?)], idx}
+      Enum.map_intersperse(rows, ?,, fn _ ->
+        ["ROW(", values_expr(types, query), ?)]
       end)
-      |> elem(0)
     ]
   end
 
-  defp values_expr(types, idx) do
-    intersperse_reduce(types, ?,, idx, fn {_field, type}, idx ->
-      {[?$, Integer.to_string(idx), ?:, ?: | tagged_to_db(type)], idx + 1}
+  defp values_expr(types, query) do
+    Enum.map_intersperse(types, ?,, fn {_field, type} ->
+      ["CAST(", ??, " AS ", ecto_cast_to_db(type, query), ?)]
     end)
   end
 
-  defp type_unless_typed(%Ecto.Query.Tagged{}, _type), do: []
-  defp type_unless_typed(_, type), do: [?:, ?: | type]
-
-  # Always use the largest possible type for integers
-  defp tagged_to_db(:id), do: "bigint"
-  defp tagged_to_db(:integer), do: "bigint"
-  defp tagged_to_db({:array, type}), do: [tagged_to_db(type), ?[, ?]]
-  defp tagged_to_db(type), do: ecto_to_db(type)
-
-  defp interval(count, interval, _sources, _query) when is_integer(count) do
-    ["interval '", String.Chars.Integer.to_string(count), ?\s, interval, ?\']
-  end
-
-  defp interval(count, interval, _sources, _query) when is_float(count) do
-    count = :erlang.float_to_binary(count, [:compact, decimals: 16])
-    ["interval '", count, ?\s, interval, ?\']
+  defp interval(count, "millisecond", sources, query) do
+    ["INTERVAL (", expr(count, sources, query) | " * 1000) microsecond"]
   end
 
   defp interval(count, interval, sources, query) do
-    [?(, expr(count, sources, query), "::numeric * ", interval(1, interval, sources, query), ?)]
+    ["INTERVAL ", expr(count, sources, query), ?\s | interval]
   end
 
-  defp maybe_paren({op, _, [_, _]} = expr, sources, query) when op in @binary_ops,
+  defp op_to_binary({op, _, [_, _]} = expr, sources, query) when op in @binary_ops,
     do: paren_expr(expr, sources, query)
 
-  defp maybe_paren({:is_nil, _, [_]} = expr, sources, query),
+  defp op_to_binary({:is_nil, _, [_]} = expr, sources, query),
     do: paren_expr(expr, sources, query)
 
-  defp maybe_paren(expr, sources, query),
+  defp op_to_binary(expr, sources, query),
     do: expr(expr, sources, query)
-
-  defp returning(%{select: nil}, _sources),
-    do: []
-
-  defp returning(%{select: %{fields: fields}} = query, sources),
-    do: [" RETURNING " | select_fields(fields, sources, query)]
-
-  defp returning([]),
-    do: []
-
-  defp returning(returning),
-    do: [" RETURNING " | quote_names(returning)]
 
   defp create_names(%{sources: sources}, as_prefix) do
     create_names(sources, 0, tuple_size(sources), as_prefix) |> List.to_tuple()
@@ -975,7 +800,7 @@ defmodule Ecto.Adapters.Druid.Query do
 
       {table, schema, prefix} ->
         name = as_prefix ++ [create_alias(table) | Integer.to_string(pos)]
-        {quote_name(prefix, table), name, schema}
+        {quote_table(prefix, table), name, schema}
 
       %Ecto.SubQuery{} ->
         {nil, as_prefix ++ [?s | Integer.to_string(pos)], nil}
@@ -990,115 +815,126 @@ defmodule Ecto.Adapters.Druid.Query do
     ?t
   end
 
-  # DDL
+  ## DDL
 
   alias Ecto.Migration.{Table, Index, Reference, Constraint}
 
-  @creates [:create, :create_if_not_exists]
-  @drops [:drop, :drop_if_exists]
+  def execute_ddl({command, %Table{} = table, columns})
+      when command in [:create, :create_if_not_exists] do
+    table_structure =
+      case column_definitions(table, columns) ++ pk_definitions(columns, ", ") do
+        [] -> []
+        list -> [?\s, ?(, list, ?)]
+      end
 
-  def execute_ddl({command, %Table{} = table, columns}) when command in @creates do
-    table_name = quote_name(table.prefix, table.name)
-
-    query = [
-      "CREATE TABLE ",
-      if_do(command == :create_if_not_exists, "IF NOT EXISTS "),
-      table_name,
-      ?\s,
-      ?(,
-      column_definitions(table, columns),
-      pk_definition(columns, ", "),
-      ?),
-      options_expr(table.options)
+    [
+      [
+        "CREATE TABLE ",
+        if_do(command == :create_if_not_exists, "IF NOT EXISTS "),
+        quote_table(table.prefix, table.name),
+        table_structure,
+        comment_expr(table.comment, true),
+        engine_expr(table.engine),
+        options_expr(table.options)
+      ]
     ]
-
-    [query] ++
-      comments_on("TABLE", table_name, table.comment) ++
-      comments_for_columns(table_name, columns)
   end
 
-  def execute_ddl({command, %Table{} = table, mode}) when command in @drops do
+  def execute_ddl({command, %Table{} = table, mode}) when command in [:drop, :drop_if_exists] do
     [
       [
         "DROP TABLE ",
         if_do(command == :drop_if_exists, "IF EXISTS "),
-        quote_name(table.prefix, table.name),
+        quote_table(table.prefix, table.name),
         drop_mode(mode)
       ]
     ]
   end
 
   def execute_ddl({:alter, %Table{} = table, changes}) do
-    table_name = quote_name(table.prefix, table.name)
-
-    query = [
-      "ALTER TABLE ",
-      table_name,
-      ?\s,
-      column_changes(table, changes),
-      pk_definition(changes, ", ADD ")
-    ]
-
-    [query] ++
-      comments_on("TABLE", table_name, table.comment) ++
-      comments_for_columns(table_name, changes)
+    [
+      [
+        "ALTER TABLE ",
+        quote_table(table.prefix, table.name),
+        ?\s,
+        column_changes(table, changes),
+        pk_definitions(changes, ", ADD ")
+      ]
+    ] ++
+      if_do(
+        table.comment,
+        [["ALTER TABLE ", quote_table(table.prefix, table.name), comment_expr(table.comment)]]
+      )
   end
 
-  def execute_ddl({command, %Index{} = index}) when command in @creates do
-    fields = Enum.map_intersperse(index.columns, ", ", &index_expr/1)
-    include_fields = Enum.map_intersperse(index.include, ", ", &index_expr/1)
+  def execute_ddl({:create, %Index{} = index}) do
+    if index.where do
+      error!(nil, "MySQL adapter does not support where in indexes")
+    end
 
-    maybe_nulls_distinct =
-      case index.nulls_distinct do
-        nil -> []
-        true -> " NULLS DISTINCT"
-        false -> " NULLS NOT DISTINCT"
-      end
+    if index.nulls_distinct == false do
+      error!(nil, "MySQL adapter does not support nulls_distinct set to false in indexes")
+    end
 
-    queries = [
+    [
       [
-        "CREATE ",
-        if_do(index.unique, "UNIQUE "),
-        "INDEX ",
-        if_do(index.concurrently, "CONCURRENTLY "),
-        if_do(command == :create_if_not_exists, "IF NOT EXISTS "),
+        "CREATE",
+        if_do(index.unique, " UNIQUE"),
+        " INDEX ",
         quote_name(index.name),
         " ON ",
-        if_do(index.only, "ONLY "),
-        quote_name(index.prefix, index.table),
-        if_do(index.using, [" USING ", to_string(index.using)]),
+        quote_table(index.prefix, index.table),
         ?\s,
         ?(,
-        fields,
+        Enum.map_intersperse(index.columns, ", ", &index_expr/1),
         ?),
-        if_do(include_fields != [], [" INCLUDE ", ?(, include_fields, ?)]),
-        maybe_nulls_distinct,
-        if_do(index.options != nil, [" WITH ", ?(, index.options, ?)]),
-        if_do(index.where, [" WHERE ", to_string(index.where)])
+        if_do(index.using, [" USING ", to_string(index.using)]),
+        if_do(index.concurrently, " LOCK=NONE")
       ]
     ]
-
-    queries ++ comments_on("INDEX", quote_name(index.prefix, index.name), index.comment)
   end
 
-  def execute_ddl({command, %Index{} = index, mode}) when command in @drops do
+  def execute_ddl({:create_if_not_exists, %Index{}}),
+    do: error!(nil, "MySQL adapter does not support create if not exists for index")
+
+  def execute_ddl({:create, %Constraint{check: check}}) when is_binary(check),
+    do: error!(nil, "MySQL adapter does not support check constraints")
+
+  def execute_ddl({:create, %Constraint{exclude: exclude}}) when is_binary(exclude),
+    do: error!(nil, "MySQL adapter does not support exclusion constraints")
+
+  def execute_ddl({:drop, %Index{}, :cascade}),
+    do: error!(nil, "MySQL adapter does not support cascade in drop index")
+
+  def execute_ddl({:drop, %Index{} = index, :restrict}) do
     [
       [
         "DROP INDEX ",
-        if_do(index.concurrently, "CONCURRENTLY "),
-        if_do(command == :drop_if_exists, "IF EXISTS "),
-        quote_name(index.prefix, index.name),
-        drop_mode(mode)
+        quote_name(index.name),
+        " ON ",
+        quote_table(index.prefix, index.table),
+        if_do(index.concurrently, " LOCK=NONE")
       ]
     ]
   end
 
-  def execute_ddl({:rename, %Index{} = current_index, new_name}) do
+  def execute_ddl({:drop, %Constraint{}, _}),
+    do: error!(nil, "MySQL adapter does not support constraints")
+
+  def execute_ddl({:drop_if_exists, %Constraint{}, _}),
+    do: error!(nil, "MySQL adapter does not support constraints")
+
+  def execute_ddl({:drop_if_exists, %Index{}, _}),
+    do: error!(nil, "MySQL adapter does not support drop if exists for index")
+
+  def execute_ddl({:rename, %Index{} = index, new_name}) do
     [
       [
-        "ALTER INDEX ",
-        quote_name(current_index.prefix, current_index.name),
-        " RENAME TO ",
+        "ALTER TABLE ",
+        quote_table(index.table),
+        " RENAME INDEX ",
+        quote_name(index.name),
+        " TO ",
         quote_name(new_name)
       ]
     ]
@@ -1107,10 +943,10 @@ defmodule Ecto.Adapters.Druid.Query do
   def execute_ddl({:rename, %Table{} = current_table, %Table{} = new_table}) do
     [
       [
-        "ALTER TABLE ",
-        quote_name(current_table.prefix, current_table.name),
-        " RENAME TO ",
-        quote_name(nil, new_table.name)
+        "RENAME TABLE ",
+        quote_table(current_table.prefix, current_table.name),
+        " TO ",
+        quote_table(new_table.prefix, new_table.name)
       ]
     ]
   end
@@ -1119,8 +955,8 @@ defmodule Ecto.Adapters.Druid.Query do
     [
       [
         "ALTER TABLE ",
-        quote_name(table.prefix, table.name),
-        " RENAME ",
+        quote_table(table.prefix, table.name),
+        " RENAME COLUMN ",
         quote_name(current_column),
         " TO ",
         quote_name(new_column)
@@ -1128,61 +964,22 @@ defmodule Ecto.Adapters.Druid.Query do
     ]
   end
 
-  def execute_ddl({:create, %Constraint{} = constraint}) do
-    table_name = quote_name(constraint.prefix, constraint.table)
-    queries = [["ALTER TABLE ", table_name, " ADD ", new_constraint_expr(constraint)]]
-
-    queries ++ comments_on("CONSTRAINT", constraint.name, constraint.comment, table_name)
-  end
-
-  def execute_ddl({command, %Constraint{} = constraint, mode}) when command in @drops do
-    [
-      [
-        "ALTER TABLE ",
-        quote_name(constraint.prefix, constraint.table),
-        " DROP CONSTRAINT ",
-        if_do(command == :drop_if_exists, "IF EXISTS "),
-        quote_name(constraint.name),
-        drop_mode(mode)
-      ]
-    ]
-  end
-
   def execute_ddl(string) when is_binary(string), do: [string]
 
   def execute_ddl(keyword) when is_list(keyword),
-    do: error!(nil, "DruidSQL adapter does not support keyword lists in execute")
+    do: error!(nil, "MySQL adapter does not support keyword lists in execute")
 
-  # def ddl_logs(%Postgrex.Result{} = result) do
-  #   %{messages: messages} = result
-
-  #   for message <- messages do
-  #     %{message: message, severity: severity} = message
-
-  #     {ddl_log_level(severity), message, []}
-  #   end
-  # end
+  def ddl_logs(_), do: []
 
   def table_exists_query(table) do
-    {"SELECT true FROM information_schema.tables WHERE table_name = $1 AND table_schema = current_schema() LIMIT 1",
+    {"SELECT true FROM information_schema.tables WHERE table_name = ? AND table_schema = DATABASE() LIMIT 1",
      [table]}
   end
 
   defp drop_mode(:cascade), do: " CASCADE"
   defp drop_mode(:restrict), do: []
 
-  # From https://www.postgresql.org/docs/current/protocol-error-fields.html.
-  # defp ddl_log_level("DEBUG"), do: :debug
-  # defp ddl_log_level("LOG"), do: :info
-  # defp ddl_log_level("INFO"), do: :info
-  # defp ddl_log_level("NOTICE"), do: :info
-  # defp ddl_log_level("WARNING"), do: :warn
-  # defp ddl_log_level("ERROR"), do: :error
-  # defp ddl_log_level("FATAL"), do: :error
-  # defp ddl_log_level("PANIC"), do: :error
-  # defp ddl_log_level(_severity), do: :info
-
-  defp pk_definition(columns, prefix) do
+  defp pk_definitions(columns, prefix) do
     pks =
       for {action, name, _, opts} <- columns,
           action != :remove,
@@ -1191,45 +988,8 @@ defmodule Ecto.Adapters.Druid.Query do
 
     case pks do
       [] -> []
-      _ -> [prefix, "PRIMARY KEY (", quote_names(pks), ")"]
+      _ -> [[prefix, "PRIMARY KEY (", quote_names(pks), ?)]]
     end
-  end
-
-  defp comments_on(_object, _name, nil), do: []
-
-  defp comments_on(object, name, comment) do
-    [["COMMENT ON ", object, ?\s, name, " IS ", single_quote(comment)]]
-  end
-
-  defp comments_on(_object, _name, nil, _table_name), do: []
-
-  defp comments_on(object, name, comment, table_name) do
-    [
-      [
-        "COMMENT ON ",
-        object,
-        ?\s,
-        quote_name(name),
-        " ON ",
-        table_name,
-        " IS ",
-        single_quote(comment)
-      ]
-    ]
-  end
-
-  defp comments_for_columns(table_name, columns) do
-    Enum.flat_map(columns, fn
-      {:remove, _column_name, _column_type, _opts} ->
-        []
-
-      {_operation, column_name, _column_type, opts} ->
-        column_name = [table_name, ?. | quote_name(column_name)]
-        comments_on("COLUMN", column_name, opts[:comment])
-
-      _ ->
-        []
-    end)
   end
 
   defp column_definitions(table, columns) do
@@ -1241,281 +1001,182 @@ defmodule Ecto.Adapters.Druid.Query do
       quote_name(name),
       ?\s,
       reference_column_type(ref.type, opts),
-      column_options(ref.type, opts),
-      ", ",
+      column_options(opts),
       reference_expr(ref, table, name)
     ]
   end
 
   defp column_definition(_table, {:add, name, type, opts}) do
-    [quote_name(name), ?\s, column_type(type, opts), column_options(type, opts)]
+    [quote_name(name), ?\s, column_type(type, opts), column_options(opts)]
   end
 
   defp column_changes(table, columns) do
     Enum.map_intersperse(columns, ", ", &column_change(table, &1))
   end
 
+  defp column_change(_table, {_command, _name, %Reference{validate: false}, _opts}) do
+    error!(nil, "validate: false on references is not supported in Druid")
+  end
+
   defp column_change(table, {:add, name, %Reference{} = ref, opts}) do
     [
-      "ADD COLUMN ",
+      "ADD ",
       quote_name(name),
       ?\s,
       reference_column_type(ref.type, opts),
-      column_options(ref.type, opts),
-      ", ADD ",
-      reference_expr(ref, table, name)
+      column_options(opts),
+      constraint_expr(ref, table, name)
     ]
   end
 
   defp column_change(_table, {:add, name, type, opts}) do
-    ["ADD COLUMN ", quote_name(name), ?\s, column_type(type, opts), column_options(type, opts)]
+    ["ADD ", quote_name(name), ?\s, column_type(type, opts), column_options(opts)]
   end
 
   defp column_change(table, {:add_if_not_exists, name, %Reference{} = ref, opts}) do
     [
-      "ADD COLUMN IF NOT EXISTS ",
+      "ADD IF NOT EXISTS ",
       quote_name(name),
       ?\s,
       reference_column_type(ref.type, opts),
-      column_options(ref.type, opts),
-      ", ADD ",
-      reference_expr(ref, table, name)
+      column_options(opts),
+      constraint_if_not_exists_expr(ref, table, name)
     ]
   end
 
   defp column_change(_table, {:add_if_not_exists, name, type, opts}) do
-    [
-      "ADD COLUMN IF NOT EXISTS ",
-      quote_name(name),
-      ?\s,
-      column_type(type, opts),
-      column_options(type, opts)
-    ]
+    ["ADD IF NOT EXISTS ", quote_name(name), ?\s, column_type(type, opts), column_options(opts)]
   end
 
   defp column_change(table, {:modify, name, %Reference{} = ref, opts}) do
     [
-      drop_reference_expr(opts[:from], table, name),
-      "ALTER COLUMN ",
+      drop_constraint_expr(opts[:from], table, name),
+      "MODIFY ",
       quote_name(name),
-      " TYPE ",
+      ?\s,
       reference_column_type(ref.type, opts),
-      ", ADD ",
-      reference_expr(ref, table, name),
-      modify_null(name, opts),
-      modify_default(name, ref.type, opts)
+      column_options(opts),
+      constraint_expr(ref, table, name)
     ]
   end
 
   defp column_change(table, {:modify, name, type, opts}) do
     [
-      drop_reference_expr(opts[:from], table, name),
-      "ALTER COLUMN ",
+      drop_constraint_expr(opts[:from], table, name),
+      "MODIFY ",
       quote_name(name),
-      " TYPE ",
+      ?\s,
       column_type(type, opts),
-      modify_null(name, opts),
-      modify_default(name, type, opts)
+      column_options(opts)
     ]
   end
 
-  defp column_change(_table, {:remove, name}), do: ["DROP COLUMN ", quote_name(name)]
+  defp column_change(_table, {:remove, name}), do: ["DROP ", quote_name(name)]
 
   defp column_change(table, {:remove, name, %Reference{} = ref, _opts}) do
-    [drop_reference_expr(ref, table, name), "DROP COLUMN ", quote_name(name)]
+    [drop_constraint_expr(ref, table, name), "DROP ", quote_name(name)]
   end
 
-  defp column_change(_table, {:remove, name, _type, _opts}),
-    do: ["DROP COLUMN ", quote_name(name)]
+  defp column_change(_table, {:remove, name, _type, _opts}), do: ["DROP ", quote_name(name)]
 
   defp column_change(table, {:remove_if_exists, name, %Reference{} = ref}) do
-    [
-      drop_reference_if_exists_expr(ref, table, name),
-      "DROP COLUMN IF EXISTS ",
-      quote_name(name)
-    ]
+    [drop_constraint_if_exists_expr(ref, table, name), "DROP IF EXISTS ", quote_name(name)]
   end
 
   defp column_change(_table, {:remove_if_exists, name, _type}),
-    do: ["DROP COLUMN IF EXISTS ", quote_name(name)]
+    do: ["DROP IF EXISTS ", quote_name(name)]
 
-  defp modify_null(name, opts) do
-    case Keyword.get(opts, :null) do
-      true -> [", ALTER COLUMN ", quote_name(name), " DROP NOT NULL"]
-      false -> [", ALTER COLUMN ", quote_name(name), " SET NOT NULL"]
-      nil -> []
-    end
-  end
-
-  defp modify_default(name, type, opts) do
-    case Keyword.fetch(opts, :default) do
-      {:ok, val} ->
-        [", ALTER COLUMN ", quote_name(name), " SET", default_expr({:ok, val}, type)]
-
-      :error ->
-        []
-    end
-  end
-
-  defp column_options(type, opts) do
+  defp column_options(opts) do
     default = Keyword.fetch(opts, :default)
     null = Keyword.get(opts, :null)
+    after_column = Keyword.get(opts, :after)
+    comment = Keyword.get(opts, :comment)
 
-    [default_expr(default, type), null_expr(null)]
+    [default_expr(default), null_expr(null), comment_expr(comment), after_expr(after_column)]
   end
+
+  defp comment_expr(comment, create_table? \\ false)
+
+  defp comment_expr(comment, true) when is_binary(comment),
+    do: " COMMENT = '#{escape_string(comment)}'"
+
+  defp comment_expr(comment, false) when is_binary(comment),
+    do: " COMMENT '#{escape_string(comment)}'"
+
+  defp comment_expr(_, _), do: []
+
+  defp after_expr(nil), do: []
+  defp after_expr(column) when is_atom(column) or is_binary(column), do: " AFTER `#{column}`"
+  defp after_expr(_), do: []
 
   defp null_expr(false), do: " NOT NULL"
   defp null_expr(true), do: " NULL"
   defp null_expr(_), do: []
 
-  defp new_constraint_expr(%Constraint{check: check} = constraint) when is_binary(check) do
-    [
-      "CONSTRAINT ",
-      quote_name(constraint.name),
-      " CHECK (",
-      check,
-      ")",
-      validate(constraint.validate)
-    ]
+  defp default_expr({:ok, nil}),
+    do: " DEFAULT NULL"
+
+  defp default_expr({:ok, literal}) when is_binary(literal),
+    do: [" DEFAULT '", escape_string(literal), ?']
+
+  defp default_expr({:ok, literal}) when is_number(literal) or is_boolean(literal),
+    do: [" DEFAULT ", to_string(literal)]
+
+  defp default_expr({:ok, {:fragment, expr}}),
+    do: [" DEFAULT ", expr]
+
+  defp default_expr({:ok, value}) when is_map(value) do
+    library = Application.get_env(:myxql, :json_library, Jason)
+    expr = IO.iodata_to_binary(library.encode_to_iodata!(value))
+    [" DEFAULT ", ?(, ?', escape_string(expr), ?', ?)]
   end
 
-  defp new_constraint_expr(%Constraint{exclude: exclude} = constraint)
-       when is_binary(exclude) do
-    [
-      "CONSTRAINT ",
-      quote_name(constraint.name),
-      " EXCLUDE USING ",
-      exclude,
-      validate(constraint.validate)
-    ]
-  end
-
-  defp default_expr({:ok, nil}, _type), do: " DEFAULT NULL"
-  defp default_expr({:ok, literal}, type), do: [" DEFAULT ", default_type(literal, type)]
-  defp default_expr(:error, _), do: []
-
-  defp default_type(list, {:array, inner} = type) when is_list(list) do
-    [
-      "ARRAY[",
-      Enum.map(list, &default_type(&1, inner)) |> Enum.intersperse(?,),
-      "]::",
-      ecto_to_db(type)
-    ]
-  end
-
-  defp default_type(literal, _type) when is_binary(literal) do
-    if :binary.match(literal, <<0>>) == :nomatch and String.valid?(literal) do
-      single_quote(literal)
-    else
-      encoded = "\\x" <> Base.encode16(literal, case: :lower)
-
-      raise ArgumentError,
-            "default values are interpolated as UTF-8 strings and cannot contain null bytes. " <>
-              "`#{inspect(literal)}` is invalid. If you want to write it as a binary, use \"#{encoded}\", " <>
-              "otherwise refer to DruidSQL documentation for instructions on how to escape this SQL type"
-    end
-  end
-
-  defp default_type(literal, _type) when is_number(literal), do: to_string(literal)
-  defp default_type(literal, _type) when is_boolean(literal), do: to_string(literal)
-
-  defp default_type(%{} = map, :map) do
-    library = Application.get_env(:postgrex, :json_library, Jason)
-    default = IO.iodata_to_binary(library.encode_to_iodata!(map))
-    [single_quote(default)]
-  end
-
-  defp default_type({:fragment, expr}, _type),
-    do: [expr]
-
-  defp default_type(expr, type),
-    do:
-      raise(
-        ArgumentError,
-        "unknown default `#{inspect(expr)}` for type `#{inspect(type)}`. " <>
-          ":default may be a string, number, boolean, list of strings, list of integers, map (when type is Map), or a fragment(...)"
-      )
+  defp default_expr(:error),
+    do: []
 
   defp index_expr(literal) when is_binary(literal),
     do: literal
 
-  defp index_expr(literal),
-    do: quote_name(literal)
+  defp index_expr(literal), do: quote_name(literal)
+
+  defp engine_expr(storage_engine),
+    do: [" ENGINE = ", String.upcase(to_string(storage_engine || "INNODB"))]
 
   defp options_expr(nil),
     do: []
 
   defp options_expr(keyword) when is_list(keyword),
-    do: error!(nil, "DruidSQL adapter does not support keyword lists in :options")
+    do: error!(nil, "MySQL adapter does not support keyword lists in :options")
 
   defp options_expr(options),
-    do: [?\s, options]
-
-  defp column_type({:array, type}, opts),
-    do: [column_type(type, opts), "[]"]
+    do: [?\s, to_string(options)]
 
   defp column_type(type, opts) when type in ~w(time utc_datetime naive_datetime)a do
     generated = Keyword.get(opts, :generated)
-    [ecto_to_db(type), "(0)", generated_expr(generated)]
+    [ecto_to_db(type), generated_expr(generated)]
   end
 
   defp column_type(type, opts)
        when type in ~w(time_usec utc_datetime_usec naive_datetime_usec)a do
-    precision = Keyword.get(opts, :precision)
+    precision = Keyword.get(opts, :precision, 6)
     generated = Keyword.get(opts, :generated)
     type_name = ecto_to_db(type)
 
-    type =
-      if precision do
-        [type_name, ?(, to_string(precision), ?)]
-      else
-        type_name
-      end
-
-    [type, generated_expr(generated)]
-  end
-
-  defp column_type(:identity, opts) do
-    start_value = [Keyword.get(opts, :start_value)]
-    increment = [Keyword.get(opts, :increment)]
-    generated = Keyword.get(opts, :generated)
-    type_name = ecto_to_db(:identity)
-
-    if generated do
-      [type_name, generated_expr(generated)]
-    else
-      cleanup = fn v -> is_integer(v) and v > 0 end
-
-      sequence =
-        start_value
-        |> Enum.filter(cleanup)
-        |> Enum.map(&"START WITH #{&1}")
-        |> Kernel.++(
-          increment
-          |> Enum.filter(cleanup)
-          |> Enum.map(&"INCREMENT BY #{&1}")
-        )
-
-      case sequence do
-        [] -> [type_name, " GENERATED BY DEFAULT AS IDENTITY"]
-        _ -> [type_name, " GENERATED BY DEFAULT AS IDENTITY(", Enum.join(sequence, " "), ") "]
-      end
-    end
+    [type_name, ?(, to_string(precision), ?), generated_expr(generated)]
   end
 
   defp column_type(type, opts) do
     size = Keyword.get(opts, :size)
     precision = Keyword.get(opts, :precision)
-    scale = Keyword.get(opts, :scale)
     generated = Keyword.get(opts, :generated)
-    type_name = ecto_to_db(type)
+    scale = Keyword.get(opts, :scale)
 
     type =
       cond do
-        size -> [type_name, ?(, to_string(size), ?)]
-        precision -> [type_name, ?(, to_string(precision), ?,, to_string(scale || 0), ?)]
-        type == :string -> [type_name, "(255)"]
-        true -> type_name
+        size -> [ecto_size_to_db(type), ?(, to_string(size), ?)]
+        precision -> [ecto_to_db(type), ?(, to_string(precision), ?,, to_string(scale || 0), ?)]
+        type == :string -> ["varchar(255)"]
+        true -> ecto_to_db(type)
       end
 
     [type, generated_expr(generated)]
@@ -1524,7 +1185,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp generated_expr(nil), do: []
 
   defp generated_expr(expr) when is_binary(expr) do
-    [" GENERATED ", expr]
+    [" AS ", expr]
   end
 
   defp generated_expr(other) do
@@ -1532,40 +1193,53 @@ defmodule Ecto.Adapters.Druid.Query do
           "the `:generated` option only accepts strings, received: #{inspect(other)}"
   end
 
-  defp reference_expr(%Reference{} = ref, table, name) do
+  defp reference_expr(type, ref, table, name) do
     {current_columns, reference_columns} = Enum.unzip([{name, ref.column} | ref.with])
+
+    if ref.match do
+      error!(nil, ":match is not supported in references for tds")
+    end
 
     [
       "CONSTRAINT ",
       reference_name(ref, table, name),
-      ?\s,
-      "FOREIGN KEY (",
+      " ",
+      type,
+      " (",
       quote_names(current_columns),
-      ") REFERENCES ",
-      quote_name(ref.prefix || table.prefix, ref.table),
+      ?),
+      " REFERENCES ",
+      quote_table(ref.prefix || table.prefix, ref.table),
       ?(,
       quote_names(reference_columns),
       ?),
-      reference_match(ref.match),
       reference_on_delete(ref.on_delete),
-      reference_on_update(ref.on_update),
-      validate(ref.validate)
+      reference_on_update(ref.on_update)
     ]
   end
 
-  defp drop_reference_expr({%Reference{} = ref, _opts}, table, name),
-    do: drop_reference_expr(ref, table, name)
+  defp reference_expr(%Reference{} = ref, table, name),
+    do: [", " | reference_expr("FOREIGN KEY", ref, table, name)]
 
-  defp drop_reference_expr(%Reference{} = ref, table, name),
-    do: ["DROP CONSTRAINT ", reference_name(ref, table, name), ", "]
+  defp constraint_expr(%Reference{} = ref, table, name),
+    do: [", ADD " | reference_expr("FOREIGN KEY", ref, table, name)]
 
-  defp drop_reference_expr(_, _, _),
+  defp constraint_if_not_exists_expr(%Reference{} = ref, table, name),
+    do: [", ADD " | reference_expr("FOREIGN KEY IF NOT EXISTS", ref, table, name)]
+
+  defp drop_constraint_expr({%Reference{} = ref, _opts}, table, name),
+    do: drop_constraint_expr(ref, table, name)
+
+  defp drop_constraint_expr(%Reference{} = ref, table, name),
+    do: ["DROP FOREIGN KEY ", reference_name(ref, table, name), ", "]
+
+  defp drop_constraint_expr(_, _, _),
     do: []
 
-  defp drop_reference_if_exists_expr(%Reference{} = ref, table, name),
-    do: ["DROP CONSTRAINT IF EXISTS ", reference_name(ref, table, name), ", "]
+  defp drop_constraint_if_exists_expr(%Reference{} = ref, table, name),
+    do: ["DROP FOREIGN KEY IF EXISTS ", reference_name(ref, table, name), ", "]
 
-  defp drop_reference_if_exists_expr(_, _, _),
+  defp drop_constraint_if_exists_expr(_, _, _),
     do: []
 
   defp reference_name(%Reference{name: nil}, table, column),
@@ -1574,15 +1248,18 @@ defmodule Ecto.Adapters.Druid.Query do
   defp reference_name(%Reference{name: name}, _table, _column),
     do: quote_name(name)
 
-  defp reference_column_type(:serial, _opts), do: "integer"
-  defp reference_column_type(:bigserial, _opts), do: "bigint"
-  defp reference_column_type(:identity, _opts), do: "bigint"
+  defp reference_column_type(:serial, _opts), do: "BIGINT UNSIGNED"
+  defp reference_column_type(:bigserial, _opts), do: "BIGINT UNSIGNED"
   defp reference_column_type(type, opts), do: column_type(type, opts)
 
   defp reference_on_delete(:nilify_all), do: " ON DELETE SET NULL"
 
-  defp reference_on_delete({:nilify, columns}),
-    do: [" ON DELETE SET NULL (", quote_names(columns), ")"]
+  defp reference_on_delete({:nilify, _columns}) do
+    error!(
+      nil,
+      "MySQL adapter does not support the `{:nilify, columns}` action for `:on_delete`"
+    )
+  end
 
   defp reference_on_delete(:delete_all), do: " ON DELETE CASCADE"
   defp reference_on_delete(:restrict), do: " ON DELETE RESTRICT"
@@ -1592,14 +1269,6 @@ defmodule Ecto.Adapters.Druid.Query do
   defp reference_on_update(:update_all), do: " ON UPDATE CASCADE"
   defp reference_on_update(:restrict), do: " ON UPDATE RESTRICT"
   defp reference_on_update(_), do: []
-
-  defp reference_match(nil), do: []
-  defp reference_match(:full), do: " MATCH FULL"
-  defp reference_match(:simple), do: " MATCH SIMPLE"
-  defp reference_match(:partial), do: " MATCH PARTIAL"
-
-  defp validate(false), do: " NOT VALID"
-  defp validate(_), do: []
 
   ## Helpers
 
@@ -1623,103 +1292,87 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp maybe_add_column_names(_, name), do: name
 
-  defp quote_qualified_name(name, sources, ix) do
-    {_, source, _} = elem(sources, ix)
-    [source, ?. | quote_name(name)]
-  end
-
-  defp quote_names(names) do
-    Enum.map_intersperse(names, ?,, &quote_name/1)
-  end
-
-  defp quote_name(nil, name), do: quote_name(name)
-
-  defp quote_name(prefix, name), do: [quote_name(prefix), ?., quote_name(name)]
-
   defp quote_name(name) when is_atom(name) do
     quote_name(Atom.to_string(name))
   end
 
   defp quote_name(name) when is_binary(name) do
-    if String.contains?(name, "\"") do
-      error!(nil, "bad literal/field/index/table name #{inspect(name)} (\" is not permitted)")
+    if String.contains?(name, "`") do
+      error!(nil, "bad literal/field/table name #{inspect(name)} (` is not permitted)")
     end
 
     [?", name, ?"]
   end
 
-  # TRUE, ON, or 1 to enable the option, and FALSE, OFF, or 0 to disable it
-  defp quote_boolean(nil), do: nil
-  defp quote_boolean(true), do: "TRUE"
-  defp quote_boolean(false), do: "FALSE"
-  defp quote_boolean(value), do: error!(nil, "bad boolean value #{value}")
+  defp quote_names(names), do: Enum.map_intersperse(names, ?,, &quote_name/1)
 
-  defp format_to_sql(:text), do: "FORMAT TEXT"
-  defp format_to_sql(:map), do: "FORMAT JSON"
-  defp format_to_sql(:yaml), do: "FORMAT YAML"
+  defp quote_table(nil, name), do: quote_table(name)
+  defp quote_table(prefix, name), do: [quote_table(prefix), ?., quote_table(name)]
 
-  defp single_quote(value), do: [?', escape_string(value), ?']
+  defp quote_table(name) when is_atom(name),
+    do: quote_table(Atom.to_string(name))
 
-  defp intersperse_reduce(list, separator, user_acc, reducer, acc \\ [])
+  defp quote_table(name) do
+    if String.contains?(name, "`") do
+      error!(nil, "bad table name #{inspect(name)}")
+    end
 
-  defp intersperse_reduce([], _separator, user_acc, _reducer, acc),
-    do: {acc, user_acc}
-
-  defp intersperse_reduce([elem], _separator, user_acc, reducer, acc) do
-    {elem, user_acc} = reducer.(elem, user_acc)
-    {[acc | elem], user_acc}
+    [?", name, ?"]
   end
 
-  defp intersperse_reduce([elem | rest], separator, user_acc, reducer, acc) do
-    {elem, user_acc} = reducer.(elem, user_acc)
-    intersperse_reduce(rest, separator, user_acc, reducer, [acc, elem, separator])
-  end
+  defp format_to_sql(:map), do: "FORMAT=JSON"
+  defp format_to_sql(:text), do: "FORMAT=TRADITIONAL"
 
   defp if_do(condition, value) do
     if condition, do: value, else: []
   end
 
   defp escape_string(value) when is_binary(value) do
-    :binary.replace(value, "'", "''", [:global])
+    value
+    |> :binary.replace("'", "''", [:global])
+    |> :binary.replace("\\", "\\\\", [:global])
   end
 
-  defp escape_json(value) when is_binary(value) do
-    escaped =
-      value
-      |> escape_string()
-      |> :binary.replace("\"", "\\\"", [:global])
-
-    [?", escaped, ?"]
+  defp escape_json_key(value) when is_binary(value) do
+    value
+    |> escape_string()
+    |> :binary.replace("\"", "\\\\\"", [:global])
   end
 
-  defp escape_json(value) when is_integer(value) do
-    Integer.to_string(value)
-  end
+  defp ecto_cast_to_db(:id, _query), do: "bigint"
+  defp ecto_cast_to_db(:integer, _query), do: "bigint"
+  defp ecto_cast_to_db(:string, _query), do: "char"
+  defp ecto_cast_to_db(:utc_datetime_usec, _query), do: "datetime(6)"
+  defp ecto_cast_to_db(:naive_datetime_usec, _query), do: "datetime(6)"
+  defp ecto_cast_to_db(type, query), do: ecto_to_db(type, query)
 
-  defp escape_json(true), do: ["true"]
-  defp escape_json(false), do: ["false"]
+  defp ecto_size_to_db(:binary), do: "varbinary"
+  defp ecto_size_to_db(type), do: ecto_to_db(type)
 
-  defp ecto_to_db({:array, t}), do: [ecto_to_db(t), ?[, ?]]
-  defp ecto_to_db(:id), do: "integer"
-  defp ecto_to_db(:identity), do: "bigint"
-  defp ecto_to_db(:serial), do: "serial"
-  defp ecto_to_db(:bigserial), do: "bigserial"
-  defp ecto_to_db(:binary_id), do: "uuid"
-  defp ecto_to_db(:string), do: "varchar"
-  defp ecto_to_db(:binary), do: "bytea"
-  defp ecto_to_db(:map), do: Application.fetch_env!(:ecto_sql, :postgres_map_type)
-  defp ecto_to_db({:map, _}), do: Application.fetch_env!(:ecto_sql, :postgres_map_type)
-  defp ecto_to_db(:time_usec), do: "time"
-  defp ecto_to_db(:utc_datetime), do: "timestamp"
-  defp ecto_to_db(:utc_datetime_usec), do: "timestamp"
-  defp ecto_to_db(:naive_datetime), do: "timestamp"
-  defp ecto_to_db(:naive_datetime_usec), do: "timestamp"
-  defp ecto_to_db(atom) when is_atom(atom), do: Atom.to_string(atom)
+  defp ecto_to_db(type, query \\ nil)
+  defp ecto_to_db({:array, _}, query), do: error!(query, "Array type is not supported by MySQL")
+  defp ecto_to_db(:id, _query), do: "bigint"
+  defp ecto_to_db(:serial, _query), do: "bigint unsigned not null auto_increment"
+  defp ecto_to_db(:bigserial, _query), do: "bigint unsigned not null auto_increment"
+  defp ecto_to_db(:binary_id, _query), do: "binary(16)"
+  defp ecto_to_db(:string, _query), do: "varchar"
+  defp ecto_to_db(:float, _query), do: "double"
+  defp ecto_to_db(:binary, _query), do: "blob"
+  # MySQL does not support uuid
+  defp ecto_to_db(:uuid, _query), do: "binary(16)"
+  defp ecto_to_db(:map, _query), do: "json"
+  defp ecto_to_db({:map, _}, _query), do: "json"
+  defp ecto_to_db(:time_usec, _query), do: "time"
+  defp ecto_to_db(:utc_datetime, _query), do: "datetime"
+  defp ecto_to_db(:utc_datetime_usec, _query), do: "datetime"
+  defp ecto_to_db(:naive_datetime, _query), do: "datetime"
+  defp ecto_to_db(:naive_datetime_usec, _query), do: "datetime"
+  defp ecto_to_db(atom, _query) when is_atom(atom), do: Atom.to_string(atom)
 
-  defp ecto_to_db(type) do
+  defp ecto_to_db(type, _query) do
     raise ArgumentError,
           "unsupported type `#{inspect(type)}`. The type can either be an atom, a string " <>
-            "or a tuple of the form `{:map, t}` or `{:array, t}` where `t` itself follows the same conditions."
+            "or a tuple of the form `{:map, t}` where `t` itself follows the same conditions."
   end
 
   defp error!(nil, message) do

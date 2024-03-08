@@ -4,6 +4,8 @@ defmodule Ecto.Druid.Query do
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
+  sql_function ds_theta(column, sketch_size)
   sql_function ds_quantiles_sketch(column, sketch_size)
   sql_function ds_histogram(column, split_points)
+  sql_function parse_json(expr)
 end

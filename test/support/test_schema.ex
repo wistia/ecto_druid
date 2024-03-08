@@ -24,7 +24,10 @@ defmodule Ecto.Adapters.Druid.Wikipedia do
         delta: sum(m.delta),
         unique_users: approx_count_distinct_ds_theta(m.user, 256),
         delta_histogram:
-          ds_histogram(ds_quantiles_sketch(m.delta, 256), [-1000, -500, -200, 0, 200, 500, 1000])
+          m.delta
+          |> ds_quantiles_sketch(256)
+          |> ds_histogram([-30, -20, -10, 0, 10, 20, 30]),
+        ds_theta: ds_theta(m.user, 256)
       }
     )
   end

@@ -1,26 +1,36 @@
 defmodule Ecto.Adapters.DruidTest do
   use ExUnit.Case
-  doctest Ecto.Adapters.Druid
-  alias Ecto.Adapters.Druid.TestRepo
-  alias Ecto.Adapters.Druid.Wikipedia
+  alias Ecto.Adapters.Druid
 
-  setup do
-    start_supervised!(TestRepo, [])
-    :ok
+  describe "checkout/1" do
+    test "proxies to fun" do
+      assert Druid.checkout(:meta, :opts, fn -> :ok end) == :ok
+    end
   end
 
-  test "queries druid" do
-    assert TestRepo.all(Wikipedia.by_page("Black Dahlia")) == []
+  describe "checked_out?/1" do
+    test "returns false" do
+      assert Druid.checked_out?(:meta) == false
+    end
   end
 
-  test "to_sql" do
-    assert TestRepo.to_sql(Wikipedia.by_page("home")) ==
-             {"SELECT sum(w0.\"added\"), sum(w0.\"deleted\"), sum(w0.\"delta\"), APPROX_COUNT_DISTINCT_DS_THETA(w0.\"user\", 256), DS_HISTOGRAM(DS_QUANTILES_SKETCH(w0.\"delta\", 256), -1000, -500, -200, 0, 200, 500, 1000) FROM \"wikipedia\" AS w0 WHERE (w0.\"page\" = ?)",
-              ["home"]}
+  describe "dumpers/2" do
+    test "dumps the correct types" do
+      assert Druid.dumpers(:string, :string) == [:string, :string]
+    end
+
+    # TODO: Add more types
   end
 
-  # test "inserts" do
-  #   assert TestRepo.insert_all(ConversionEvents, Seeds.conversion_events()) ==
-  #            {1, [%{task_id: ""}]}
-  # end
+  describe "loaders/2" do
+    test "loads the correct types" do
+      assert Druid.loaders(:integer, {:maybe, :integer}) == [:integer, {:maybe, :integer}]
+    end
+
+    # TODO: Add more types
+  end
+
+  describe "prepare/2" do
+    # Integration tested
+  end
 end

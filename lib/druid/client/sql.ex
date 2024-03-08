@@ -17,9 +17,9 @@ defmodule Druid.Client.SQL do
           },
           context
         ),
-      resultFormat: "array"
-      # header: true,
-      # typesHeader: true
+      resultFormat: "array",
+      header: true,
+      typesHeader: true
     }
 
     Req.new(method: :post, url: @query_path, json: body)
@@ -46,6 +46,5 @@ defmodule Druid.Client.SQL do
     }
 
     Req.new(method: :post, url: @insert_path, json: body)
-    |> IO.inspect(label: "Druid.Client.SQL.insert", limit: :infinity)
   end
 end

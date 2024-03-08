@@ -9,12 +9,6 @@ defmodule Ecto.Adapters.Druid.Ingest do
         placeholders,
         opts
       ) do
-    IO.inspect(
-      [adapter_meta, schema_meta, header, rows, on_conflict, returning, placeholders, opts],
-      limit: :infinity,
-      label: "Ecto.Adapters.Druid.Ingest.insert_all"
-    )
-
     %{source: source, prefix: prefix} = schema_meta
     {_, conflict_params, _} = on_conflict
 
