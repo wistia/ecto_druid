@@ -78,7 +78,6 @@ defmodule Ecto.Adapters.Druid do
     values =
       Druid.Client.SQL.query(sql, params, opts)
       |> Druid.Client.request!(Keyword.merge(repo.config, opts))
-      |> __MODULE__.PostProcessor.process_result()
 
     {Enum.count(values), values}
   end

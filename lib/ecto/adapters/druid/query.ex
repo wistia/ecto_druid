@@ -715,6 +715,12 @@ defmodule Ecto.Adapters.Druid.Query do
     ["IF(", expr(other, sources, query), ", TRUE, FALSE)"]
   end
 
+  @complex_types [Ecto.Druid.Histogram, Ecto.Druid.ThetaSketch]
+  defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query)
+       when type in @complex_types do
+    expr(other, sources, query)
+  end
+
   defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query) do
     ["CAST(", expr(other, sources, query), " AS ", ecto_cast_to_db(type, query), ?)]
   end

@@ -18,8 +18,8 @@ defmodule Druid.Client.SQL do
           context
         ),
       resultFormat: "array",
-      header: true,
-      typesHeader: true
+      header: false,
+      typesHeader: false
     }
 
     Req.new(method: :post, url: @query_path, json: body)
