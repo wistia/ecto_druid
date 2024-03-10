@@ -739,7 +739,7 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp expr(literal, _sources, _query) when is_float(literal) do
     # MySQL doesn't support float cast
-    ["(0 + ", Float.to_string(literal), ?)]
+    Float.to_string(literal)
   end
 
   defp expr(expr, _sources, query) do

@@ -1,0 +1,456 @@
+defmodule Ecto.Druid.QueryTest do
+  import Kernel, except: [abs: 1, ceil: 1, floor: 1, div: 2, length: 1, trunc: 1, round: 1]
+  alias Ecto.Adapters.Druid.TestRepo
+  use ExUnit.Case
+  import Ecto.Query
+  import Ecto.Druid.Query
+
+  defdelegate to_sql(query), to: TestRepo
+
+  setup do
+    start_supervised!(TestRepo, [])
+    :ok
+  end
+
+  describe "numeric functions" do
+    test "pi/0" do
+      sql = from("test", select: pi()) |> to_sql()
+      assert sql == {"SELECT PI() FROM \"test\" AS t0", []}
+    end
+
+    test "abs/1" do
+      sql = from("test", select: abs(1)) |> to_sql()
+      assert sql == {"SELECT ABS(1) FROM \"test\" AS t0", []}
+    end
+
+    test "ceil/1" do
+      sql = from("test", select: ceil(1.1)) |> to_sql()
+      assert sql == {"SELECT CEIL(1.1) FROM \"test\" AS t0", []}
+    end
+
+    test "exp/1" do
+      sql = from("test", select: exp(1)) |> to_sql()
+      assert sql == {"SELECT EXP(1) FROM \"test\" AS t0", []}
+    end
+
+    test "floor/1" do
+      sql = from("test", select: floor(1.1)) |> to_sql()
+      assert sql == {"SELECT FLOOR(1.1) FROM \"test\" AS t0", []}
+    end
+
+    test "ln/1" do
+      sql = from("test", select: ln(1)) |> to_sql()
+      assert sql == {"SELECT LN(1) FROM \"test\" AS t0", []}
+    end
+
+    test "log10/1" do
+      sql = from("test", select: log10(1)) |> to_sql()
+      assert sql == {"SELECT LOG10(1) FROM \"test\" AS t0", []}
+    end
+
+    test "power/2" do
+      sql = from("test", select: power(2, 3)) |> to_sql()
+      assert sql == {"SELECT POWER(2, 3) FROM \"test\" AS t0", []}
+    end
+
+    test "sqrt/1" do
+      sql = from("test", select: sqrt(4)) |> to_sql()
+      assert sql == {"SELECT SQRT(4) FROM \"test\" AS t0", []}
+    end
+
+    test "truncate/1" do
+      sql = from("test", select: truncate(1.1)) |> to_sql()
+      assert sql == {"SELECT TRUNCATE(1.1) FROM \"test\" AS t0", []}
+    end
+
+    test "truncate/2" do
+      sql = from("test", select: truncate(1.1, 1)) |> to_sql()
+      assert sql == {"SELECT TRUNCATE(1.1, 1) FROM \"test\" AS t0", []}
+    end
+
+    test "trunc/1" do
+      sql = from("test", select: trunc(1.1)) |> to_sql()
+      assert sql == {"SELECT TRUNC(1.1) FROM \"test\" AS t0", []}
+    end
+
+    test "trunc/2" do
+      sql = from("test", select: trunc(1.1, 1)) |> to_sql()
+      assert sql == {"SELECT TRUNC(1.1, 1) FROM \"test\" AS t0", []}
+    end
+
+    test "round/1" do
+      sql = from("test", select: round(1.1)) |> to_sql()
+      assert sql == {"SELECT ROUND(1.1) FROM \"test\" AS t0", []}
+    end
+
+    test "round/2" do
+      sql = from("test", select: round(1.1, 1)) |> to_sql()
+      assert sql == {"SELECT ROUND(1.1, 1) FROM \"test\" AS t0", []}
+    end
+
+    test "mod/2" do
+      sql = from("test", select: mod(1, 2)) |> to_sql()
+      assert sql == {"SELECT MOD(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "sin/1" do
+      sql = from("test", select: sin(1)) |> to_sql()
+      assert sql == {"SELECT SIN(1) FROM \"test\" AS t0", []}
+    end
+
+    test "cos/1" do
+      sql = from("test", select: cos(1)) |> to_sql()
+      assert sql == {"SELECT COS(1) FROM \"test\" AS t0", []}
+    end
+
+    test "tan/1" do
+      sql = from("test", select: tan(1)) |> to_sql()
+      assert sql == {"SELECT TAN(1) FROM \"test\" AS t0", []}
+    end
+
+    test "cot/1" do
+      sql = from("test", select: cot(1)) |> to_sql()
+      assert sql == {"SELECT COT(1) FROM \"test\" AS t0", []}
+    end
+
+    test "asin/1" do
+      sql = from("test", select: asin(1)) |> to_sql()
+      assert sql == {"SELECT ASIN(1) FROM \"test\" AS t0", []}
+    end
+
+    test "acos/1" do
+      sql = from("test", select: acos(1)) |> to_sql()
+      assert sql == {"SELECT ACOS(1) FROM \"test\" AS t0", []}
+    end
+
+    test "atan/1" do
+      sql = from("test", select: atan(1)) |> to_sql()
+      assert sql == {"SELECT ATAN(1) FROM \"test\" AS t0", []}
+    end
+
+    test "atan2/2" do
+      sql = from("test", select: atan2(1, 2)) |> to_sql()
+      assert sql == {"SELECT ATAN2(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "degrees/1" do
+      sql = from("test", select: degrees(1)) |> to_sql()
+      assert sql == {"SELECT DEGREES(1) FROM \"test\" AS t0", []}
+    end
+
+    test "radians/1" do
+      sql = from("test", select: radians(1)) |> to_sql()
+      assert sql == {"SELECT RADIANS(1) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_and/2" do
+      sql = from("test", select: bitwise_and(1, 2)) |> to_sql()
+      assert sql == {"SELECT BITWISE_AND(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_complement/1" do
+      sql = from("test", select: bitwise_complement(1)) |> to_sql()
+      assert sql == {"SELECT BITWISE_COMPLEMENT(1) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_convert_double_to_long_bits/1" do
+      sql = from("test", select: bitwise_convert_double_to_long_bits(1)) |> to_sql()
+      assert sql == {"SELECT BITWISE_CONVERT_DOUBLE_TO_LONG_BITS(1) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_convert_long_bits_to_double/1" do
+      sql = from("test", select: bitwise_convert_long_bits_to_double(1)) |> to_sql()
+      assert sql == {"SELECT BITWISE_CONVERT_LONG_BITS_TO_DOUBLE(1) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_or/2" do
+      sql = from("test", select: bitwise_or(1, 2)) |> to_sql()
+      assert sql == {"SELECT BITWISE_OR(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_shift_left/2" do
+      sql = from("test", select: bitwise_shift_left(1, 2)) |> to_sql()
+      assert sql == {"SELECT BITWISE_SHIFT_LEFT(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_shift_right/2" do
+      sql = from("test", select: bitwise_shift_right(1, 2)) |> to_sql()
+      assert sql == {"SELECT BITWISE_SHIFT_RIGHT(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "bitwise_xor/2" do
+      sql = from("test", select: bitwise_xor(1, 2)) |> to_sql()
+      assert sql == {"SELECT BITWISE_XOR(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "div/2" do
+      sql = from("test", select: div(1, 2)) |> to_sql()
+      assert sql == {"SELECT DIV(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "human_readable_binary_byte_format/1" do
+      sql = from("test", select: human_readable_binary_byte_format(1)) |> to_sql()
+      assert sql == {"SELECT HUMAN_READABLE_BINARY_BYTE_FORMAT(1) FROM \"test\" AS t0", []}
+    end
+
+    test "human_readable_binary_byte_format/2" do
+      sql = from("test", select: human_readable_binary_byte_format(1, 2)) |> to_sql()
+      assert sql == {"SELECT HUMAN_READABLE_BINARY_BYTE_FORMAT(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "human_readable_decimal_byte_format/1" do
+      sql = from("test", select: human_readable_decimal_byte_format(1)) |> to_sql()
+      assert sql == {"SELECT HUMAN_READABLE_DECIMAL_BYTE_FORMAT(1) FROM \"test\" AS t0", []}
+    end
+
+    test "human_readable_decimal_byte_format/2" do
+      sql = from("test", select: human_readable_decimal_byte_format(1, 2)) |> to_sql()
+      assert sql == {"SELECT HUMAN_READABLE_DECIMAL_BYTE_FORMAT(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "human_readable_decimal_format/2" do
+      sql = from("test", select: human_readable_decimal_format(1, 2)) |> to_sql()
+      assert sql == {"SELECT HUMAN_READABLE_DECIMAL_FORMAT(1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "safe_divide/2" do
+      sql = from("test", select: safe_divide(1, 2)) |> to_sql()
+      assert sql == {"SELECT SAFE_DIVIDE(1, 2) FROM \"test\" AS t0", []}
+    end
+  end
+
+  describe "string functions" do
+    test "concat/1" do
+      sql = from("test", select: concat(["a", "b"])) |> to_sql()
+      assert sql == {"SELECT CONCAT('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "textcat/2" do
+      sql = from("test", select: textcat("a", "b")) |> to_sql()
+      assert sql == {"SELECT TEXTCAT('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "contains_string/2" do
+      sql = from("test", select: contains_string("a", "b")) |> to_sql()
+      assert sql == {"SELECT CONTAINS_STRING('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "icontains_string/2" do
+      sql = from("test", select: icontains_string("a", "b")) |> to_sql()
+      assert sql == {"SELECT ICONTAINS_STRING('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "decode_base64_utf8/1" do
+      sql = from("test", select: decode_base64_utf8("a")) |> to_sql()
+      assert sql == {"SELECT DECODE_BASE64_UTF8('a') FROM \"test\" AS t0", []}
+    end
+
+    test "left/1" do
+      sql = from("test", select: left("a")) |> to_sql()
+      assert sql == {"SELECT LEFT('a') FROM \"test\" AS t0", []}
+    end
+
+    test "left/2" do
+      sql = from("test", select: left("a", 1)) |> to_sql()
+      assert sql == {"SELECT LEFT('a', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "right/1" do
+      sql = from("test", select: right("a")) |> to_sql()
+      assert sql == {"SELECT RIGHT('a') FROM \"test\" AS t0", []}
+    end
+
+    test "right/2" do
+      sql = from("test", select: right("a", 1)) |> to_sql()
+      assert sql == {"SELECT RIGHT('a', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "length/1" do
+      sql = from("test", select: length("a")) |> to_sql()
+      assert sql == {"SELECT LENGTH('a') FROM \"test\" AS t0", []}
+    end
+
+    test "char_length/1" do
+      sql = from("test", select: char_length("a")) |> to_sql()
+      assert sql == {"SELECT CHAR_LENGTH('a') FROM \"test\" AS t0", []}
+    end
+
+    test "character_length/1" do
+      sql = from("test", select: character_length("a")) |> to_sql()
+      assert sql == {"SELECT CHARACTER_LENGTH('a') FROM \"test\" AS t0", []}
+    end
+
+    test "strlen/1" do
+      sql = from("test", select: strlen("a")) |> to_sql()
+      assert sql == {"SELECT STRLEN('a') FROM \"test\" AS t0", []}
+    end
+
+    test "lookup/2" do
+      sql = from("test", select: lookup("a", "b")) |> to_sql()
+      assert sql == {"SELECT LOOKUP('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "lookup/3" do
+      sql = from("test", select: lookup("a", "b", "c")) |> to_sql()
+      assert sql == {"SELECT LOOKUP('a', 'b', 'c') FROM \"test\" AS t0", []}
+    end
+
+    test "lower/1" do
+      sql = from("test", select: lower("a")) |> to_sql()
+      assert sql == {"SELECT LOWER('a') FROM \"test\" AS t0", []}
+    end
+
+    test "upper/1" do
+      sql = from("test", select: upper("a")) |> to_sql()
+      assert sql == {"SELECT UPPER('a') FROM \"test\" AS t0", []}
+    end
+
+    test "lpad/2" do
+      sql = from("test", select: lpad("a", 1)) |> to_sql()
+      assert sql == {"SELECT LPAD('a', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "lpad/3" do
+      sql = from("test", select: lpad("a", 1, "c")) |> to_sql()
+      assert sql == {"SELECT LPAD('a', 1, 'c') FROM \"test\" AS t0", []}
+    end
+
+    test "rpad/2" do
+      sql = from("test", select: rpad("a", 1)) |> to_sql()
+      assert sql == {"SELECT RPAD('a', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "rpad/3" do
+      sql = from("test", select: rpad("a", 1, "c")) |> to_sql()
+      assert sql == {"SELECT RPAD('a', 1, 'c') FROM \"test\" AS t0", []}
+    end
+
+    test "parse_long/1" do
+      sql = from("test", select: parse_long("1")) |> to_sql()
+      assert sql == {"SELECT PARSE_LONG('1') FROM \"test\" AS t0", []}
+    end
+
+    test "parse_long/2" do
+      sql = from("test", select: parse_long("1", 10)) |> to_sql()
+      assert sql == {"SELECT PARSE_LONG('1', 10) FROM \"test\" AS t0", []}
+    end
+
+    test "position/2" do
+      sql = from("test", select: position("a", "b")) |> to_sql()
+      assert sql == {"SELECT POSITION('a' IN 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "position/3" do
+      sql = from("test", select: position("a", "b", 0)) |> to_sql()
+      assert sql == {"SELECT POSITION('a' IN 'b' FROM 0) FROM \"test\" AS t0", []}
+    end
+
+    test "regexp_extract/2" do
+      sql = from("test", select: regexp_extract("a", "b")) |> to_sql()
+      assert sql == {"SELECT REGEXP_EXTRACT('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "regexp_extract/3" do
+      sql = from("test", select: regexp_extract("a", "b", 0)) |> to_sql()
+      assert sql == {"SELECT REGEXP_EXTRACT('a', 'b', 0) FROM \"test\" AS t0", []}
+    end
+
+    test "regexp_like/2" do
+      sql = from("test", select: regexp_like("a", "b")) |> to_sql()
+      assert sql == {"SELECT REGEXP_LIKE('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "regexp_replace/3" do
+      sql = from("test", select: regexp_replace("a", "b", 0)) |> to_sql()
+      assert sql == {"SELECT REGEXP_REPLACE('a', 'b', 0) FROM \"test\" AS t0", []}
+    end
+
+    test "replace/3" do
+      sql = from("test", select: replace("a", "b", 0)) |> to_sql()
+      assert sql == {"SELECT REPLACE('a', 'b', 0) FROM \"test\" AS t0", []}
+    end
+
+    test "repeat/2" do
+      sql = from("test", select: repeat("a", 1)) |> to_sql()
+      assert sql == {"SELECT REPEAT('a', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "reverse/1" do
+      sql = from("test", select: reverse("a")) |> to_sql()
+      assert sql == {"SELECT REVERSE('a') FROM \"test\" AS t0", []}
+    end
+
+    test "string_format/2" do
+      sql = from("test", select: string_format("a", "b")) |> to_sql()
+      assert sql == {"SELECT STRING_FORMAT('a', 'b') FROM \"test\" AS t0", []}
+
+      sql = from("test", select: string_format("a", ["b", "c"])) |> to_sql()
+      assert sql == {"SELECT STRING_FORMAT('a', 'b', 'c') FROM \"test\" AS t0", []}
+    end
+
+    test "strpos/2" do
+      sql = from("test", select: strpos("a", "b")) |> to_sql()
+      assert sql == {"SELECT STRPOS('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "substring/2" do
+      sql = from("test", select: substring("a", 1)) |> to_sql()
+      assert sql == {"SELECT SUBSTRING('a', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "substring/3" do
+      sql = from("test", select: substring("a", 1, 2)) |> to_sql()
+      assert sql == {"SELECT SUBSTRING('a', 1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "substr/2" do
+      sql = from("test", select: substr("a", 1)) |> to_sql()
+      assert sql == {"SELECT SUBSTR('a', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "substr/3" do
+      sql = from("test", select: substr("a", 1, 2)) |> to_sql()
+      assert sql == {"SELECT SUBSTR('a', 1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "trim/1" do
+      sql = from("test", select: trim("a")) |> to_sql()
+      assert sql == {"SELECT TRIM('a') FROM \"test\" AS t0", []}
+    end
+
+    test "trim/2" do
+      sql = from("test", select: trim(" ", "a")) |> to_sql()
+      assert sql == {"SELECT TRIM(' ' FROM 'a') FROM \"test\" AS t0", []}
+    end
+
+    test "btrim/1" do
+      sql = from("test", select: btrim("a")) |> to_sql()
+      assert sql == {"SELECT BTRIM('a') FROM \"test\" AS t0", []}
+    end
+
+    test "btrim/2" do
+      sql = from("test", select: btrim("a", " ")) |> to_sql()
+      assert sql == {"SELECT BTRIM('a', ' ') FROM \"test\" AS t0", []}
+    end
+
+    test "ltrim/1" do
+      sql = from("test", select: ltrim("a")) |> to_sql()
+      assert sql == {"SELECT LTRIM('a') FROM \"test\" AS t0", []}
+    end
+
+    test "ltrim/2" do
+      sql = from("test", select: ltrim("a", " ")) |> to_sql()
+      assert sql == {"SELECT LTRIM('a', ' ') FROM \"test\" AS t0", []}
+    end
+
+    test "rtrim/1" do
+      sql = from("test", select: rtrim("a")) |> to_sql()
+      assert sql == {"SELECT RTRIM('a') FROM \"test\" AS t0", []}
+    end
+
+    test "rtrim/2" do
+      sql = from("test", select: rtrim("a", " ")) |> to_sql()
+      assert sql == {"SELECT RTRIM('a', ' ') FROM \"test\" AS t0", []}
+    end
+  end
+end
