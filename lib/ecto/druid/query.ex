@@ -5,7 +5,8 @@ defmodule Ecto.Druid.Query do
   @extended_time_unit @time_unit ++
                         ~w(EPOCH MICROSECOND MILLISECOND DOW ISODOW DOY ISOYEAR DECADE CENTURY MILLENNIUM)
 
-  # Numeric functions
+  # Scalar functions
+  ## Numeric functions
 
   @doc "Constant Pi."
   sql_function pi()
@@ -96,7 +97,7 @@ defmodule Ecto.Druid.Query do
   @doc "Returns the division of x by y guarded on division by 0."
   sql_function safe_divide(x, y)
 
-  # String functions
+  ## String functions
   @doc "Concats a list of expressions."
   sql_function concat(exprs)
   @doc "Two argument version of CONCAT."
@@ -209,7 +210,7 @@ defmodule Ecto.Druid.Query do
   @doc "Alternate form of TRIM(TRAILING chars FROM expr)."
   sql_function rtrim(expr, chars)
 
-  # Date and time functions
+  ## Date and time functions
 
   @doc "Current timestamp in the connection's time zone."
   sql_function current_timestamp()
@@ -325,7 +326,7 @@ defmodule Ecto.Druid.Query do
     end
   end
 
-  # Reduction functions
+  ## Reduction functions
 
   @doc "Evaluates zero or more expressions and returns the maximum value based on comparisons as described above."
   sql_function greatest(exprs)
@@ -347,6 +348,29 @@ defmodule Ecto.Druid.Query do
   @doc "Returns 1 if the IPv6 address belongs to the subnet literal, else 0. If address is not a valid IPv6 address, then 0 is returned."
   sql_function ipv6_match(address, subnet)
 
+  ## HLL sketch functions
+
+  @doc "Returns the distinct count estimate from an HLL sketch. expr must return an HLL sketch. The optional round boolean parameter will round the estimate if set to true, with a default of false."
+  sql_function hll_sketch_estimate(expr)
+
+  @doc "Returns the distinct count estimate from an HLL sketch. expr must return an HLL sketch. The optional round boolean parameter will round the estimate if set to true, with a default of false."
+  sql_function hll_sketch_estimate(expr, round)
+
+  @doc "Returns the distinct count estimate and error bounds from an HLL sketch. expr must return an HLL sketch. An optional numStdDev argument can be provided."
+  sql_function hll_sketch_estimate_with_error_bounds(expr)
+
+  @doc "Returns the distinct count estimate and error bounds from an HLL sketch. expr must return an HLL sketch. An optional numStdDev argument can be provided."
+  sql_function hll_sketch_estimate_with_error_bounds(expr, num_std_dev)
+
+  @doc "Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified."
+  sql_function hll_sketch_union(exprs)
+
+  @doc "Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified."
+  sql_function hll_sketch_union(lg_k, tgt_hll_type, exprs)
+
+  @doc "Returns a human-readable string representation of an HLL sketch for debugging. expr must return an HLL sketch."
+  sql_function hll_sketch_to_string(expr)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
@@ -355,3 +379,12 @@ defmodule Ecto.Druid.Query do
   sql_function ds_histogram(column, split_points), type: Ecto.Druid.Histogram
   sql_function parse_json(expr)
 end
+
+# HLL sketch functions
+
+# The following functions operate on DataSketches HLL sketches. The DataSketches extension must be loaded to use the following functions.
+# Function	Notes
+# HLL_SKETCH_ESTIMATE(expr, [round])	Returns the distinct count estimate from an HLL sketch. expr must return an HLL sketch. The optional round boolean parameter will round the estimate if set to true, with a default of false.
+# HLL_SKETCH_ESTIMATE_WITH_ERROR_BOUNDS(expr, [numStdDev])	Returns the distinct count estimate and error bounds from an HLL sketch. expr must return an HLL sketch. An optional numStdDev argument can be provided.
+# HLL_SKETCH_UNION([lgK, tgtHllType], expr0, expr1, ...)	Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified.
+# HLL_SKETCH_TO_STRING(expr)	Returns a human-readable string representation of an HLL sketch for debugging. expr must return an HLL sketch.

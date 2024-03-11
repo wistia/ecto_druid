@@ -661,4 +661,63 @@ defmodule Ecto.Druid.QueryTest do
                 []}
     end
   end
+
+  describe "hll sketch functions" do
+    test "hll_sketch_estimate/1" do
+      sql = from(t in "test", select: hll_sketch_estimate(t.sketch)) |> to_sql()
+      assert sql == {"SELECT HLL_SKETCH_ESTIMATE(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+
+    test "hll_sketch_estimate/2" do
+      sql = from(t in "test", select: hll_sketch_estimate(t.sketch, true)) |> to_sql()
+      assert sql == {"SELECT HLL_SKETCH_ESTIMATE(t0.\"sketch\", TRUE) FROM \"test\" AS t0", []}
+    end
+
+    test "hll_sketch_estimate_with_error_bounds/1" do
+      sql = from(t in "test", select: hll_sketch_estimate_with_error_bounds(t.sketch)) |> to_sql()
+
+      assert sql ==
+               {"SELECT HLL_SKETCH_ESTIMATE_WITH_ERROR_BOUNDS(t0.\"sketch\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "hll_sketch_estimate_with_error_bounds/2" do
+      sql =
+        from(t in "test", select: hll_sketch_estimate_with_error_bounds(t.sketch, 2)) |> to_sql()
+
+      assert sql ==
+               {"SELECT HLL_SKETCH_ESTIMATE_WITH_ERROR_BOUNDS(t0.\"sketch\", 2) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "hll_sketch_union/1" do
+      sql = from(t in "test", select: hll_sketch_union([t.sketch, t.sketch])) |> to_sql()
+
+      assert sql ==
+               {"SELECT HLL_SKETCH_UNION(t0.\"sketch\", t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+
+    test "hll_sketch_union/3" do
+      sql =
+        from(t in "test", select: hll_sketch_union(12, "HLL_8", [t.sketch, t.sketch])) |> to_sql()
+
+      assert sql ==
+               {"SELECT HLL_SKETCH_UNION(12, 'HLL_8', t0.\"sketch\", t0.\"sketch\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "hll_sketch_to_string/1" do
+      sql = from(t in "test", select: hll_sketch_to_string(t.sketch)) |> to_sql()
+      assert sql == {"SELECT HLL_SKETCH_TO_STRING(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+  end
 end
+
+# HLL sketch functions
+
+# The following functions operate on DataSketches HLL sketches. The DataSketches extension must be loaded to use the following functions.
+# Function	Notes
+# HLL_SKETCH_ESTIMATE(expr, [round])	Returns the distinct count estimate from an HLL sketch. expr must return an HLL sketch. The optional round boolean parameter will round the estimate if set to true, with a default of false.
+# HLL_SKETCH_ESTIMATE_WITH_ERROR_BOUNDS(expr, [numStdDev])	Returns the distinct count estimate and error bounds from an HLL sketch. expr must return an HLL sketch. An optional numStdDev argument can be provided.
+# HLL_SKETCH_UNION([lgK, tgtHllType], expr0, expr1, ...)	Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified.
+# HLL_SKETCH_TO_STRING(expr)	Returns a human-readable string representation of an HLL sketch for debugging. expr must return an HLL sketch.
