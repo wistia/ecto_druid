@@ -371,6 +371,32 @@ defmodule Ecto.Druid.Query do
   @doc "Returns a human-readable string representation of an HLL sketch for debugging. expr must return an HLL sketch."
   sql_function hll_sketch_to_string(expr)
 
+  ## Theta sketch functions
+
+  @doc "Returns the distinct count estimate from a theta sketch. expr must return a theta sketch."
+  sql_function theta_sketch_estimate(expr)
+
+  @doc "Returns the distinct count estimate and error bounds from a theta sketch. expr must return a theta sketch."
+  sql_function theta_sketch_estimate_with_error_bounds(expr, error_bounds_std_dev)
+
+  @doc "Returns a union of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
+  sql_function theta_sketch_union(exprs)
+
+  @doc "Returns a union of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
+  sql_function theta_sketch_union(size, exprs)
+
+  @doc "Returns an intersection of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
+  sql_function theta_sketch_intersect(exprs)
+
+  @doc "Returns an intersection of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
+  sql_function theta_sketch_intersect(size, exprs)
+
+  @doc "Returns a set difference of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
+  sql_function theta_sketch_not(exprs)
+
+  @doc "Returns a set difference of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
+  sql_function theta_sketch_not(size, exprs)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
@@ -379,12 +405,3 @@ defmodule Ecto.Druid.Query do
   sql_function ds_histogram(column, split_points), type: Ecto.Druid.Histogram
   sql_function parse_json(expr)
 end
-
-# HLL sketch functions
-
-# The following functions operate on DataSketches HLL sketches. The DataSketches extension must be loaded to use the following functions.
-# Function	Notes
-# HLL_SKETCH_ESTIMATE(expr, [round])	Returns the distinct count estimate from an HLL sketch. expr must return an HLL sketch. The optional round boolean parameter will round the estimate if set to true, with a default of false.
-# HLL_SKETCH_ESTIMATE_WITH_ERROR_BOUNDS(expr, [numStdDev])	Returns the distinct count estimate and error bounds from an HLL sketch. expr must return an HLL sketch. An optional numStdDev argument can be provided.
-# HLL_SKETCH_UNION([lgK, tgtHllType], expr0, expr1, ...)	Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified.
-# HLL_SKETCH_TO_STRING(expr)	Returns a human-readable string representation of an HLL sketch for debugging. expr must return an HLL sketch.
