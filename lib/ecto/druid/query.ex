@@ -333,6 +333,20 @@ defmodule Ecto.Druid.Query do
   @doc "Evaluates zero or more expressions and returns the minimum value based on comparisons as described above."
   sql_function least(exprs)
 
+  # IP address functions
+
+  @doc "Returns true if the address belongs to the subnet literal, else false. If address is not a valid IPv4 address, then false is returned. This function is more efficient if address is an integer instead of a string."
+  sql_function ipv4_match(address, subnet)
+
+  @doc "Parses address into an IPv4 address stored as an integer . If address is an integer that is a valid IPv4 address, then it is passed through. Returns null if address cannot be represented as an IPv4 address."
+  sql_function ipv4_parse(address)
+
+  @doc "Converts address into an IPv4 address dotted-decimal string. If address is a string that is a valid IPv4 address, then it is passed through. Returns null if address cannot be represented as an IPv4 address."
+  sql_function ipv4_stringify(address)
+
+  @doc "Returns 1 if the IPv6 address belongs to the subnet literal, else 0. If address is not a valid IPv6 address, then 0 is returned."
+  sql_function ipv6_match(address, subnet)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
@@ -341,7 +355,3 @@ defmodule Ecto.Druid.Query do
   sql_function ds_histogram(column, split_points), type: Ecto.Druid.Histogram
   sql_function parse_json(expr)
 end
-
-# Function	Notes
-# GREATEST([expr1, ...])	Evaluates zero or more expressions and returns the maximum value based on comparisons as described above.
-# LEAST([expr1, ...])	Evaluates zero or more expressions and returns the minimum value based on comparisons as described above.
