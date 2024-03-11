@@ -363,10 +363,10 @@ defmodule Ecto.Druid.Query do
   sql_function hll_sketch_estimate_with_error_bounds(expr, num_std_dev)
 
   @doc "Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified."
-  sql_function hll_sketch_union(exprs)
+  sql_function hll_sketch_union(exprs), type: Ecto.Druid.HLLSketch
 
   @doc "Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified."
-  sql_function hll_sketch_union(lg_k, tgt_hll_type, exprs)
+  sql_function hll_sketch_union(lg_k, tgt_hll_type, exprs), type: Ecto.Druid.HLLSketch
 
   @doc "Returns a human-readable string representation of an HLL sketch for debugging. expr must return an HLL sketch."
   sql_function hll_sketch_to_string(expr)
@@ -402,6 +402,6 @@ defmodule Ecto.Druid.Query do
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
   sql_function ds_theta(column, sketch_size), type: Ecto.Druid.ThetaSketch
   sql_function ds_quantiles_sketch(column, sketch_size)
-  sql_function ds_histogram(column, split_points), type: Ecto.Druid.Histogram
+  sql_function ds_histogram(column, split_points), type: Ecto.Druid.DSHistogram
   sql_function parse_json(expr)
 end

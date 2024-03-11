@@ -715,7 +715,7 @@ defmodule Ecto.Adapters.Druid.Query do
     ["IF(", expr(other, sources, query), ", TRUE, FALSE)"]
   end
 
-  @complex_types [Ecto.Druid.Histogram, Ecto.Druid.ThetaSketch]
+  @complex_types [Ecto.Druid.DSHistogram, Ecto.Druid.ThetaSketch, Ecto.Druid.HLLSketch]
   defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query)
        when type in @complex_types do
     expr(other, sources, query)
