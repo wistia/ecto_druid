@@ -325,6 +325,14 @@ defmodule Ecto.Druid.Query do
     end
   end
 
+  # Reduction functions
+
+  @doc "Evaluates zero or more expressions and returns the maximum value based on comparisons as described above."
+  sql_function greatest(exprs)
+
+  @doc "Evaluates zero or more expressions and returns the minimum value based on comparisons as described above."
+  sql_function least(exprs)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
@@ -333,3 +341,7 @@ defmodule Ecto.Druid.Query do
   sql_function ds_histogram(column, split_points), type: Ecto.Druid.Histogram
   sql_function parse_json(expr)
 end
+
+# Function	Notes
+# GREATEST([expr1, ...])	Evaluates zero or more expressions and returns the maximum value based on comparisons as described above.
+# LEAST([expr1, ...])	Evaluates zero or more expressions and returns the minimum value based on comparisons as described above.

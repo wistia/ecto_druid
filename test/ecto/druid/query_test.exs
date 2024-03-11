@@ -622,4 +622,16 @@ defmodule Ecto.Druid.QueryTest do
                {"SELECT TIMESTAMPDIFF(DAY, t0.\"time\", t0.\"time\") FROM \"test\" AS t0", []}
     end
   end
+
+  describe "reduction functions" do
+    test "greatest/1" do
+      sql = from("test", select: greatest([1, 2, 3])) |> to_sql()
+      assert sql == {"SELECT GREATEST(1, 2, 3) FROM \"test\" AS t0", []}
+    end
+
+    test "least/1" do
+      sql = from("test", select: least([1, 2, 3])) |> to_sql()
+      assert sql == {"SELECT LEAST(1, 2, 3) FROM \"test\" AS t0", []}
+    end
+  end
 end
