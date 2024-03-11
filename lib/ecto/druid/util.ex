@@ -47,4 +47,12 @@ defmodule Ecto.Druid.Util do
   def fragment(fragment, args, type) do
     {:type, [], [fragment(fragment, args, nil), type]}
   end
+
+  defmacro sql_unit(name) do
+    Ecto.Druid.Util.unit(name)
+  end
+
+  def unit(name) do
+    {:unit, name |> Atom.to_string() |> String.upcase()}
+  end
 end

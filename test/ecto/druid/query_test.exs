@@ -453,4 +453,173 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT RTRIM('a', ' ') FROM \"test\" AS t0", []}
     end
   end
+
+  describe "date and time functions" do
+    test "current_timestamp/0" do
+      sql = from("test", select: current_timestamp()) |> to_sql()
+      assert sql == {"SELECT CURRENT_TIMESTAMP() FROM \"test\" AS t0", []}
+    end
+
+    test "current_date/0" do
+      sql = from("test", select: current_date()) |> to_sql()
+      assert sql == {"SELECT CURRENT_DATE() FROM \"test\" AS t0", []}
+    end
+
+    test "date_trunc/2" do
+      sql = from(t in "test", select: date_trunc("day", t.time)) |> to_sql()
+      assert sql == {"SELECT DATE_TRUNC('day', t0.\"time\") FROM \"test\" AS t0", []}
+    end
+
+    test "time_ceil/2" do
+      sql = from(t in "test", select: time_ceil(t.time, "PT1H")) |> to_sql()
+      assert sql == {"SELECT TIME_CEIL(t0.\"time\", 'PT1H') FROM \"test\" AS t0", []}
+    end
+
+    test "time_ceil/3" do
+      sql =
+        from(t in "test", select: time_ceil(t.time, "PT1H", "1970-01-01T00:00:00")) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_CEIL(t0.\"time\", 'PT1H', '1970-01-01T00:00:00') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "time_ceil/4" do
+      sql =
+        from(t in "test",
+          select: time_ceil(t.time, "PT1H", "1970-01-01T00:00:00", "America/Los_Angeles")
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_CEIL(t0.\"time\", 'PT1H', '1970-01-01T00:00:00', 'America/Los_Angeles') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "time_floor/2" do
+      sql = from(t in "test", select: time_floor(t.time, "PT1H")) |> to_sql()
+      assert sql == {"SELECT TIME_FLOOR(t0.\"time\", 'PT1H') FROM \"test\" AS t0", []}
+    end
+
+    test "time_floor/3" do
+      sql =
+        from(t in "test", select: time_floor(t.time, "PT1H", "1970-01-01T00:00:00")) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_FLOOR(t0.\"time\", 'PT1H', '1970-01-01T00:00:00') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "time_floor/4" do
+      sql =
+        from(t in "test",
+          select: time_floor(t.time, "PT1H", "1970-01-01T00:00:00", "America/Los_Angeles")
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_FLOOR(t0.\"time\", 'PT1H', '1970-01-01T00:00:00', 'America/Los_Angeles') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "time_shift/3" do
+      sql = from(t in "test", select: time_shift(t.time, "P1D", 1)) |> to_sql()
+      assert sql == {"SELECT TIME_SHIFT(t0.\"time\", 'P1D', 1) FROM \"test\" AS t0", []}
+    end
+
+    test "time_shift/4" do
+      sql =
+        from(t in "test", select: time_shift(t.time, "P1D", 1, "America/Los_Angeles")) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_SHIFT(t0.\"time\", 'P1D', 1, 'America/Los_Angeles') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "time_extract/2" do
+      sql = from(t in "test", select: time_extract(t.time, "EPOCH")) |> to_sql()
+      assert sql == {"SELECT TIME_EXTRACT(t0.\"time\", 'EPOCH') FROM \"test\" AS t0", []}
+    end
+
+    test "time_extract/3" do
+      sql =
+        from(t in "test", select: time_extract(t.time, "EPOCH", "America/Los_Angeles"))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_EXTRACT(t0.\"time\", 'EPOCH', 'America/Los_Angeles') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "time_parse/1" do
+      sql = from("test", select: time_parse("2000-02-01 00:00:00")) |> to_sql()
+      assert sql == {"SELECT TIME_PARSE('2000-02-01 00:00:00') FROM \"test\" AS t0", []}
+    end
+
+    test "time_parse/2" do
+      sql =
+        from("test", select: time_parse("2000-02-01 00:00:00", "MMMM, yyyy")) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_PARSE('2000-02-01 00:00:00', 'MMMM, yyyy') FROM \"test\" AS t0", []}
+    end
+
+    test "time_parse/3" do
+      sql =
+        from("test",
+          select: time_parse("2000-02-01 00:00:00", "MMMM, yyyy", "America/Los_Angeles")
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_PARSE('2000-02-01 00:00:00', 'MMMM, yyyy', 'America/Los_Angeles') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "time_in_interval/2" do
+      sql =
+        from(t in "test", select: time_in_interval(t.time, "2000-01-01/2000-02-01")) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_IN_INTERVAL(t0.\"time\", '2000-01-01/2000-02-01') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "millis_to_timestamp/1" do
+      sql = from("test", select: millis_to_timestamp(1)) |> to_sql()
+      assert sql == {"SELECT MILLIS_TO_TIMESTAMP(1) FROM \"test\" AS t0", []}
+    end
+
+    test "timestamp_to_millis/1" do
+      sql = from(t in "test", select: timestamp_to_millis(t.time)) |> to_sql()
+      assert sql == {"SELECT TIMESTAMP_TO_MILLIS(t0.\"time\") FROM \"test\" AS t0", []}
+    end
+
+    test "extract/2" do
+      sql = from(t in "test", select: extract("DAY", t.time)) |> to_sql()
+      assert sql == {"SELECT EXTRACT(DAY FROM t0.\"time\") FROM \"test\" AS t0", []}
+    end
+
+    test "floor/2" do
+      sql = from(t in "test", select: floor(t.time, "DAY")) |> to_sql()
+      assert sql == {"SELECT FLOOR(t0.\"time\" TO DAY) FROM \"test\" AS t0", []}
+    end
+
+    test "ceil/2" do
+      sql = from(t in "test", select: ceil(t.time, "DAY")) |> to_sql()
+      assert sql == {"SELECT CEIL(t0.\"time\" TO DAY) FROM \"test\" AS t0", []}
+    end
+
+    test "timestampadd/3" do
+      sql = from(t in "test", select: timestampadd("DAY", 1, t.time)) |> to_sql()
+      assert sql == {"SELECT TIMESTAMPADD(DAY, 1, t0.\"time\") FROM \"test\" AS t0", []}
+    end
+
+    test "timestampdiff/3" do
+      sql = from(t in "test", select: timestampdiff("DAY", t.time, t.time)) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIMESTAMPDIFF(DAY, t0.\"time\", t0.\"time\") FROM \"test\" AS t0", []}
+    end
+  end
 end
