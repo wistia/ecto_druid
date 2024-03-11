@@ -380,22 +380,22 @@ defmodule Ecto.Druid.Query do
   sql_function theta_sketch_estimate_with_error_bounds(expr, error_bounds_std_dev)
 
   @doc "Returns a union of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
-  sql_function theta_sketch_union(exprs)
+  sql_function theta_sketch_union(exprs), type: Ecto.Druid.ThetaSketch
 
   @doc "Returns a union of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
-  sql_function theta_sketch_union(size, exprs)
+  sql_function theta_sketch_union(size, exprs), type: Ecto.Druid.ThetaSketch
 
   @doc "Returns an intersection of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
-  sql_function theta_sketch_intersect(exprs)
+  sql_function theta_sketch_intersect(exprs), type: Ecto.Druid.ThetaSketch
 
   @doc "Returns an intersection of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
-  sql_function theta_sketch_intersect(size, exprs)
+  sql_function theta_sketch_intersect(size, exprs), type: Ecto.Druid.ThetaSketch
 
   @doc "Returns a set difference of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
-  sql_function theta_sketch_not(exprs)
+  sql_function theta_sketch_not(exprs), type: Ecto.Druid.ThetaSketch
 
   @doc "Returns a set difference of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
-  sql_function theta_sketch_not(size, exprs)
+  sql_function theta_sketch_not(size, exprs), type: Ecto.Druid.ThetaSketch
 
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
