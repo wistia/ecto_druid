@@ -397,11 +397,41 @@ defmodule Ecto.Druid.Query do
   @doc "Returns a set difference of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
   sql_function theta_sketch_not(size, exprs), type: Ecto.Druid.ThetaSketch
 
+  ## Quantiles sketch functions
+
+  @doc "Returns the quantile estimate corresponding to fraction from a quantiles sketch. expr must return a quantiles sketch."
+  sql_function ds_get_quantile(expr, fraction)
+
+  @doc "Returns a string representing an array of quantile estimates corresponding to a list of fractions from a quantiles sketch. expr must return a quantiles sketch."
+  sql_function ds_get_quantiles(expr, fractions), type: Ecto.Druid.DSHistogram
+
+  @doc "Returns a string representing an approximation to the histogram given a list of split points that define the histogram bins from a quantiles sketch. expr must return a quantiles sketch."
+  sql_function ds_histogram(expr, split_points), type: Ecto.Druid.DSHistogram
+
+  @doc "Returns a string representing approximation to the Cumulative Distribution Function given a list of split points that define the edges of the bins from a quantiles sketch. expr must return a quantiles sketch."
+  sql_function ds_cdf(expr, split_points), type: Ecto.Druid.DSHistogram
+
+  @doc "Returns an approximation to the rank of a given value that is the fraction of the distribution less than that value from a quantiles sketch. expr must return a quantiles sketch."
+  sql_function ds_rank(expr, value)
+
+  @doc "Returns a string summary of a quantiles sketch, useful for debugging. expr must return a quantiles sketch."
+  sql_function ds_quantile_summary(expr)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
   sql_function ds_theta(column, sketch_size), type: Ecto.Druid.ThetaSketch
   sql_function ds_quantiles_sketch(column, sketch_size)
-  sql_function ds_histogram(column, split_points), type: Ecto.Druid.DSHistogram
   sql_function parse_json(expr)
 end
+
+# Quantiles sketch functions
+
+# The following functions operate on quantiles sketches. The DataSketches extension must be loaded to use the following functions.
+# Function	Notes
+# DS_GET_QUANTILE(expr, fraction)	Returns the quantile estimate corresponding to fraction from a quantiles sketch. expr must return a quantiles sketch.
+# DS_GET_QUANTILES(expr, fraction0, fraction1, ...)	Returns a string representing an array of quantile estimates corresponding to a list of fractions from a quantiles sketch. expr must return a quantiles sketch.
+# DS_HISTOGRAM(expr, splitPoint0, splitPoint1, ...)	Returns a string representing an approximation to the histogram given a list of split points that define the histogram bins from a quantiles sketch. expr must return a quantiles sketch.
+# DS_CDF(expr, splitPoint0, splitPoint1, ...)	Returns a string representing approximation to the Cumulative Distribution Function given a list of split points that define the edges of the bins from a quantiles sketch. expr must return a quantiles sketch.
+# DS_RANK(expr, value)	Returns an approximation to the rank of a given value that is the fraction of the distribution less than that value from a quantiles sketch. expr must return a quantiles sketch.
+# DS_QUANTILE_SUMMARY(expr)	Returns a string summary of a quantiles sketch, useful for debugging. expr must return a quantiles sketch.

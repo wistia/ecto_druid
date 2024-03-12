@@ -775,4 +775,47 @@ defmodule Ecto.Druid.QueryTest do
                 []}
     end
   end
+
+  describe "Quantiles sketch functions" do
+    test "ds_get_quantile/2" do
+      sql = from(t in "test", select: ds_get_quantile(t.sketch, 0.5)) |> to_sql()
+      assert sql == {"SELECT DS_GET_QUANTILE(t0.\"sketch\", 0.5) FROM \"test\" AS t0", []}
+    end
+
+    test "ds_get_quantiles/2" do
+      sql = from(t in "test", select: ds_get_quantiles(t.sketch, [0.5, 0.75])) |> to_sql()
+      assert sql == {"SELECT DS_GET_QUANTILES(t0.\"sketch\", 0.5, 0.75) FROM \"test\" AS t0", []}
+    end
+
+    test "ds_histogram/2" do
+      sql = from(t in "test", select: ds_histogram(t.sketch, [0.5, 0.75])) |> to_sql()
+      assert sql == {"SELECT DS_HISTOGRAM(t0.\"sketch\", 0.5, 0.75) FROM \"test\" AS t0", []}
+    end
+
+    test "ds_cdf/2" do
+      sql = from(t in "test", select: ds_cdf(t.sketch, [0.5, 0.75])) |> to_sql()
+      assert sql == {"SELECT DS_CDF(t0.\"sketch\", 0.5, 0.75) FROM \"test\" AS t0", []}
+    end
+
+    test "ds_rank/2" do
+      sql = from(t in "test", select: ds_rank(t.sketch, 0.5)) |> to_sql()
+      assert sql == {"SELECT DS_RANK(t0.\"sketch\", 0.5) FROM \"test\" AS t0", []}
+    end
+
+    test "ds_quantile_summary/1" do
+      sql = from(t in "test", select: ds_quantile_summary(t.sketch)) |> to_sql()
+      assert sql == {"SELECT DS_QUANTILE_SUMMARY(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+  end
 end
+
+# Quantiles sketch functions
+
+# The following functions operate on quantiles sketches. The DataSketches extension must be loaded to use the following functions.
+# Function	Notes
+# DS_GET_QUANTILE(expr, fraction)	Returns the quantile estimate corresponding to fraction from a quantiles sketch. expr must return a quantiles sketch.
+# DS_GET_QUANTILES(expr, fraction0, fraction1, ...)	Returns a string representing an array of quantile estimates corresponding to a list of fractions from a quantiles sketch. expr must return a quantiles sketch.
+# DS_HISTOGRAM(expr, splitPoint0, splitPoint1, ...)	Returns a string representing an approximation to the histogram given a list of split points that define the histogram bins from a quantiles sketch. expr must return a quantiles sketch.
+# DS_CDF(expr, splitPoint0, splitPoint1, ...)	Returns a string representing approximation to the Cumulative Distribution Function given a list of split points that define the edges of the bins from a quantiles sketch. expr must return a quantiles sketch.
+# DS_RANK(expr, value)	Returns an approximation to the rank of a given value that is the fraction of the distribution less than that value from a quantiles sketch. expr must return a quantiles sketch.
+# DS_QUANTILE_SUMMARY(expr)	Returns a string summary of a quantiles sketch, useful for debugging. expr must return a quantiles sketch.
