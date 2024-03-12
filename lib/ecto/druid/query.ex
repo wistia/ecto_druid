@@ -417,6 +417,29 @@ defmodule Ecto.Druid.Query do
   @doc "Returns a string summary of a quantiles sketch, useful for debugging. expr must return a quantiles sketch."
   sql_function ds_quantile_summary(expr)
 
+  ## Tuple sketch functions
+
+  @doc "Computes approximate sums of the values contained within a Tuple sketch column which contains an array of double values as its Summary Object."
+  sql_function ds_tuple_doubles_metrics_sum_estimate(expr)
+
+  @doc "Returns an intersection of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries."
+  sql_function ds_tuple_doubles_intersect(exprs), type: Ecto.Druid.TupleSketch
+
+  @doc "Returns an intersection of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries."
+  sql_function ds_tuple_doubles_intersect(exprs, nominal_entries), type: Ecto.Druid.TupleSketch
+
+  @doc "Returns a set difference of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Object are preserved as is. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries."
+  sql_function ds_tuple_doubles_not(exprs), type: Ecto.Druid.TupleSketch
+
+  @doc "Returns a set difference of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Object are preserved as is. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries."
+  sql_function ds_tuple_doubles_not(exprs, nominal_entries), type: Ecto.Druid.TupleSketch
+
+  @doc "Returns a union of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries."
+  sql_function ds_tuple_doubles_union(exprs), type: Ecto.Druid.TupleSketch
+
+  @doc "Returns a union of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries."
+  sql_function ds_tuple_doubles_union(exprs, nominal_entries), type: Ecto.Druid.TupleSketch
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
@@ -425,13 +448,11 @@ defmodule Ecto.Druid.Query do
   sql_function parse_json(expr)
 end
 
-# Quantiles sketch functions
+# Tuple sketch functions
 
-# The following functions operate on quantiles sketches. The DataSketches extension must be loaded to use the following functions.
-# Function	Notes
-# DS_GET_QUANTILE(expr, fraction)	Returns the quantile estimate corresponding to fraction from a quantiles sketch. expr must return a quantiles sketch.
-# DS_GET_QUANTILES(expr, fraction0, fraction1, ...)	Returns a string representing an array of quantile estimates corresponding to a list of fractions from a quantiles sketch. expr must return a quantiles sketch.
-# DS_HISTOGRAM(expr, splitPoint0, splitPoint1, ...)	Returns a string representing an approximation to the histogram given a list of split points that define the histogram bins from a quantiles sketch. expr must return a quantiles sketch.
-# DS_CDF(expr, splitPoint0, splitPoint1, ...)	Returns a string representing approximation to the Cumulative Distribution Function given a list of split points that define the edges of the bins from a quantiles sketch. expr must return a quantiles sketch.
-# DS_RANK(expr, value)	Returns an approximation to the rank of a given value that is the fraction of the distribution less than that value from a quantiles sketch. expr must return a quantiles sketch.
-# DS_QUANTILE_SUMMARY(expr)	Returns a string summary of a quantiles sketch, useful for debugging. expr must return a quantiles sketch.
+# The following functions operate on tuple sketches. The DataSketches extension must be loaded to use the following functions.
+# Function	Notes	Default
+# DS_TUPLE_DOUBLES_METRICS_SUM_ESTIMATE(expr)	Computes approximate sums of the values contained within a Tuple sketch column which contains an array of double values as its Summary Object.
+# DS_TUPLE_DOUBLES_INTERSECT(expr, ..., [nominalEntries])	Returns an intersection of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
+# DS_TUPLE_DOUBLES_NOT(expr, ..., [nominalEntries])	Returns a set difference of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Object are preserved as is. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
+# DS_TUPLE_DOUBLES_UNION(expr, ..., [nominalEntries])	Returns a union of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.

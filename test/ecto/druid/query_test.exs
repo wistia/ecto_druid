@@ -807,15 +807,73 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT DS_QUANTILE_SUMMARY(t0.\"sketch\") FROM \"test\" AS t0", []}
     end
   end
+
+  describe "Tuple sketch functions" do
+    test "ds_tuple_doubles_metrics_sum_estimate/1" do
+      sql = from(t in "test", select: ds_tuple_doubles_metrics_sum_estimate(t.sketch)) |> to_sql()
+
+      assert sql ==
+               {"SELECT DS_TUPLE_DOUBLES_METRICS_SUM_ESTIMATE(t0.\"sketch\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_tuple_doubles_intersect/1" do
+      sql =
+        from(t in "test", select: ds_tuple_doubles_intersect([t.sketch, t.sketch])) |> to_sql()
+
+      assert sql ==
+               {"SELECT DS_TUPLE_DOUBLES_INTERSECT(t0.\"sketch\", t0.\"sketch\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_tuple_doubles_intersect/2" do
+      sql =
+        from(t in "test", select: ds_tuple_doubles_intersect([t.sketch, t.sketch], 2)) |> to_sql()
+
+      assert sql ==
+               {"SELECT DS_TUPLE_DOUBLES_INTERSECT(t0.\"sketch\", t0.\"sketch\", 2) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_tuple_doubles_not/1" do
+      sql = from(t in "test", select: ds_tuple_doubles_not([t.sketch, t.sketch])) |> to_sql()
+
+      assert sql ==
+               {"SELECT DS_TUPLE_DOUBLES_NOT(t0.\"sketch\", t0.\"sketch\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_tuple_doubles_not/2" do
+      sql = from(t in "test", select: ds_tuple_doubles_not([t.sketch, t.sketch], 2)) |> to_sql()
+
+      assert sql ==
+               {"SELECT DS_TUPLE_DOUBLES_NOT(t0.\"sketch\", t0.\"sketch\", 2) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_tuple_doubles_union/1" do
+      sql = from(t in "test", select: ds_tuple_doubles_union([t.sketch, t.sketch])) |> to_sql()
+
+      assert sql ==
+               {"SELECT DS_TUPLE_DOUBLES_UNION(t0.\"sketch\", t0.\"sketch\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_tuple_doubles_union/2" do
+      sql = from(t in "test", select: ds_tuple_doubles_union([t.sketch, t.sketch], 2)) |> to_sql()
+
+      assert sql ==
+               {"SELECT DS_TUPLE_DOUBLES_UNION(t0.\"sketch\", t0.\"sketch\", 2) FROM \"test\" AS t0",
+                []}
+    end
+  end
 end
 
-# Quantiles sketch functions
+# Tuple sketch functions
 
-# The following functions operate on quantiles sketches. The DataSketches extension must be loaded to use the following functions.
-# Function	Notes
-# DS_GET_QUANTILE(expr, fraction)	Returns the quantile estimate corresponding to fraction from a quantiles sketch. expr must return a quantiles sketch.
-# DS_GET_QUANTILES(expr, fraction0, fraction1, ...)	Returns a string representing an array of quantile estimates corresponding to a list of fractions from a quantiles sketch. expr must return a quantiles sketch.
-# DS_HISTOGRAM(expr, splitPoint0, splitPoint1, ...)	Returns a string representing an approximation to the histogram given a list of split points that define the histogram bins from a quantiles sketch. expr must return a quantiles sketch.
-# DS_CDF(expr, splitPoint0, splitPoint1, ...)	Returns a string representing approximation to the Cumulative Distribution Function given a list of split points that define the edges of the bins from a quantiles sketch. expr must return a quantiles sketch.
-# DS_RANK(expr, value)	Returns an approximation to the rank of a given value that is the fraction of the distribution less than that value from a quantiles sketch. expr must return a quantiles sketch.
-# DS_QUANTILE_SUMMARY(expr)	Returns a string summary of a quantiles sketch, useful for debugging. expr must return a quantiles sketch.
+# The following functions operate on tuple sketches. The DataSketches extension must be loaded to use the following functions.
+# Function	Notes	Default
+# DS_TUPLE_DOUBLES_METRICS_SUM_ESTIMATE(expr)	Computes approximate sums of the values contained within a Tuple sketch column which contains an array of double values as its Summary Object.
+# DS_TUPLE_DOUBLES_INTERSECT(expr, ..., [nominalEntries])	Returns an intersection of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
+# DS_TUPLE_DOUBLES_NOT(expr, ..., [nominalEntries])	Returns a set difference of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Object are preserved as is. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
+# DS_TUPLE_DOUBLES_UNION(expr, ..., [nominalEntries])	Returns a union of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
