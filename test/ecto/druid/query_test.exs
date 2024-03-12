@@ -1,5 +1,7 @@
 defmodule Ecto.Druid.QueryTest do
-  import Kernel, except: [abs: 1, ceil: 1, floor: 1, div: 2, length: 1, trunc: 1, round: 1]
+  import Kernel,
+    except: [abs: 1, ceil: 1, floor: 1, div: 2, length: 1, trunc: 1, round: 1, case: 2]
+
   alias Ecto.Adapters.Druid.TestRepo
   use ExUnit.Case
   import Ecto.Query
@@ -867,13 +869,47 @@ defmodule Ecto.Druid.QueryTest do
                 []}
     end
   end
+
+  describe "Other scaler functions" do
+    test "bloom_filter_test/2" do
+      sql = from("test", select: bloom_filter_test("a", "b")) |> to_sql()
+      assert sql == {"SELECT BLOOM_FILTER_TEST('a', 'b') FROM \"test\" AS t0", []}
+    end
+
+    test "sql_case/2" do
+      sql = from("test", select: sql_case("a", when: "a", then: true, else: false)) |> to_sql()
+
+      assert sql ==
+               {"SELECT CASE 'a' WHEN 'a' THEN TRUE ELSE FALSE END FROM \"test\" AS t0", []}
+    end
+
+    test "sql_case/1" do
+      sql =
+        from("test", select: sql_case(when: 1 == 1, then: true, else: false))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT CASE WHEN 1 = 1 THEN TRUE ELSE FALSE END FROM \"test\" AS t0", []}
+    end
+
+    test "coalesce/1" do
+      sql = from("test", select: coalesce(["value1", "value2"])) |> to_sql()
+      assert sql == {"SELECT COALESCE('value1', 'value2') FROM \"test\" AS t0", []}
+    end
+
+    test "decode_base64_complex/2" do
+      sql = from("test", select: decode_base64_complex("dataType", "expr")) |> to_sql()
+      assert sql == {"SELECT DECODE_BASE64_COMPLEX('dataType', 'expr') FROM \"test\" AS t0", []}
+    end
+
+    test "nullif/2" do
+      sql = from("test", select: nullif("value1", "value2")) |> to_sql()
+      assert sql == {"SELECT NULLIF('value1', 'value2') FROM \"test\" AS t0", []}
+    end
+
+    test "nvl/2" do
+      sql = from("test", select: nvl("value1", "value2")) |> to_sql()
+      assert sql == {"SELECT NVL('value1', 'value2') FROM \"test\" AS t0", []}
+    end
+  end
 end
-
-# Tuple sketch functions
-
-# The following functions operate on tuple sketches. The DataSketches extension must be loaded to use the following functions.
-# Function	Notes	Default
-# DS_TUPLE_DOUBLES_METRICS_SUM_ESTIMATE(expr)	Computes approximate sums of the values contained within a Tuple sketch column which contains an array of double values as its Summary Object.
-# DS_TUPLE_DOUBLES_INTERSECT(expr, ..., [nominalEntries])	Returns an intersection of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
-# DS_TUPLE_DOUBLES_NOT(expr, ..., [nominalEntries])	Returns a set difference of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Object are preserved as is. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
-# DS_TUPLE_DOUBLES_UNION(expr, ..., [nominalEntries])	Returns a union of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.

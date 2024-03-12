@@ -1,6 +1,6 @@
 defmodule Seeds do
   import Ecto.Query
-  import Ecto.Druid.Query
+  import Ecto.Druid.Query, only: [table: 1, extern: 3]
 
   @files [Path.join(["priv", "seeds", "conversion_events.csv"])]
   @columns [

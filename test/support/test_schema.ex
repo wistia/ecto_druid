@@ -13,7 +13,14 @@ defmodule Ecto.Adapters.Druid.Wikipedia do
 
   def by_page(page) do
     import Ecto.Query
-    import Ecto.Druid.Query
+
+    import Ecto.Druid.Query,
+      only: [
+        ds_theta: 2,
+        approx_count_distinct_ds_theta: 2,
+        ds_quantiles_sketch: 2,
+        ds_histogram: 2
+      ]
 
     from(
       m in __MODULE__,

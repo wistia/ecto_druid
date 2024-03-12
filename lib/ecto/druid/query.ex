@@ -440,6 +440,78 @@ defmodule Ecto.Druid.Query do
   @doc "Returns a union of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries."
   sql_function ds_tuple_doubles_union(exprs, nominal_entries), type: Ecto.Druid.TupleSketch
 
+  ## Other scaler functions
+
+  @doc "Returns true if the value of expr is contained in the base64-serialized Bloom filter. See the Bloom filter extension documentation for additional details. See the BLOOM_FILTER function for computing Bloom filters."
+  sql_function bloom_filter_test(expr, serialized_filter)
+
+  @doc "Simple CASE."
+  defmacro sql_case(expr, clauses) do
+    clause =
+      clauses
+      |> Keyword.keys()
+      |> Enum.map(fn keyword ->
+        keyword
+        |> to_string()
+        |> String.upcase()
+        |> Kernel.<>(" ? ")
+      end)
+
+    fragment =
+      "CASE ? #{clause}END"
+
+    args = Keyword.values(clauses)
+
+    quote do
+      fragment(unquote(fragment), unquote(expr), unquote_splicing(args))
+    end
+  end
+
+  @doc "Searched CASE."
+  defmacro sql_case(clauses) do
+    clause =
+      clauses
+      |> Keyword.keys()
+      |> Enum.map(fn keyword ->
+        keyword
+        |> to_string()
+        |> String.upcase()
+        |> Kernel.<>(" ? ")
+      end)
+
+    fragment =
+      "CASE #{clause}END"
+
+    args = Keyword.values(clauses)
+
+    quote do
+      fragment(unquote(fragment), unquote_splicing(args))
+    end
+  end
+
+  @doc "Returns the first value that is neither NULL nor empty string."
+  sql_function coalesce(exprs)
+
+  @doc """
+  Decodes a Base64-encoded string into a complex data type, where dataType is the complex data type and expr is the Base64-encoded string to decode. The hyperUnique and serializablePairLongString data types are supported by default. You can enable support for the following complex data types by loading their extensions: druid-bloom-filter: bloom druid-datasketches: arrayOfDoublesSketch, HLLSketch, KllDoublesSketch, KllFloatsSketch, quantilesDoublesSketch, thetaSketch druid-histogram: approximateHistogram, fixedBucketsHistogram druid-stats: variance druid-compressed-big-decimal: compressedBigDecimal druid-momentsketch: momentSketch druid-tdigestsketch: tDigestSketch
+
+    druid-bloom-filter: bloom
+    druid-datasketches: arrayOfDoublesSketch, HLLSketch, KllDoublesSketch, KllFloatsSketch, quantilesDoublesSketch, thetaSketch
+    druid-histogram: approximateHistogram, fixedBucketsHistogram
+    druid-stats: variance
+    druid-compressed-big-decimal: compressedBigDecimal
+    druid-momentsketch: momentSketch
+    druid-tdigestsketch: tDigestSketch
+
+  """
+  sql_function decode_base64_complex(data_type, expr)
+
+  @doc "Returns NULL if value1 and value2 match, else returns value1."
+  sql_function nullif(value1, value2)
+
+  @doc "Returns value1 if value1 is not null, otherwise value2."
+  sql_function nvl(value1, value2)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function approx_count_distinct_ds_theta(column, sketch_size)
@@ -447,12 +519,3 @@ defmodule Ecto.Druid.Query do
   sql_function ds_quantiles_sketch(column, sketch_size)
   sql_function parse_json(expr)
 end
-
-# Tuple sketch functions
-
-# The following functions operate on tuple sketches. The DataSketches extension must be loaded to use the following functions.
-# Function	Notes	Default
-# DS_TUPLE_DOUBLES_METRICS_SUM_ESTIMATE(expr)	Computes approximate sums of the values contained within a Tuple sketch column which contains an array of double values as its Summary Object.
-# DS_TUPLE_DOUBLES_INTERSECT(expr, ..., [nominalEntries])	Returns an intersection of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
-# DS_TUPLE_DOUBLES_NOT(expr, ..., [nominalEntries])	Returns a set difference of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Object are preserved as is. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
-# DS_TUPLE_DOUBLES_UNION(expr, ..., [nominalEntries])	Returns a union of tuple sketches, where each input expression must return a tuple sketch which contains an array of double values as its Summary Object. The values contained in the Summary Objects are summed when combined. If the last value of the array is a numeric literal, Druid assumes that the value is an override parameter for nominal entries.
