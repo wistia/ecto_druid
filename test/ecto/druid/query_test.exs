@@ -14,6 +14,18 @@ defmodule Ecto.Druid.QueryTest do
     :ok
   end
 
+  describe "keyword like functions" do
+    test "distinct/1" do
+      sql = from(t in "test", select: distinct(t.id)) |> to_sql()
+      assert sql == {"SELECT DISTINCT t0.\"id\" FROM \"test\" AS t0", []}
+    end
+
+    test "interval/2" do
+      sql = from("test", select: interval("1", "DAY")) |> to_sql()
+      assert sql == {"SELECT INTERVAL '1' DAY FROM \"test\" AS t0", []}
+    end
+  end
+
   describe "numeric functions" do
     test "pi/0" do
       sql = from("test", select: pi()) |> to_sql()
@@ -910,6 +922,222 @@ defmodule Ecto.Druid.QueryTest do
     test "nvl/2" do
       sql = from("test", select: nvl("value1", "value2")) |> to_sql()
       assert sql == {"SELECT NVL('value1', 'value2') FROM \"test\" AS t0", []}
+    end
+  end
+
+  describe "general aggregate functions" do
+    test "approx_count_distinct/1" do
+      sql = from(t in "test", select: approx_count_distinct(t.category)) |> to_sql()
+      assert sql == {"SELECT APPROX_COUNT_DISTINCT(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "approx_count_distinct_builtin/1" do
+      sql = from(t in "test", select: approx_count_distinct_builtin(t.category)) |> to_sql()
+
+      assert sql ==
+               {"SELECT APPROX_COUNT_DISTINCT_BUILTIN(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "approx_quantile/2" do
+      sql = from(t in "test", select: approx_quantile(t.category, 0.5)) |> to_sql()
+      assert sql == {"SELECT APPROX_QUANTILE(t0.\"category\", 0.5) FROM \"test\" AS t0", []}
+    end
+
+    test "approx_quantile_fixed_buckets/5" do
+      sql =
+        from(t in "test", select: approx_quantile_fixed_buckets(t.category, 0.5, 10, 0, 100))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT APPROX_QUANTILE_FIXED_BUCKETS(t0.\"category\", 0.5, 10, 0, 100) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "bloom_filter/2" do
+      sql = from(t in "test", select: bloom_filter(t.category, 100)) |> to_sql()
+      assert sql == {"SELECT BLOOM_FILTER(t0.\"category\", 100) FROM \"test\" AS t0", []}
+    end
+
+    test "var_pop/1" do
+      sql = from(t in "test", select: var_pop(t.category)) |> to_sql()
+      assert sql == {"SELECT VAR_POP(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "var_samp/1" do
+      sql = from(t in "test", select: var_samp(t.category)) |> to_sql()
+      assert sql == {"SELECT VAR_SAMP(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "variance/1" do
+      sql = from(t in "test", select: variance(t.category)) |> to_sql()
+      assert sql == {"SELECT VARIANCE(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "stddev_pop/1" do
+      sql = from(t in "test", select: stddev_pop(t.category)) |> to_sql()
+      assert sql == {"SELECT STDDEV_POP(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "stddev_samp/1" do
+      sql = from(t in "test", select: stddev_samp(t.category)) |> to_sql()
+      assert sql == {"SELECT STDDEV_SAMP(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "stddev/1" do
+      sql = from(t in "test", select: stddev(t.category)) |> to_sql()
+      assert sql == {"SELECT STDDEV(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "earliest/1" do
+      sql = from(t in "test", select: earliest(t.category)) |> to_sql()
+      assert sql == {"SELECT EARLIEST(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "earliest/2" do
+      sql = from(t in "test", select: earliest(t.category, 100)) |> to_sql()
+      assert sql == {"SELECT EARLIEST(t0.\"category\", 100) FROM \"test\" AS t0", []}
+    end
+
+    test "earliest_by/2" do
+      sql = from(t in "test", select: earliest_by(t.category, t.time)) |> to_sql()
+      assert sql == {"SELECT EARLIEST_BY(t0.\"category\", t0.\"time\") FROM \"test\" AS t0", []}
+    end
+
+    test "earliest_by/3" do
+      sql = from(t in "test", select: earliest_by(t.category, t.time, 100)) |> to_sql()
+
+      assert sql ==
+               {"SELECT EARLIEST_BY(t0.\"category\", t0.\"time\", 100) FROM \"test\" AS t0", []}
+    end
+
+    test "latest/1" do
+      sql = from(t in "test", select: latest(t.category)) |> to_sql()
+      assert sql == {"SELECT LATEST(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "latest/2" do
+      sql = from(t in "test", select: latest(t.category, 100)) |> to_sql()
+      assert sql == {"SELECT LATEST(t0.\"category\", 100) FROM \"test\" AS t0", []}
+    end
+
+    test "latest_by/2" do
+      sql = from(t in "test", select: latest_by(t.category, t.time)) |> to_sql()
+      assert sql == {"SELECT LATEST_BY(t0.\"category\", t0.\"time\") FROM \"test\" AS t0", []}
+    end
+
+    test "latest_by/3" do
+      sql = from(t in "test", select: latest_by(t.category, t.time, 100)) |> to_sql()
+
+      assert sql ==
+               {"SELECT LATEST_BY(t0.\"category\", t0.\"time\", 100) FROM \"test\" AS t0", []}
+    end
+
+    test "any_value/1" do
+      sql = from(t in "test", select: any_value(t.category)) |> to_sql()
+      assert sql == {"SELECT ANY_VALUE(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "any_value/2" do
+      sql = from(t in "test", select: any_value(t.category, 100)) |> to_sql()
+      assert sql == {"SELECT ANY_VALUE(t0.\"category\", 100) FROM \"test\" AS t0", []}
+    end
+
+    test "any_value/3" do
+      sql =
+        from(t in "test", select: any_value(t.category, 100, true)) |> to_sql()
+
+      assert sql ==
+               {"SELECT ANY_VALUE(t0.\"category\", 100, TRUE) FROM \"test\" AS t0", []}
+    end
+
+    test "grouping/1" do
+      sql = from(t in "test", select: grouping([t.time, t.category])) |> to_sql()
+      assert sql == {"SELECT GROUPING(t0.\"time\", t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "array_agg/1" do
+      sql = from(t in "test", select: array_agg(t.category)) |> to_sql()
+      assert sql == {"SELECT ARRAY_AGG(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "array_agg/1 distinct" do
+      sql = from(t in "test", select: array_agg(distinct(t.category))) |> to_sql()
+      assert sql == {"SELECT ARRAY_AGG(DISTINCT t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "array_agg/2" do
+      sql = from(t in "test", select: array_agg(t.category, 40)) |> to_sql()
+      assert sql == {"SELECT ARRAY_AGG(t0.\"category\", 40) FROM \"test\" AS t0", []}
+    end
+
+    test "array_concat_agg/1" do
+      sql = from(t in "test", select: array_concat_agg(t.category)) |> to_sql()
+      assert sql == {"SELECT ARRAY_CONCAT_AGG(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "array_concat_agg/1 distinct" do
+      sql = from(t in "test", select: array_concat_agg(distinct(t.category))) |> to_sql()
+      assert sql == {"SELECT ARRAY_CONCAT_AGG(DISTINCT t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "array_concat_agg/2" do
+      sql = from(t in "test", select: array_concat_agg(t.category, 40)) |> to_sql()
+      assert sql == {"SELECT ARRAY_CONCAT_AGG(t0.\"category\", 40) FROM \"test\" AS t0", []}
+    end
+
+    test "string_agg/1" do
+      sql = from(t in "test", select: string_agg(t.category)) |> to_sql()
+      assert sql == {"SELECT STRING_AGG(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "string_agg/1 distinct" do
+      sql = from(t in "test", select: string_agg(distinct(t.category))) |> to_sql()
+      assert sql == {"SELECT STRING_AGG(DISTINCT t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "string_agg/2" do
+      sql = from(t in "test", select: string_agg(t.category, ",")) |> to_sql()
+      assert sql == {"SELECT STRING_AGG(t0.\"category\", ',') FROM \"test\" AS t0", []}
+    end
+
+    test "string_agg/3" do
+      sql = from(t in "test", select: string_agg(t.category, ",", 40)) |> to_sql()
+      assert sql == {"SELECT STRING_AGG(t0.\"category\", ',', 40) FROM \"test\" AS t0", []}
+    end
+
+    test "listagg/1" do
+      sql = from(t in "test", select: listagg(t.category)) |> to_sql()
+      assert sql == {"SELECT LISTAGG(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "listagg/1 distinct" do
+      sql = from(t in "test", select: listagg(distinct(t.category))) |> to_sql()
+      assert sql == {"SELECT LISTAGG(DISTINCT t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "listagg/2" do
+      sql = from(t in "test", select: listagg(t.category, ",")) |> to_sql()
+      assert sql == {"SELECT LISTAGG(t0.\"category\", ',') FROM \"test\" AS t0", []}
+    end
+
+    test "listagg/3" do
+      sql = from(t in "test", select: listagg(t.category, ",", 40)) |> to_sql()
+      assert sql == {"SELECT LISTAGG(t0.\"category\", ',', 40) FROM \"test\" AS t0", []}
+    end
+
+    test "bit_and/1" do
+      sql = from(t in "test", select: bit_and(t.category)) |> to_sql()
+      assert sql == {"SELECT BIT_AND(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "bit_or/1" do
+      sql = from(t in "test", select: bit_or(t.category)) |> to_sql()
+      assert sql == {"SELECT BIT_OR(t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "bit_xor/1" do
+      sql = from(t in "test", select: bit_xor(t.category)) |> to_sql()
+      assert sql == {"SELECT BIT_XOR(t0.\"category\") FROM \"test\" AS t0", []}
     end
   end
 end
