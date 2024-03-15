@@ -29,15 +29,16 @@ defmodule Ecto.Adapters.Druid do
 
   @impl Ecto.Adapter
   def ensure_all_started(config, _type) do
-    with {:ok, _} = Application.ensure_all_started(:req) do
-      {:ok, [config]}
-    end
+    {:ok, [config]}
   end
 
   @impl Ecto.Adapter
   def init(config) do
-    {:ok, Supervisor.child_spec({Agent, fn -> config end}, id: __MODULE__.Agent),
-     %{config: config}}
+    finch_opts =
+      Keyword.get(config, :finch_opts, [])
+      |> Keyword.put(:name, __MODULE__.Finch)
+
+    {:ok, Supervisor.child_spec({Finch, finch_opts}, []), %{config: config}}
   end
 
   @impl Ecto.Adapter
@@ -75,9 +76,11 @@ defmodule Ecto.Adapters.Druid do
     {_, _, {_, sql}} = query
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
 
+    request_opts = repo.config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+
     values =
       Druid.Client.SQL.query(sql, params, opts)
-      |> Druid.Client.request!(Keyword.merge(repo.config, opts))
+      |> Druid.Client.request!(request_opts)
 
     {Enum.count(values), values}
   end

@@ -15,7 +15,9 @@ defmodule Druid.Client do
 
   @spec request!(Req.t(), Keyword.t()) :: term
   def request!(request, opts) do
-    response = Req.request!(request, base_url: base_url(opts))
+    finch = Keyword.fetch!(opts, :finch)
+
+    response = Req.request!(request, base_url: base_url(opts), finch: finch)
 
     case response.status do
       code when code in 200..299 ->

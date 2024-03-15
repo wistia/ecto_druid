@@ -4,7 +4,7 @@ defmodule IntegrationTest do
   alias Ecto.Adapters.Druid.Wikipedia
 
   setup do
-    start_supervised!(TestRepo, [])
+    start_supervised!(TestRepo)
     :ok
   end
 
