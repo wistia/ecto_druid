@@ -8,8 +8,8 @@ defmodule IntegrationTest do
     :ok
   end
 
-  test "queries druid" do
-    assert TestRepo.all(Wikipedia.by_page("Black Dahlia")) == [
+  test "queries single druid result" do
+    assert TestRepo.one(Wikipedia.by_page("Black Dahlia")) ==
              %{
                added: 3,
                deleted: 0,
@@ -17,6 +17,40 @@ defmodule IntegrationTest do
                unique_users: 1,
                delta_histogram: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
                ds_theta: "AQMDAAA6zJOFHZZiGEjVRw=="
+             }
+  end
+
+  test "queries timeseries druid result" do
+    assert TestRepo.all(Wikipedia.over_time("1947-01-01T00:00:00Z/2040-12-31T23:59:59Z")) == [
+             %{
+               time: ~U[2016-06-27 00:00:00.000Z],
+               added: 1848,
+               deleted: 0,
+               delta: 1848,
+               unique_users: 2,
+               delta_histogram: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0],
+               ds_theta: "AgMDAAAazJMCAAAAAACAPzd6/yEG3wQlidpvB7iALXo=",
+               page: "'t Suydevelt"
+             },
+             %{
+               time: ~U[2016-06-27 00:00:00.000Z],
+               added: 39,
+               deleted: 0,
+               delta: 39,
+               unique_users: 1,
+               delta_histogram: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+               ds_theta: "AQMDAAA6zJPn1y+tXohAAQ==",
+               page: "(1094) Siberia"
+             },
+             %{
+               time: ~U[2016-06-27 00:00:00.000Z],
+               added: 0,
+               deleted: 0,
+               delta: 0,
+               unique_users: 1,
+               delta_histogram: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+               ds_theta: "AQMDAAA6zJOyxVBz8PCTLw==",
+               page: "(2383) Bradley"
              }
            ]
   end

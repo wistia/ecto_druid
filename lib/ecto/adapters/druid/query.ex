@@ -352,7 +352,7 @@ defmodule Ecto.Adapters.Druid.Query do
           [join, " AS " | name]
 
         %JoinExpr{qual: qual} ->
-          error!(query, "MySQL adapter supports only inner joins on #{kind}, got: `#{qual}`")
+          error!(query, "MySQL adapter supports only inner joins on #{kind}, got: \"#{qual}\"")
       end)
 
     wheres =
@@ -466,7 +466,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp limit(%{limit: nil}, _sources), do: []
 
   defp limit(%{limit: %{with_ties: true}} = query, _sources) do
-    error!(query, "MySQL adapter does not support the `:with_ties` limit option")
+    error!(query, "MySQL adapter does not support the \":with_ties\" limit option")
   end
 
   defp limit(%{limit: %{expr: expr}} = query, sources) do
@@ -715,15 +715,7 @@ defmodule Ecto.Adapters.Druid.Query do
     ["IF(", expr(other, sources, query), ", TRUE, FALSE)"]
   end
 
-  @complex_types [
-    Ecto.Druid.DSHistogram,
-    Ecto.Druid.ThetaSketch,
-    Ecto.Druid.HLLSketch,
-    Ecto.Druid.TupleSketch,
-    Ecto.Druid.QuantilesSketch
-  ]
-  defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query)
-       when type in @complex_types do
+  defp expr(%Ecto.Query.Tagged{value: other, type: :complex}, sources, query) do
     expr(other, sources, query)
   end
 
@@ -1118,7 +1110,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp comment_expr(_, _), do: []
 
   defp after_expr(nil), do: []
-  defp after_expr(column) when is_atom(column) or is_binary(column), do: " AFTER `#{column}`"
+  defp after_expr(column) when is_atom(column) or is_binary(column), do: " AFTER \"#{column}\""
   defp after_expr(_), do: []
 
   defp null_expr(false), do: " NOT NULL"
@@ -1202,7 +1194,7 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp generated_expr(other) do
     raise ArgumentError,
-          "the `:generated` option only accepts strings, received: #{inspect(other)}"
+          "the \":generated\" option only accepts strings, received: #{inspect(other)}"
   end
 
   defp reference_expr(type, ref, table, name) do
@@ -1269,7 +1261,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp reference_on_delete({:nilify, _columns}) do
     error!(
       nil,
-      "MySQL adapter does not support the `{:nilify, columns}` action for `:on_delete`"
+      "MySQL adapter does not support the \"{:nilify, columns}\" action for \":on_delete\""
     )
   end
 
@@ -1309,8 +1301,8 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp quote_name(name) when is_binary(name) do
-    if String.contains?(name, "`") do
-      error!(nil, "bad literal/field/table name #{inspect(name)} (` is not permitted)")
+    if String.contains?(name, "\"") do
+      error!(nil, "bad literal/field/table name #{inspect(name)} (\" is not permitted)")
     end
 
     [?", name, ?"]
@@ -1325,7 +1317,7 @@ defmodule Ecto.Adapters.Druid.Query do
     do: quote_table(Atom.to_string(name))
 
   defp quote_table(name) do
-    if String.contains?(name, "`") do
+    if String.contains?(name, "\"") do
       error!(nil, "bad table name #{inspect(name)}")
     end
 
@@ -1383,8 +1375,8 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp ecto_to_db(type, _query) do
     raise ArgumentError,
-          "unsupported type `#{inspect(type)}`. The type can either be an atom, a string " <>
-            "or a tuple of the form `{:map, t}` where `t` itself follows the same conditions."
+          "unsupported type \"#{inspect(type)}\". The type can either be an atom, a string " <>
+            "or a tuple of the form \"{:map, t}\" where \"t\" itself follows the same conditions."
   end
 
   defp error!(nil, message) do
