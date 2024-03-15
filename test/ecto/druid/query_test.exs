@@ -1140,4 +1140,65 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT BIT_XOR(t0.\"category\") FROM \"test\" AS t0", []}
     end
   end
+
+  describe "theta sketch aggregations" do
+    test "approx_count_distinct_ds_theta/1" do
+      sql = from(t in "test", select: approx_count_distinct_ds_theta(t.sketch)) |> to_sql()
+
+      assert sql ==
+               {"SELECT APPROX_COUNT_DISTINCT_DS_THETA(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+
+    test "approx_count_distinct_ds_theta/2" do
+      sql = from(t in "test", select: approx_count_distinct_ds_theta(t.sketch, 0.1)) |> to_sql()
+
+      assert sql ==
+               {"SELECT APPROX_COUNT_DISTINCT_DS_THETA(t0.\"sketch\", 0.1) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_theta/1" do
+      sql = from(t in "test", select: ds_theta(t.sketch)) |> to_sql()
+      assert sql == {"SELECT DS_THETA(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+
+    test "ds_theta/2" do
+      sql = from(t in "test", select: ds_theta(t.sketch, 0.1)) |> to_sql()
+      assert sql == {"SELECT DS_THETA(t0.\"sketch\", 0.1) FROM \"test\" AS t0", []}
+    end
+  end
+
+  describe "quantiles sketch aggregations" do
+    test "approx_quantile_ds/2" do
+      sql = from(t in "test", select: approx_quantile_ds(t.sketch, 0.5)) |> to_sql()
+      assert sql == {"SELECT APPROX_QUANTILE_DS(t0.\"sketch\", 0.5) FROM \"test\" AS t0", []}
+    end
+
+    test "approx_quantile_ds/3" do
+      sql = from(t in "test", select: approx_quantile_ds(t.sketch, 0.5, 256)) |> to_sql()
+      assert sql == {"SELECT APPROX_QUANTILE_DS(t0.\"sketch\", 0.5, 256) FROM \"test\" AS t0", []}
+    end
+
+    test "ds_quantiles_sketch/1" do
+      sql = from(t in "test", select: ds_quantiles_sketch(t.sketch)) |> to_sql()
+      assert sql == {"SELECT DS_QUANTILES_SKETCH(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+
+    test "ds_quantiles_sketch/2" do
+      sql = from(t in "test", select: ds_quantiles_sketch(t.sketch, 256)) |> to_sql()
+      assert sql == {"SELECT DS_QUANTILES_SKETCH(t0.\"sketch\", 256) FROM \"test\" AS t0", []}
+    end
+  end
+
+  describe "tuple sketch aggregations" do
+    test "ds_tuple_doubles/1" do
+      sql = from(t in "test", select: ds_tuple_doubles(t.sketch)) |> to_sql()
+      assert sql == {"SELECT DS_TUPLE_DOUBLES(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+
+    test "ds_tuple_doubles/2" do
+      sql = from(t in "test", select: ds_tuple_doubles(t.sketch, 3)) |> to_sql()
+      assert sql == {"SELECT DS_TUPLE_DOUBLES(t0.\"sketch\", 3) FROM \"test\" AS t0", []}
+    end
+  end
 end

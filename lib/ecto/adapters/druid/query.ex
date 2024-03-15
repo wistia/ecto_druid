@@ -719,7 +719,8 @@ defmodule Ecto.Adapters.Druid.Query do
     Ecto.Druid.DSHistogram,
     Ecto.Druid.ThetaSketch,
     Ecto.Druid.HLLSketch,
-    Ecto.Druid.TupleSketch
+    Ecto.Druid.TupleSketch,
+    Ecto.Druid.QuantilesSketch
   ]
   defp expr(%Ecto.Query.Tagged{value: other, type: type}, sources, query)
        when type in @complex_types do

@@ -758,10 +758,43 @@ defmodule Ecto.Druid.Query do
   @doc "Performs a bitwise XOR operation on all input values.	null or 0 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode)"
   sql_function bit_xor(expr)
 
+  ## Theta sketch aggregations
+
+  @doc "Counts distinct values of expr, which can be a regular column or a Theta sketch column. Results are always approximate, regardless of the value of useApproximateCountDistinct. The size parameter is described in the Theta sketch documentation. See also COUNT(DISTINCT expr)."
+  sql_function approx_count_distinct_ds_theta(column)
+
+  @doc "Counts distinct values of expr, which can be a regular column or a Theta sketch column. Results are always approximate, regardless of the value of useApproximateCountDistinct. The size parameter is described in the Theta sketch documentation. See also COUNT(DISTINCT expr)."
+  sql_function approx_count_distinct_ds_theta(column, sketch_size)
+
+  @doc "Creates a Theta sketch on the values of expr, which can be a regular column or a column containing Theta sketches. The size parameter is described in the Theta sketch documentation."
+  sql_function ds_theta(column), type: Ecto.Druid.ThetaSketch
+
+  @doc "Creates a Theta sketch on the values of expr, which can be a regular column or a column containing Theta sketches. The size parameter is described in the Theta sketch documentation."
+  sql_function ds_theta(column, sketch_size), type: Ecto.Druid.ThetaSketch
+
+  ## Quantiles sketch aggregations
+
+  @doc "Computes approximate quantiles on numeric or Quantiles sketch expressions. The probability value should be between 0 and 1, exclusive. The k parameter is described in the Quantiles sketch documentation."
+  sql_function approx_quantile_ds(expr, probability)
+
+  @doc "Computes approximate quantiles on numeric or Quantiles sketch expressions. The probability value should be between 0 and 1, exclusive. The k parameter is described in the Quantiles sketch documentation."
+  sql_function approx_quantile_ds(expr, probability, sketch_size)
+
+  @doc "Creates a Quantiles sketch on the values of expr, which can be a regular column or a column containing quantiles sketches. The k parameter is described in the Quantiles sketch documentation."
+  sql_function ds_quantiles_sketch(expr), type: Ecto.Druid.QuantilesSketch
+
+  @doc "Creates a Quantiles sketch on the values of expr, which can be a regular column or a column containing quantiles sketches. The k parameter is described in the Quantiles sketch documentation."
+  sql_function ds_quantiles_sketch(expr, sketch_size), type: Ecto.Druid.QuantilesSketch
+
+  ## Tuple sketch aggregations
+
+  @doc "Creates a Tuple sketch on the values of expr, which can be a regular column or a column containing tuple sketches. The k parameter is described in the Tuple sketch documentation."
+  sql_function ds_tuple_doubles(expr), type: Ecto.Druid.TupleSketch
+
+  @doc "Creates a Tuple sketch on the values of expr, which can be a regular column or a column containing tuple sketches. The k parameter is described in the Tuple sketch documentation."
+  sql_function ds_tuple_doubles(expr, nominal_entries), type: Ecto.Druid.TupleSketch
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
-  sql_function approx_count_distinct_ds_theta(column, sketch_size)
-  sql_function ds_theta(column, sketch_size), type: Ecto.Druid.ThetaSketch
-  sql_function ds_quantiles_sketch(column, sketch_size)
   sql_function parse_json(expr)
 end
