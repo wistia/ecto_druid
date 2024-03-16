@@ -1223,4 +1223,98 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT TDIGEST_GENERATE_SKETCH(t0.\"sketch\", 100) FROM \"test\" AS t0", []}
     end
   end
+
+  describe "array functions" do
+    test "array/1" do
+      sql = from(t in "test", select: array([1, 2, 3])) |> to_sql()
+      assert sql == {"SELECT ARRAY[1, 2, 3] FROM \"test\" AS t0", []}
+    end
+
+    test "array_length/1" do
+      sql = from(t in "test", select: array_length(t.array)) |> to_sql()
+      assert sql == {"SELECT ARRAY_LENGTH(t0.\"array\") FROM \"test\" AS t0", []}
+    end
+
+    test "array_offset/2" do
+      sql = from(t in "test", select: array_offset(t.array, 1)) |> to_sql()
+      assert sql == {"SELECT ARRAY_OFFSET(t0.\"array\", 1) FROM \"test\" AS t0", []}
+    end
+
+    test "array_ordinal/2" do
+      sql = from(t in "test", select: array_ordinal(t.array, 1)) |> to_sql()
+      assert sql == {"SELECT ARRAY_ORDINAL(t0.\"array\", 1) FROM \"test\" AS t0", []}
+    end
+
+    test "array_contains/2" do
+      sql = from(t in "test", select: array_contains(t.array, 1)) |> to_sql()
+      assert sql == {"SELECT ARRAY_CONTAINS(t0.\"array\", 1) FROM \"test\" AS t0", []}
+    end
+
+    test "array_overlap/2" do
+      sql = from(t in "test", select: array_overlap(t.array, array([1, 2, 3]))) |> to_sql()
+      assert sql == {"SELECT ARRAY_OVERLAP(t0.\"array\", ARRAY[1, 2, 3]) FROM \"test\" AS t0", []}
+    end
+
+    test "array_offset_of/2" do
+      sql = from(t in "test", select: array_offset_of(t.array, 1)) |> to_sql()
+      assert sql == {"SELECT ARRAY_OFFSET_OF(t0.\"array\", 1) FROM \"test\" AS t0", []}
+    end
+
+    test "array_ordinal_of/2" do
+      sql = from(t in "test", select: array_ordinal_of(t.array, 1)) |> to_sql()
+      assert sql == {"SELECT ARRAY_ORDINAL_OF(t0.\"array\", 1) FROM \"test\" AS t0", []}
+    end
+
+    test "array_prepend/2" do
+      sql = from(t in "test", select: array_prepend(1, t.array)) |> to_sql()
+      assert sql == {"SELECT ARRAY_PREPEND(1, t0.\"array\") FROM \"test\" AS t0", []}
+    end
+
+    test "array_append/2" do
+      sql = from(t in "test", select: array_append(t.array, 1)) |> to_sql()
+      assert sql == {"SELECT ARRAY_APPEND(t0.\"array\", 1) FROM \"test\" AS t0", []}
+    end
+
+    test "array_concat/2" do
+      sql = from(t in "test", select: array_concat(t.array, array([1, 2, 3]))) |> to_sql()
+      assert sql == {"SELECT ARRAY_CONCAT(t0.\"array\", ARRAY[1, 2, 3]) FROM \"test\" AS t0", []}
+    end
+
+    test "array_slice/3" do
+      sql = from(t in "test", select: array_slice(t.array, 1, 2)) |> to_sql()
+      assert sql == {"SELECT ARRAY_SLICE(t0.\"array\", 1, 2) FROM \"test\" AS t0", []}
+    end
+
+    test "array_to_string/2" do
+      sql = from(t in "test", select: array_to_string(t.array, ",")) |> to_sql()
+      assert sql == {"SELECT ARRAY_TO_STRING(t0.\"array\", ',') FROM \"test\" AS t0", []}
+    end
+
+    test "string_to_array/2" do
+      sql = from(t in "test", select: string_to_array("1,2,3", ",")) |> to_sql()
+      assert sql == {"SELECT STRING_TO_ARRAY('1,2,3', ',') FROM \"test\" AS t0", []}
+    end
+
+    test "array_to_mv/1" do
+      sql = from(t in "test", select: array_to_mv(t.array)) |> to_sql()
+      assert sql == {"SELECT ARRAY_TO_MV(t0.\"array\") FROM \"test\" AS t0", []}
+    end
+  end
 end
+
+# Function	Description
+# ARRAY[expr1, expr2, ...]	Constructs a SQL ARRAY literal from the expression arguments, using the type of the first argument as the output array type.
+# ARRAY_LENGTH(arr)	Returns length of the array expression.
+# ARRAY_OFFSET(arr, long)	Returns the array element at the 0-based index supplied, or null for an out of range index.
+# ARRAY_ORDINAL(arr, long)	Returns the array element at the 1-based index supplied, or null for an out of range index.
+# ARRAY_CONTAINS(arr, expr)	If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0.
+# ARRAY_OVERLAP(arr1, arr2)	Returns 1 if arr1 and arr2 have any elements in common, else 0.
+# ARRAY_OFFSET_OF(arr, expr)	Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
+# ARRAY_ORDINAL_OF(arr, expr)	Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
+# ARRAY_PREPEND(expr, arr)	Adds expr to the beginning of arr, the resulting array type determined by the type of arr.
+# ARRAY_APPEND(arr, expr)	Appends expr to arr, the resulting array type determined by the type of arr.
+# ARRAY_CONCAT(arr1, arr2)	Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
+# ARRAY_SLICE(arr, start, end)	Returns the subarray of arr from the 0-based index start (inclusive) to end (exclusive). Returns null, if start is less than 0, greater than length of arr, or greater than end.
+# ARRAY_TO_STRING(arr, str)	Joins all elements of arr by the delimiter specified by str.
+# STRING_TO_ARRAY(str1, str2)	Splits str1 into an array on the delimiter specified by str2, which is a regular expression.
+# ARRAY_TO_MV(arr)	Converts an ARRAY of any type into a multi-value string VARCHAR.

@@ -8,7 +8,7 @@ defmodule Ecto.Druid.Query do
   # Keyword like functions
 
   @doc "Applies DISTINCT modifier to expr."
-  sql_function distinct(expr), keyword: true
+  sql_function distinct(expr), wrapper: {" ", ""}
 
   defmacro interval(value, unit) when unit in @time_unit do
     fragment = "INTERVAL ? #{unit}"
@@ -808,11 +808,71 @@ defmodule Ecto.Druid.Query do
   @doc "Builds a T-Digest sketch on values produced by expr. Compression parameter (default value 100) determines the accuracy and size of the sketch Higher compression means higher accuracy but more space to store sketches."
   sql_function tdigest_generate_sketch(expr, compression)
 
+  # Array functions
+
+  @doc "Constructs a SQL ARRAY literal from the expression arguments, using the type of the first argument as the output array type."
+  sql_function array(exprs), wrapper: {"[", "]"}
+
+  @doc "Returns length of the array expression."
+  sql_function array_length(arr)
+
+  @doc "Returns the array element at the 0-based index supplied, or null for an out of range index."
+  sql_function array_offset(arr, long)
+
+  @doc "Returns the array element at the 1-based index supplied, or null for an out of range index."
+  sql_function array_ordinal(arr, long)
+
+  @doc "If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0."
+  sql_function array_contains(arr, expr)
+
+  @doc "Returns 1 if arr1 and arr2 have any elements in common, else 0."
+  sql_function array_overlap(arr1, arr2)
+
+  @doc "Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode)."
+  sql_function array_offset_of(arr, expr)
+
+  @doc "Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode)."
+  sql_function array_ordinal_of(arr, expr)
+
+  @doc "Adds expr to the beginning of arr, the resulting array type determined by the type of arr."
+  sql_function array_prepend(expr, arr)
+
+  @doc "Appends expr to arr, the resulting array type determined by the type of arr."
+  sql_function array_append(arr, expr)
+
+  @doc "Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1."
+  sql_function array_concat(arr1, arr2)
+
+  @doc "Returns the subarray of arr from the 0-based index start (inclusive) to end (exclusive). Returns null, if start is less than 0, greater than length of arr, or greater than end."
+  sql_function array_slice(arr, start, stop)
+
+  @doc "Joins all elements of arr by the delimiter specified by str."
+  sql_function array_to_string(arr, str)
+
+  @doc "Splits str1 into an array on the delimiter specified by str2, which is a regular expression."
+  sql_function string_to_array(str1, str2)
+
+  @doc "Converts an ARRAY of any type into a multi-value string VARCHAR."
+  sql_function array_to_mv(arr)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function parse_json(expr)
 end
 
-# Function	Notes	Default
-# TDIGEST_QUANTILE(expr, quantileFraction, [compression])	Builds a T-Digest sketch on values produced by expr and returns the value for the quantile. Compression parameter (default value 100) determines the accuracy and size of the sketch. Higher compression means higher accuracy but more space to store sketches.	Double.NaN
-# TDIGEST_GENERATE_SKETCH(expr, [compression])	Builds a T-Digest sketch on values produced by expr. Compression parameter (default value 100) determines the accuracy and size of the sketch Higher compression means higher accuracy but more space to store sketches.	Empty base64 encoded T-Digest sketch STRING
+# Function	Description
+# ARRAY[expr1, expr2, ...]	Constructs a SQL ARRAY literal from the expression arguments, using the type of the first argument as the output array type.
+# ARRAY_LENGTH(arr)	Returns length of the array expression.
+# ARRAY_OFFSET(arr, long)	Returns the array element at the 0-based index supplied, or null for an out of range index.
+# ARRAY_ORDINAL(arr, long)	Returns the array element at the 1-based index supplied, or null for an out of range index.
+# ARRAY_CONTAINS(arr, expr)	If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0.
+# ARRAY_OVERLAP(arr1, arr2)	Returns 1 if arr1 and arr2 have any elements in common, else 0.
+# ARRAY_OFFSET_OF(arr, expr)	Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
+# ARRAY_ORDINAL_OF(arr, expr)	Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
+# ARRAY_PREPEND(expr, arr)	Adds expr to the beginning of arr, the resulting array type determined by the type of arr.
+# ARRAY_APPEND(arr, expr)	Appends expr to arr, the resulting array type determined by the type of arr.
+# ARRAY_CONCAT(arr1, arr2)	Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
+# ARRAY_SLICE(arr, start, end)	Returns the subarray of arr from the 0-based index start (inclusive) to end (exclusive). Returns null, if start is less than 0, greater than length of arr, or greater than end.
+# ARRAY_TO_STRING(arr, str)	Joins all elements of arr by the delimiter specified by str.
+# STRING_TO_ARRAY(str1, str2)	Splits str1 into an array on the delimiter specified by str2, which is a regular expression.
+# ARRAY_TO_MV(arr)	Converts an ARRAY of any type into a multi-value string VARCHAR.

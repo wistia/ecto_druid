@@ -7,7 +7,7 @@ defmodule Ecto.Druid.Util do
     fun = name |> Atom.to_string() |> String.upcase()
     type = Keyword.get(opts, :type, nil)
     placeholders = Keyword.get(opts, :placeholders, nil)
-    keyword = Keyword.get(opts, :keyword, false)
+    wrapper = Keyword.get(opts, :wrapper, {"(", ")"})
 
     types =
       args
@@ -23,22 +23,22 @@ defmodule Ecto.Druid.Util do
           unquote(placeholders),
           unquote(args),
           unquote(type),
-          unquote(keyword)
+          unquote(wrapper)
         )
       end
     end
   end
 
-  def sql_function_body(fun, nil, args, type, keyword) do
+  def sql_function_body(fun, nil, args, type, wrapper) do
     placeholders = args |> List.flatten() |> Enum.map(fn _ -> "?" end) |> Enum.join(", ")
 
-    sql_function_body(fun, placeholders, args, type, keyword)
+    sql_function_body(fun, placeholders, args, type, wrapper)
   end
 
-  def sql_function_body(fun, placeholders, args, type, keyword) do
+  def sql_function_body(fun, placeholders, args, type, {start, stop}) do
     args = args |> List.flatten()
-    fragment = if(keyword, do: "#{fun} #{placeholders}", else: "#{fun}(#{placeholders})")
 
+    fragment = "#{fun}#{start}#{placeholders}#{stop}"
     fragment(fragment, args, type)
   end
 
