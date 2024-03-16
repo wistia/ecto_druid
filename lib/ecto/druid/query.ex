@@ -794,7 +794,25 @@ defmodule Ecto.Druid.Query do
   @doc "Creates a Tuple sketch on the values of expr, which can be a regular column or a column containing tuple sketches. The k parameter is described in the Tuple sketch documentation."
   sql_function ds_tuple_doubles(expr, nominal_entries), type: Ecto.Druid.TupleSketch
 
+  ## T-Digest sketch aggregations
+
+  @doc "Builds a T-Digest sketch on values produced by expr and returns the value for the quantile. Compression parameter (default value 100) determines the accuracy and size of the sketch. Higher compression means higher accuracy but more space to store sketches."
+  sql_function tdigest_quantile(expr, quantile_fraction)
+
+  @doc "Builds a T-Digest sketch on values produced by expr and returns the value for the quantile. Compression parameter (default value 100) determines the accuracy and size of the sketch. Higher compression means higher accuracy but more space to store sketches."
+  sql_function tdigest_quantile(expr, quantile_fraction, compression)
+
+  @doc "Builds a T-Digest sketch on values produced by expr. Compression parameter (default value 100) determines the accuracy and size of the sketch Higher compression means higher accuracy but more space to store sketches."
+  sql_function tdigest_generate_sketch(expr)
+
+  @doc "Builds a T-Digest sketch on values produced by expr. Compression parameter (default value 100) determines the accuracy and size of the sketch Higher compression means higher accuracy but more space to store sketches."
+  sql_function tdigest_generate_sketch(expr, compression)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function parse_json(expr)
 end
+
+# Function	Notes	Default
+# TDIGEST_QUANTILE(expr, quantileFraction, [compression])	Builds a T-Digest sketch on values produced by expr and returns the value for the quantile. Compression parameter (default value 100) determines the accuracy and size of the sketch. Higher compression means higher accuracy but more space to store sketches.	Double.NaN
+# TDIGEST_GENERATE_SKETCH(expr, [compression])	Builds a T-Digest sketch on values produced by expr. Compression parameter (default value 100) determines the accuracy and size of the sketch Higher compression means higher accuracy but more space to store sketches.	Empty base64 encoded T-Digest sketch STRING

@@ -1201,4 +1201,26 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT DS_TUPLE_DOUBLES(t0.\"sketch\", 3) FROM \"test\" AS t0", []}
     end
   end
+
+  describe "t-digest sketch aggregations" do
+    test "tdigest_quantile/2" do
+      sql = from(t in "test", select: tdigest_quantile(t.sketch, 0.5)) |> to_sql()
+      assert sql == {"SELECT TDIGEST_QUANTILE(t0.\"sketch\", 0.5) FROM \"test\" AS t0", []}
+    end
+
+    test "tdigest_quantile/3" do
+      sql = from(t in "test", select: tdigest_quantile(t.sketch, 0.5, 100)) |> to_sql()
+      assert sql == {"SELECT TDIGEST_QUANTILE(t0.\"sketch\", 0.5, 100) FROM \"test\" AS t0", []}
+    end
+
+    test "tdigest_generate_sketch/1" do
+      sql = from(t in "test", select: tdigest_generate_sketch(t.sketch)) |> to_sql()
+      assert sql == {"SELECT TDIGEST_GENERATE_SKETCH(t0.\"sketch\") FROM \"test\" AS t0", []}
+    end
+
+    test "tdigest_generate_sketch/2" do
+      sql = from(t in "test", select: tdigest_generate_sketch(t.sketch, 100)) |> to_sql()
+      assert sql == {"SELECT TDIGEST_GENERATE_SKETCH(t0.\"sketch\", 100) FROM \"test\" AS t0", []}
+    end
+  end
 end
