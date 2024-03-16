@@ -855,24 +855,75 @@ defmodule Ecto.Druid.Query do
   @doc "Converts an ARRAY of any type into a multi-value string VARCHAR."
   sql_function array_to_mv(arr)
 
+  # Multi-value string functions
+
+  @doc "Filters multi-value expr to include only values contained in array arr."
+  sql_function mv_filter_only(expr, arr)
+
+  @doc "Filters multi-value expr to include no values contained in array arr."
+  sql_function mv_filter_none(expr, arr)
+
+  @doc "Returns length of the array expression."
+  sql_function mv_length(arr)
+
+  @doc "Returns the array element at the 0-based index supplied, or null for an out of range index."
+  sql_function mv_offset(arr, long)
+
+  @doc "Returns the array element at the 1-based index supplied, or null for an out of range index."
+  sql_function mv_ordinal(arr, long)
+
+  @doc "If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0."
+  sql_function mv_contains(arr, expr)
+
+  @doc "Returns 1 if arr1 and arr2 have any elements in common, else 0."
+  sql_function mv_overlap(arr1, arr2)
+
+  @doc "Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode)."
+  sql_function mv_offset_of(arr, expr)
+
+  @doc "Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode)."
+  sql_function mv_ordinal_of(arr, expr)
+
+  @doc "Adds expr to the beginning of arr, the resulting array type determined by the type of arr."
+  sql_function mv_prepend(expr, arr)
+
+  @doc "Appends expr to arr, the resulting array type determined by the type of arr."
+  sql_function mv_append(arr, expr)
+
+  @doc "Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1."
+  sql_function mv_concat(arr1, arr2)
+
+  @doc "Returns the subarray of arr from the 0-based index start(inclusive) to end(exclusive), or null, if start is less than 0, greater than length of arr or greater than end."
+  sql_function mv_slice(arr, start, stop)
+
+  @doc "Joins all elements of arr by the delimiter specified by str."
+  sql_function mv_to_string(arr, str)
+
+  @doc "Splits str1 into an array on the delimiter specified by str2, which is a regular expression."
+  sql_function string_to_mv(str1, str2)
+
+  @doc "Converts a multi-value string from a VARCHAR to a VARCHAR ARRAY."
+  sql_function mv_to_array(str)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
   sql_function parse_json(expr)
 end
 
 # Function	Description
-# ARRAY[expr1, expr2, ...]	Constructs a SQL ARRAY literal from the expression arguments, using the type of the first argument as the output array type.
-# ARRAY_LENGTH(arr)	Returns length of the array expression.
-# ARRAY_OFFSET(arr, long)	Returns the array element at the 0-based index supplied, or null for an out of range index.
-# ARRAY_ORDINAL(arr, long)	Returns the array element at the 1-based index supplied, or null for an out of range index.
-# ARRAY_CONTAINS(arr, expr)	If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0.
-# ARRAY_OVERLAP(arr1, arr2)	Returns 1 if arr1 and arr2 have any elements in common, else 0.
-# ARRAY_OFFSET_OF(arr, expr)	Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
-# ARRAY_ORDINAL_OF(arr, expr)	Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
-# ARRAY_PREPEND(expr, arr)	Adds expr to the beginning of arr, the resulting array type determined by the type of arr.
-# ARRAY_APPEND(arr, expr)	Appends expr to arr, the resulting array type determined by the type of arr.
-# ARRAY_CONCAT(arr1, arr2)	Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
-# ARRAY_SLICE(arr, start, end)	Returns the subarray of arr from the 0-based index start (inclusive) to end (exclusive). Returns null, if start is less than 0, greater than length of arr, or greater than end.
-# ARRAY_TO_STRING(arr, str)	Joins all elements of arr by the delimiter specified by str.
-# STRING_TO_ARRAY(str1, str2)	Splits str1 into an array on the delimiter specified by str2, which is a regular expression.
-# ARRAY_TO_MV(arr)	Converts an ARRAY of any type into a multi-value string VARCHAR.
+# MV_FILTER_ONLY(expr, arr)	Filters multi-value expr to include only values contained in array arr.
+# MV_FILTER_NONE(expr, arr)	Filters multi-value expr to include no values contained in array arr.
+# MV_LENGTH(arr)	Returns length of the array expression.
+# MV_OFFSET(arr, long)	Returns the array element at the 0-based index supplied, or null for an out of range index.
+# MV_ORDINAL(arr, long)	Returns the array element at the 1-based index supplied, or null for an out of range index.
+# MV_CONTAINS(arr, expr)	If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0.
+# MV_OVERLAP(arr1, arr2)	Returns 1 if arr1 and arr2 have any elements in common, else 0.
+# MV_OFFSET_OF(arr, expr)	Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
+# MV_ORDINAL_OF(arr, expr)	Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
+# MV_PREPEND(expr, arr)	Adds expr to the beginning of arr, the resulting array type determined by the type arr.
+# MV_APPEND(arr, expr)	Appends expr to arr, the resulting array type determined by the type of arr.
+# MV_CONCAT(arr1, arr2)	Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
+# MV_SLICE(arr, start, end)	Returns the subarray of arr from the 0-based index start(inclusive) to end(exclusive), or null, if start is less than 0, greater than length of arr or greater than end.
+# MV_TO_STRING(arr, str)	Joins all elements of arr by the delimiter specified by str.
+# STRING_TO_MV(str1, str2)	Splits str1 into an array on the delimiter specified by str2, which is a regular expression.
+# MV_TO_ARRAY(str)	Converts a multi-value string from a VARCHAR to a VARCHAR ARRAY.
