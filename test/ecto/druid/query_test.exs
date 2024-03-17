@@ -1386,22 +1386,62 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT MV_TO_ARRAY('1,2,3') FROM \"test\" AS t0", []}
     end
   end
-end
 
-# Function	Description
-# MV_FILTER_ONLY(expr, arr)	Filters multi-value expr to include only values contained in array arr.
-# MV_FILTER_NONE(expr, arr)	Filters multi-value expr to include no values contained in array arr.
-# MV_LENGTH(arr)	Returns length of the array expression.
-# MV_OFFSET(arr, long)	Returns the array element at the 0-based index supplied, or null for an out of range index.
-# MV_ORDINAL(arr, long)	Returns the array element at the 1-based index supplied, or null for an out of range index.
-# MV_CONTAINS(arr, expr)	If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0.
-# MV_OVERLAP(arr1, arr2)	Returns 1 if arr1 and arr2 have any elements in common, else 0.
-# MV_OFFSET_OF(arr, expr)	Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
-# MV_ORDINAL_OF(arr, expr)	Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
-# MV_PREPEND(expr, arr)	Adds expr to the beginning of arr, the resulting array type determined by the type arr.
-# MV_APPEND(arr, expr)	Appends expr to arr, the resulting array type determined by the type of arr.
-# MV_CONCAT(arr1, arr2)	Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
-# MV_SLICE(arr, start, end)	Returns the subarray of arr from the 0-based index start(inclusive) to end(exclusive), or null, if start is less than 0, greater than length of arr or greater than end.
-# MV_TO_STRING(arr, str)	Joins all elements of arr by the delimiter specified by str.
-# STRING_TO_MV(str1, str2)	Splits str1 into an array on the delimiter specified by str2, which is a regular expression.
-# MV_TO_ARRAY(str)	Converts a multi-value string from a VARCHAR to a VARCHAR ARRAY.
+  describe "json functions" do
+    test "json_keys/2" do
+      sql = from(t in "test", select: json_keys(t.json, "path")) |> to_sql()
+      assert sql == {"SELECT JSON_KEYS(t0.\"json\", 'path') FROM \"test\" AS t0", []}
+    end
+
+    test "json_object/2" do
+      sql = from(t in "test", select: json_object(red: 1, blue: 2)) |> to_sql()
+
+      assert sql ==
+               {"SELECT JSON_OBJECT(KEY 'red' VALUE 1, KEY 'blue' VALUE 2) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "json_paths/1" do
+      sql = from(t in "test", select: json_paths(t.json)) |> to_sql()
+      assert sql == {"SELECT JSON_PATHS(t0.\"json\") FROM \"test\" AS t0", []}
+    end
+
+    test "json_query/2" do
+      sql = from(t in "test", select: json_query(t.json, "path")) |> to_sql()
+      assert sql == {"SELECT JSON_QUERY(t0.\"json\", 'path') FROM \"test\" AS t0", []}
+    end
+
+    test "json_query_array/2" do
+      sql = from(t in "test", select: json_query_array(t.json, "path")) |> to_sql()
+      assert sql == {"SELECT JSON_QUERY_ARRAY(t0.\"json\", 'path') FROM \"test\" AS t0", []}
+    end
+
+    test "json_value/2" do
+      sql = from(t in "test", select: json_value(t.json, "path")) |> to_sql()
+      assert sql == {"SELECT JSON_VALUE(t0.\"json\", 'path') FROM \"test\" AS t0", []}
+    end
+
+    test "json_value/3" do
+      sql = from(t in "test", select: json_value(t.json, "path", "VARCHAR")) |> to_sql()
+
+      assert sql ==
+               {"SELECT JSON_VALUE(t0.\"json\", 'path' RETURNING 'VARCHAR') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "parse_json/1" do
+      sql = from(t in "test", select: parse_json(t.json)) |> to_sql()
+      assert sql == {"SELECT PARSE_JSON(t0.\"json\") FROM \"test\" AS t0", []}
+    end
+
+    test "try_parse_json/1" do
+      sql = from(t in "test", select: try_parse_json(t.json)) |> to_sql()
+      assert sql == {"SELECT TRY_PARSE_JSON(t0.\"json\") FROM \"test\" AS t0", []}
+    end
+
+    test "to_json_string/1" do
+      sql = from(t in "test", select: to_json_string(t.json)) |> to_sql()
+      assert sql == {"SELECT TO_JSON_STRING(t0.\"json\") FROM \"test\" AS t0", []}
+    end
+  end
+end

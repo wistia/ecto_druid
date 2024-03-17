@@ -11,11 +11,13 @@ defmodule Ecto.Druid.Query do
   sql_function distinct(expr), wrapper: {" ", ""}
 
   defmacro interval(value, unit) when unit in @time_unit do
-    fragment = "INTERVAL ? #{unit}"
-
-    quote do
-      fragment(unquote(fragment), unquote(value))
-    end
+    Ecto.Druid.Util.sql_function_body(
+      "INTERVAL",
+      "? #{unit}",
+      [value],
+      nil,
+      {" ", ""}
+    )
   end
 
   # Scalar functions
@@ -292,51 +294,61 @@ defmodule Ecto.Druid.Query do
   @doc "Extracts a time part from expr, returning it as a number. Unit can be EPOCH, MICROSECOND, MILLISECOND, SECOND, MINUTE, HOUR, DAY, DOW (day of week), ISODOW (ISO day of week), DOY (day of year), WEEK (week of year), MONTH, QUARTER, YEAR, ISOYEAR, DECADE, CENTURY or MILLENNIUM. Units must be provided unquoted, like EXTRACT(HOUR FROM __time)."
   @spec extract(Macro.t(), Macro.t()) :: Macro.t()
   defmacro extract(unit, timestamp_expr) when unit in @extended_time_unit do
-    fragment = "EXTRACT(#{unit} FROM ?)"
-
-    quote do
-      fragment(unquote(fragment), unquote(timestamp_expr))
-    end
+    Ecto.Druid.Util.sql_function_body(
+      "EXTRACT",
+      "#{unit} FROM ?",
+      [timestamp_expr],
+      nil,
+      {"(", ")"}
+    )
   end
 
   @doc "Rounds down a timestamp, returning it as a new timestamp. Unit can be SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, or YEAR."
   @spec floor(Macro.t(), Macro.t()) :: Macro.t()
   defmacro floor(timestamp_expr, unit) when unit in @extended_time_unit do
-    fragment = "FLOOR(? TO #{unit})"
-
-    quote do
-      fragment(unquote(fragment), unquote(timestamp_expr))
-    end
+    Ecto.Druid.Util.sql_function_body(
+      "FLOOR",
+      "? TO #{unit}",
+      [timestamp_expr],
+      nil,
+      {"(", ")"}
+    )
   end
 
   @doc "Rounds up a timestamp, returning it as a new timestamp. Unit can be SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, or YEAR."
   @spec ceil(Macro.t(), Macro.t()) :: Macro.t()
   defmacro ceil(timestamp_expr, unit) when unit in @extended_time_unit do
-    fragment = "CEIL(? TO #{unit})"
-
-    quote do
-      fragment(unquote(fragment), unquote(timestamp_expr))
-    end
+    Ecto.Druid.Util.sql_function_body(
+      "CEIL",
+      "? TO #{unit}",
+      [timestamp_expr],
+      nil,
+      {"(", ")"}
+    )
   end
 
   @doc "Equivalent to timestamp + count * INTERVAL '1' UNIT."
   @spec timestampadd(Macro.t(), Macro.t(), Macro.t()) :: Macro.t()
   defmacro timestampadd(unit, count, timestamp) when unit in @time_unit do
-    fragment = "TIMESTAMPADD(#{unit}, ?, ?)"
-
-    quote do
-      fragment(unquote(fragment), unquote(count), unquote(timestamp))
-    end
+    Ecto.Druid.Util.sql_function_body(
+      "TIMESTAMPADD",
+      "#{unit}, ?, ?",
+      [count, timestamp],
+      nil,
+      {"(", ")"}
+    )
   end
 
   @doc "Returns the (signed) number of unit between timestamp1 and timestamp2. Unit can be SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, or YEAR."
   @spec timestampdiff(Macro.t(), Macro.t(), Macro.t()) :: Macro.t()
   defmacro timestampdiff(unit, timestamp1, timestamp2) when unit in @time_unit do
-    fragment = "TIMESTAMPDIFF(#{unit}, ?, ?)"
-
-    quote do
-      fragment(unquote(fragment), unquote(timestamp1), unquote(timestamp2))
-    end
+    Ecto.Druid.Util.sql_function_body(
+      "TIMESTAMPDIFF",
+      "#{unit}, ?, ?",
+      [timestamp1, timestamp2],
+      nil,
+      {"(", ")"}
+    )
   end
 
   ## Reduction functions
@@ -460,7 +472,7 @@ defmodule Ecto.Druid.Query do
 
   @doc "Simple CASE."
   defmacro sql_case(expr, clauses) do
-    clause =
+    placeholders =
       clauses
       |> Keyword.keys()
       |> Enum.map(fn keyword ->
@@ -470,19 +482,14 @@ defmodule Ecto.Druid.Query do
         |> Kernel.<>(" ? ")
       end)
 
-    fragment =
-      "CASE ? #{clause}END"
-
     args = Keyword.values(clauses)
 
-    quote do
-      fragment(unquote(fragment), unquote(expr), unquote_splicing(args))
-    end
+    Ecto.Druid.Util.sql_function_body("CASE", placeholders, [expr | args], nil, {" ? ", "END"})
   end
 
   @doc "Searched CASE."
   defmacro sql_case(clauses) do
-    clause =
+    placeholders =
       clauses
       |> Keyword.keys()
       |> Enum.map(fn keyword ->
@@ -492,14 +499,9 @@ defmodule Ecto.Druid.Query do
         |> Kernel.<>(" ? ")
       end)
 
-    fragment =
-      "CASE #{clause}END"
-
     args = Keyword.values(clauses)
 
-    quote do
-      fragment(unquote(fragment), unquote_splicing(args))
-    end
+    Ecto.Druid.Util.sql_function_body("CASE", placeholders, args, nil, {" ", "END"})
   end
 
   @doc "Returns the first value that is neither NULL nor empty string."
@@ -905,25 +907,49 @@ defmodule Ecto.Druid.Query do
   @doc "Converts a multi-value string from a VARCHAR to a VARCHAR ARRAY."
   sql_function mv_to_array(str)
 
+  # JSON functions
+
+  @doc "Returns an array of field names from expr at the specified path."
+  sql_function json_keys(expr, path)
+
+  @doc "Constructs a new COMPLEX<json> object. The KEY expressions must evaluate to string types. The VALUE expressions can be composed of any input type, including other COMPLEX<json> values. JSON_OBJECT can accept colon-separated key-value pairs. The following syntax is equivalent: JSON_OBJECT(expr1:expr2[, expr3:expr4, ...])."
+  defmacro json_object(kv_pairs) do
+    placeholders = kv_pairs |> Enum.map(fn _ -> "KEY ? VALUE ?" end) |> Enum.join(", ")
+    args = kv_pairs |> Enum.flat_map(fn {k, v} -> [to_string(k), v] end)
+
+    Ecto.Druid.Util.sql_function_body(
+      "JSON_OBJECT",
+      placeholders,
+      args,
+      nil,
+      {"(", ")"}
+    )
+  end
+
+  @doc "Returns an array of all paths which refer to literal values in expr in JSONPath format."
+  sql_function json_paths(expr)
+
+  @doc "Extracts a COMPLEX<json> value from expr, at the specified path."
+  sql_function json_query(expr, path)
+
+  @doc "Extracts an ARRAY<COMPLEX<json>> value from expr at the specified path. If value is not an ARRAY, it gets translated into a single element ARRAY containing the value at path. The primary use of this function is to extract arrays of objects to use as inputs to other array functions."
+  sql_function json_query_array(expr, path)
+
+  @doc "Extracts a literal value from expr at the specified path. If you specify RETURNING and an SQL type name (such as VARCHAR, BIGINT, DOUBLE, etc) the function plans the query using the suggested type. Otherwise, it attempts to infer the type based on the context. If it can't infer the type, it defaults to VARCHAR."
+  sql_function json_value(expr, path)
+
+  @doc "Extracts a literal value from expr at the specified path. If you specify RETURNING and an SQL type name (such as VARCHAR, BIGINT, DOUBLE, etc) the function plans the query using the suggested type. Otherwise, it attempts to infer the type based on the context. If it can't infer the type, it defaults to VARCHAR."
+  sql_function json_value(expr, path, type), placeholders: "?, ? RETURNING ?"
+
+  @doc "Parses expr into a COMPLEX<json> object. This operator deserializes JSON values when processing them, translating stringified JSON into a nested structure. If the input is not a VARCHAR or it is invalid JSON, this function will result in an error."
+  sql_function parse_json(expr)
+
+  @doc "Parses expr into a COMPLEX<json> object. This operator deserializes JSON values when processing them, translating stringified JSON into a nested structure. If the input is not a VARCHAR or it is invalid JSON, this function will result in a NULL value."
+  sql_function try_parse_json(expr)
+
+  @doc "Serializes expr into a JSON string."
+  sql_function to_json_string(expr)
+
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
-  sql_function parse_json(expr)
 end
-
-# Function	Description
-# MV_FILTER_ONLY(expr, arr)	Filters multi-value expr to include only values contained in array arr.
-# MV_FILTER_NONE(expr, arr)	Filters multi-value expr to include no values contained in array arr.
-# MV_LENGTH(arr)	Returns length of the array expression.
-# MV_OFFSET(arr, long)	Returns the array element at the 0-based index supplied, or null for an out of range index.
-# MV_ORDINAL(arr, long)	Returns the array element at the 1-based index supplied, or null for an out of range index.
-# MV_CONTAINS(arr, expr)	If expr is a scalar type, returns 1 if arr contains expr. If expr is an array, returns 1 if arr contains all elements of expr. Otherwise returns 0.
-# MV_OVERLAP(arr1, arr2)	Returns 1 if arr1 and arr2 have any elements in common, else 0.
-# MV_OFFSET_OF(arr, expr)	Returns the 0-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
-# MV_ORDINAL_OF(arr, expr)	Returns the 1-based index of the first occurrence of expr in the array. If no matching elements exist in the array, returns null or -1 if druid.generic.useDefaultValueForNull=true (deprecated legacy mode).
-# MV_PREPEND(expr, arr)	Adds expr to the beginning of arr, the resulting array type determined by the type arr.
-# MV_APPEND(arr, expr)	Appends expr to arr, the resulting array type determined by the type of arr.
-# MV_CONCAT(arr1, arr2)	Concatenates arr2 to arr1. The resulting array type is determined by the type of arr1.
-# MV_SLICE(arr, start, end)	Returns the subarray of arr from the 0-based index start(inclusive) to end(exclusive), or null, if start is less than 0, greater than length of arr or greater than end.
-# MV_TO_STRING(arr, str)	Joins all elements of arr by the delimiter specified by str.
-# STRING_TO_MV(str1, str2)	Splits str1 into an array on the delimiter specified by str2, which is a regular expression.
-# MV_TO_ARRAY(str)	Converts a multi-value string from a VARCHAR to a VARCHAR ARRAY.
