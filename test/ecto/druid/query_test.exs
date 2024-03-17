@@ -1444,4 +1444,11 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT TO_JSON_STRING(t0.\"json\") FROM \"test\" AS t0", []}
     end
   end
+
+  describe "table functions" do
+    test "table/1 and extern/3" do
+      sql = from(t in "test", select: table(extern("{}", "{}", "{}"))) |> to_sql()
+      assert sql == {"SELECT TABLE(EXTERN('{}', '{}', '{}')) FROM \"test\" AS t0", []}
+    end
+  end
 end

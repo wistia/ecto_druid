@@ -950,6 +950,7 @@ defmodule Ecto.Druid.Query do
   @doc "Serializes expr into a JSON string."
   sql_function to_json_string(expr)
 
+  # Table functions
   sql_function table(source)
   sql_function extern(input_source, input_format, row_signature)
 end
