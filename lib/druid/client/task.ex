@@ -10,4 +10,10 @@ defmodule Druid.Client.Task do
   def status(task_id) do
     Req.new(method: :get, url: @task_status_path, path_params: [task_id: task_id])
   end
+
+  @task_result_path "/druid/indexer/v1/task/:task_id"
+  @spec result(String.t()) :: Req.t()
+  def result(task_id) do
+    Req.new(method: :get, url: @task_result_path, path_params: [task_id: task_id])
+  end
 end

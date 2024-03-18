@@ -27,7 +27,8 @@ defmodule Ecto.Adapters.Druid.MixProject do
     [
       {:ecto_sql, "~> 3.7"},
       {:req, "~> 0.4.9"},
-      {:jason, "~> 1.0"}
+      {:jason, "~> 1.0"},
+      {:plug, "~> 1.15", only: :test}
     ]
   end
 end

@@ -15,9 +15,13 @@ defmodule Druid.Client do
 
   @spec request!(Req.t(), Keyword.t()) :: term
   def request!(request, opts) do
-    finch = Keyword.fetch!(opts, :finch)
+    request_opts =
+      [base_url: base_url(opts)]
+      |> put_present(:plug, Keyword.get(opts, :plug))
+      |> put_present(:adapter, Keyword.get(opts, :adapter))
+      |> put_present(:finch, Keyword.get(opts, :finch))
 
-    response = Req.request!(request, base_url: base_url(opts), finch: finch)
+    response = Req.request!(request, request_opts)
 
     case response.status do
       code when code in 200..299 ->
@@ -44,5 +48,12 @@ defmodule Druid.Client do
       port: port
     }
     |> URI.to_string()
+  end
+
+  defp put_present(opts, key, value) do
+    case value do
+      nil -> opts
+      _ -> Keyword.put(opts, key, value)
+    end
   end
 end
