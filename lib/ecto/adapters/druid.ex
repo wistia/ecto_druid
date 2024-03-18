@@ -13,6 +13,10 @@ defmodule Ecto.Adapters.Druid do
         Ecto.Adapters.SQL.to_sql(:all, get_dynamic_repo(), query)
       end
 
+      def native_query(query, opts \\ []) do
+        Ecto.Adapters.Druid.native_query(get_dynamic_repo(), query, opts)
+      end
+
       def insert_all(schema_or_source, entries, opts \\ []) do
         repo = get_dynamic_repo()
 
@@ -110,5 +114,12 @@ defmodule Ecto.Adapters.Druid do
   @impl Ecto.Adapter.Queryable
   def stream(_adapter_meta, _query_meta, _query_cache, _params, _opts) do
     []
+  end
+
+  def native_query(repo, query, opts) do
+    request_opts = repo.config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+
+    Druid.Client.Native.query(query)
+    |> Druid.Client.request!(request_opts)
   end
 end

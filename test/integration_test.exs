@@ -54,4 +54,27 @@ defmodule IntegrationTest do
              }
            ]
   end
+
+  test "native query" do
+    query = %{
+      queryType: "timeseries",
+      dataSource: "wikipedia",
+      granularity: "all",
+      intervals: [
+        "2013-01-01/2048-01-02"
+      ],
+      aggregations: [
+        %{type: "longSum", name: "added", fieldName: "added"},
+        %{type: "longSum", name: "deleted", fieldName: "deleted"}
+      ],
+      limit: 3
+    }
+
+    assert TestRepo.native_query(query) == [
+             %{
+               "result" => %{"added" => 11_774_265, "deleted" => 278_288},
+               "timestamp" => "2016-06-27T00:00:00.000Z"
+             }
+           ]
+  end
 end
