@@ -12,7 +12,8 @@ defmodule Ecto.Adapters.Druid.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      docs: docs()
+      docs: docs(),
+      aliases: [publish: ["hex.publish", &git_tag/1]]
     ]
   end
 
@@ -67,5 +68,11 @@ defmodule Ecto.Adapters.Druid.MixProject do
         ]
       ]
     ]
+  end
+
+  defp git_tag(_args) do
+    tag = "v" <> Mix.Project.config()[:version]
+    System.cmd("git", ["tag", tag])
+    System.cmd("git", ["push", "origin", tag])
   end
 end
