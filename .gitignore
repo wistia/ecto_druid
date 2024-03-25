@@ -20,7 +20,7 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-ecto_adapters_druid-*.tar
+ecto_druid-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
