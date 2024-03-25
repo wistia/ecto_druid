@@ -6,11 +6,13 @@ defmodule Ecto.Adapters.Druid.MixProject do
 
   def project do
     [
-      app: :ecto_adapters_druid,
+      app: :ecto_druid,
+      description: "Ecto adapter for Druid",
       version: @version,
       elixir: "~> 1.16",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
+      package: package(),
       deps: deps(),
       docs: docs(),
       aliases: [publish: ["hex.publish", &git_tag/1]]
@@ -35,6 +37,17 @@ defmodule Ecto.Adapters.Druid.MixProject do
       {:jason, "~> 1.0"},
       {:plug, "~> 1.15", only: :test},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+    ]
+  end
+
+  defp package do
+    [
+      maintainers: ["Allen Madsen", "Garrett Schroath", "Wistia"],
+      licenses: ["Apache-2.0"],
+      links: %{
+        "GitHub" => @source_url,
+        "Documentation" => "https://hexdocs.pm/ecto_druid"
+      }
     ]
   end
 

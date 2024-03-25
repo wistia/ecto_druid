@@ -8,7 +8,6 @@ defmodule Ecto.Adapters.Druid do
 
       defp deps do
         [
-          {:ecto_sql, "~> 3.7"},
           {:ecto_adapters_druid, "~> 0.1.0"}
         ]
       end
