@@ -42,7 +42,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
 
   defp package do
     [
-      maintainers: ["Allen Madsen", "Garrett Schroath", "Wistia"],
+      maintainers: ["Allen Madsen", "Garrett Schroath", "Konstantin Minevskiy", "Wistia"],
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
