@@ -1,4 +1,6 @@
 defmodule Ecto.Adapters.Druid.Query do
+  @moduledoc false
+
   @parent_as __MODULE__
   alias Ecto.Query.{BooleanExpr, JoinExpr, QueryExpr, WithExpr}
 

@@ -297,9 +297,7 @@ defmodule Ecto.Druid.Query do
     Ecto.Druid.Util.sql_function_body(
       "EXTRACT",
       "#{unit} FROM ?",
-      [timestamp_expr],
-      nil,
-      {"(", ")"}
+      [timestamp_expr]
     )
   end
 
@@ -309,9 +307,7 @@ defmodule Ecto.Druid.Query do
     Ecto.Druid.Util.sql_function_body(
       "FLOOR",
       "? TO #{unit}",
-      [timestamp_expr],
-      nil,
-      {"(", ")"}
+      [timestamp_expr]
     )
   end
 
@@ -321,9 +317,7 @@ defmodule Ecto.Druid.Query do
     Ecto.Druid.Util.sql_function_body(
       "CEIL",
       "? TO #{unit}",
-      [timestamp_expr],
-      nil,
-      {"(", ")"}
+      [timestamp_expr]
     )
   end
 
@@ -333,9 +327,7 @@ defmodule Ecto.Druid.Query do
     Ecto.Druid.Util.sql_function_body(
       "TIMESTAMPADD",
       "#{unit}, ?, ?",
-      [count, timestamp],
-      nil,
-      {"(", ")"}
+      [count, timestamp]
     )
   end
 
@@ -345,9 +337,7 @@ defmodule Ecto.Druid.Query do
     Ecto.Druid.Util.sql_function_body(
       "TIMESTAMPDIFF",
       "#{unit}, ?, ?",
-      [timestamp1, timestamp2],
-      nil,
-      {"(", ")"}
+      [timestamp1, timestamp2]
     )
   end
 
@@ -920,9 +910,7 @@ defmodule Ecto.Druid.Query do
     Ecto.Druid.Util.sql_function_body(
       "JSON_OBJECT",
       placeholders,
-      args,
-      nil,
-      {"(", ")"}
+      args
     )
   end
 

@@ -1,6 +1,43 @@
 defmodule Ecto.Adapters.Druid do
   @moduledoc """
-  Documentation for `Ecto.Adapters.Druid`.
+  This adapter allows you to use Druid as a database with Ecto.
+
+  ## Installation
+
+  To use the Druid adapter, you need to add it to your `mix.exs` file:
+
+      defp deps do
+        [
+          {:ecto_sql, "~> 3.7"},
+          {:ecto_adapters_druid, "~> 0.1.0"}
+        ]
+      end
+
+  ## Usage
+
+  You can now use Ecto with Druid by defining a repository that uses the Druid adapter:
+
+      defmodule MyApp.Repo do
+        use Ecto.Repo,
+          otp_app: :my_app,
+          adapter: Ecto.Adapters.Druid
+      end
+
+  ## Configuration
+
+  Then you need to configure your repository to use the Druid adapter:
+
+      config :my_app, MyApp.Repo,
+        host: "localhost",
+        port: 8082
+        finch_opts: [pools: %{default: [size: 10]}]
+
+  The following options are supported:
+
+  * `:host` - The host of the Druid server.
+  * `:port` - The port of the Druid server.
+  * `:scheme` - The scheme of the Druid server (http or https).
+  * `:finch_opts` - [Options](https://hexdocs.pm/finch/Finch.html#start_link/1-options) to pass to Finch when making requests to Druid.
   """
 
   @behaviour Ecto.Adapter
@@ -89,6 +126,7 @@ defmodule Ecto.Adapters.Druid do
     {Enum.count(values), values}
   end
 
+  @doc false
   def insert_all(
         adapter_meta,
         schema_meta,
@@ -116,6 +154,7 @@ defmodule Ecto.Adapters.Druid do
     []
   end
 
+  @doc false
   def native_query(repo, query, opts) do
     request_opts = repo.config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
 

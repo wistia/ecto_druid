@@ -1,4 +1,6 @@
 defmodule Ecto.Adapters.Druid.Ingest do
+  @moduledoc false
+
   def insert_all(
         adapter_meta,
         schema_meta,

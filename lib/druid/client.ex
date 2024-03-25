@@ -1,11 +1,23 @@
 defmodule Druid.Client do
+  @moduledoc """
+  A client for querying Druid.
+  """
+
   @default_scheme "http"
 
   defmodule RequestError do
     defexception [:message]
   end
 
-  @spec request(Req.t(), Keyword.t()) :: {:ok, term} | {:error, term}
+  @doc """
+  Makes a request to Druid.
+
+  ## Examples
+
+      Druid.Client.Task.all()
+      |> Druid.Client.request(host: "localhost", port: 8082)
+  """
+  @spec request(Req.Request.t(), Keyword.t()) :: {:ok, term} | {:error, term}
   def request(req, opts) do
     {:ok, request!(req, opts)}
   rescue
@@ -13,7 +25,15 @@ defmodule Druid.Client do
       {:error, error}
   end
 
-  @spec request!(Req.t(), Keyword.t()) :: term
+  @doc """
+  Makes a request to Druid.
+
+  ## Examples
+
+      Druid.Client.Task.all()
+      |> Druid.Client.request!(host: "localhost", port: 8082)
+  """
+  @spec request!(Req.Request.t(), Keyword.t()) :: term
   def request!(request, opts) do
     request_opts =
       [base_url: base_url(opts)]

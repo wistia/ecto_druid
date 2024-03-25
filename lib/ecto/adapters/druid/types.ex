@@ -1,4 +1,6 @@
 defmodule Ecto.Adapters.Druid.Types do
+  @moduledoc false
+
   # Map database type to elixir type
   def dumpers(:binary_id, value), do: [Ecto.UUID, value]
   def dumpers(:complex, value), do: [:string, value]
