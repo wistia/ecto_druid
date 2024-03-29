@@ -8,7 +8,7 @@ defmodule Ecto.Adapters.Druid do
 
       defp deps do
         [
-          {:ecto_druid, "~> 0.1.0"}
+          {:ecto_druid, "~> 0.3.0"}
         ]
       end
 
