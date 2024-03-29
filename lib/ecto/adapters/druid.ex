@@ -53,17 +53,18 @@ defmodule Ecto.Adapters.Druid do
         Ecto.Adapters.Druid.native_query(get_dynamic_repo(), query, opts)
       end
 
-      def insert_all(schema_or_source, entries, opts \\ []) do
-        repo = get_dynamic_repo()
+      # TODO: Implement insert_all
+      # def insert_all(schema_or_source, entries, opts \\ []) do
+      #   repo = get_dynamic_repo()
 
-        Ecto.Repo.Schema.insert_all(
-          __MODULE__,
-          repo,
-          schema_or_source,
-          entries,
-          Ecto.Repo.Supervisor.tuplet(repo, prepare_opts(:insert_all, opts))
-        )
-      end
+      #   Ecto.Repo.Schema.insert_all(
+      #     __MODULE__,
+      #     repo,
+      #     schema_or_source,
+      #     entries,
+      #     Ecto.Repo.Supervisor.tuplet(repo, prepare_opts(:insert_all, opts))
+      #   )
+      # end
     end
   end
 
