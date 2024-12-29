@@ -156,7 +156,7 @@ defmodule Ecto.Adapters.Druid do
 
   @doc false
   def native_query(repo, query, opts) do
-    request_opts = repo.config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+    request_opts = repo.config() |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
 
     Druid.Client.Native.query(query)
     |> Druid.Client.request!(request_opts)
