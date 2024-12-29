@@ -2,7 +2,7 @@ defmodule Ecto.Adapters.Druid.Query do
   @moduledoc false
 
   @parent_as __MODULE__
-  alias Ecto.Query.{BooleanExpr, JoinExpr, QueryExpr, WithExpr}
+  alias Ecto.Query.{BooleanExpr, JoinExpr, QueryExpr, WithExpr, ByExpr}
 
   def all(query, as_prefix \\ []) do
     sources = create_names(query, as_prefix)
@@ -411,7 +411,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp group_by(%{group_bys: group_bys} = query, sources) do
     [
       " GROUP BY "
-      | Enum.map_intersperse(group_bys, ", ", fn %QueryExpr{expr: expr} ->
+      | Enum.map_intersperse(group_bys, ", ", fn %ByExpr{expr: expr} ->
           Enum.map_intersperse(expr, ", ", &expr(&1, sources, query))
         end)
     ]
