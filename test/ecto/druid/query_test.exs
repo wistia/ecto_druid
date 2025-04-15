@@ -14,6 +14,15 @@ defmodule Ecto.Druid.QueryTest do
     :ok
   end
 
+  describe "aggregate filters" do
+    test "filter/2" do
+      sql = from(t in "test", select: count(t.id) |> filter(t.id > 1)) |> to_sql()
+
+      assert sql ==
+               {"SELECT count(t0.\"id\") FILTER (WHERE t0.\"id\" > 1) FROM \"test\" AS t0", []}
+    end
+  end
+
   describe "keyword like functions" do
     test "distinct/1" do
       sql = from(t in "test", select: distinct(t.id)) |> to_sql()

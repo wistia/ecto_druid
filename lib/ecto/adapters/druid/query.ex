@@ -41,7 +41,7 @@ defmodule Ecto.Adapters.Druid.Query do
     %{from: %{source: source}, select: select} = query
 
     if select do
-      error!(nil, ":select is not supported in update_all by MySQL")
+      error!(nil, ":select is not supported in update_all by Druid")
     end
 
     sources = create_names(query, [])
@@ -64,7 +64,7 @@ defmodule Ecto.Adapters.Druid.Query do
 
   def delete_all(query) do
     if query.select do
-      error!(nil, ":select is not supported in delete_all by MySQL")
+      error!(nil, ":select is not supported in delete_all by Druid")
     end
 
     sources = create_names(query, [])
@@ -92,15 +92,15 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   def insert(_prefix, _table, _header, _rows, _on_conflict, _returning, []) do
-    error!(nil, ":returning is not supported in insert/insert_all by MySQL")
+    error!(nil, ":returning is not supported in insert/insert_all by Druid")
   end
 
   def insert(_prefix, _table, _header, _rows, _on_conflict, _returning, _placeholders) do
-    error!(nil, ":placeholders is not supported by MySQL")
+    error!(nil, ":placeholders is not supported by Druid")
   end
 
   defp on_conflict({_, _, [_ | _]}, _header) do
-    error!(nil, ":conflict_target is not supported in insert/insert_all by MySQL")
+    error!(nil, ":conflict_target is not supported in insert/insert_all by Druid")
   end
 
   defp on_conflict({:raise, _, []}, _header) do
@@ -129,7 +129,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp on_conflict({_query, _, []}, _header) do
     error!(
       nil,
-      "Using a query with :where in combination with the :on_conflict option is not supported by MySQL"
+      "Using a query with :where in combination with the :on_conflict option is not supported by Druid"
     )
   end
 
@@ -223,7 +223,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp distinct(%QueryExpr{expr: false}, _sources, _query), do: []
 
   defp distinct(%QueryExpr{expr: exprs}, _sources, query) when is_list(exprs) do
-    error!(query, "DISTINCT with multiple columns is not supported by MySQL")
+    error!(query, "DISTINCT with multiple columns is not supported by Druid")
   end
 
   defp select([], _sources, _query),
@@ -236,14 +236,14 @@ defmodule Ecto.Adapters.Druid.Query do
           {nil, source, nil} ->
             error!(
               query,
-              "MySQL adapter does not support selecting all fields from fragment #{source}. " <>
+              "Druid adapter does not support selecting all fields from fragment #{source}. " <>
                 "Please specify exactly which fields you want to select"
             )
 
           {source, _, nil} ->
             error!(
               query,
-              "MySQL adapter does not support selecting all fields from #{source} without a schema. " <>
+              "Druid adapter does not support selecting all fields from #{source} without a schema. " <>
                 "Please specify a schema or specify exactly which fields you want to select"
             )
 
@@ -275,7 +275,7 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp cte_expr({_name, %{materialized: materialized}, _cte}, _sources, query)
        when is_boolean(materialized) do
-    error!(query, "MySQL adapter does not support materialized CTEs")
+    error!(query, "Druid adapter does not support materialized CTEs")
   end
 
   defp cte_expr({name, opts, cte}, sources, query) do
@@ -296,7 +296,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp cte_query(%Ecto.Query{} = query, _sources, _parent_query, operation) do
     error!(
       query,
-      "MySQL adapter does not support data-modifying CTEs (operation: #{operation})"
+      "Druid adapter does not support data-modifying CTEs (operation: #{operation})"
     )
   end
 
@@ -335,7 +335,7 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp update_op(command, _quoted_key, _value, _sources, query) do
-    error!(query, "Unknown update operation #{inspect(command)} for MySQL")
+    error!(query, "Unknown update operation #{inspect(command)} for Druid")
   end
 
   defp using_join(%{joins: []}, _kind, _sources), do: {[], []}
@@ -346,7 +346,7 @@ defmodule Ecto.Adapters.Druid.Query do
         %JoinExpr{source: %Ecto.SubQuery{params: [_ | _]}} ->
           error!(
             query,
-            "MySQL adapter does not support subqueries with parameters in update_all/delete_all joins"
+            "Druid adapter does not support subqueries with parameters in update_all/delete_all joins"
           )
 
         %JoinExpr{qual: :inner, ix: ix, source: source} ->
@@ -354,7 +354,7 @@ defmodule Ecto.Adapters.Druid.Query do
           [join, " AS " | name]
 
         %JoinExpr{qual: qual} ->
-          error!(query, "MySQL adapter supports only inner joins on #{kind}, got: \"#{qual}\"")
+          error!(query, "Druid adapter supports only inner joins on #{kind}, got: \"#{qual}\"")
       end)
 
     wheres =
@@ -396,7 +396,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp join_qual(:cross_lateral, _), do: " CROSS JOIN LATERAL "
 
   defp join_qual(qual, query),
-    do: error!(query, "join qualifier #{inspect(qual)} is not supported in the MySQL adapter")
+    do: error!(query, "join qualifier #{inspect(qual)} is not supported in the Druid adapter")
 
   defp where(%{wheres: wheres} = query, sources) do
     boolean(" WHERE ", wheres, sources, query)
@@ -461,14 +461,14 @@ defmodule Ecto.Adapters.Druid.Query do
     case dir do
       :asc -> str
       :desc -> [str | " DESC"]
-      _ -> error!(query, "#{dir} is not supported in ORDER BY in MySQL")
+      _ -> error!(query, "#{dir} is not supported in ORDER BY in Druid")
     end
   end
 
   defp limit(%{limit: nil}, _sources), do: []
 
   defp limit(%{limit: %{with_ties: true}} = query, _sources) do
-    error!(query, "MySQL adapter does not support the \":with_ties\" limit option")
+    error!(query, "Druid adapter does not support the \":with_ties\" limit option")
   end
 
   defp limit(%{limit: %{expr: expr}} = query, sources) do
@@ -583,8 +583,9 @@ defmodule Ecto.Adapters.Druid.Query do
     ["NOT (", expr(expr, sources, query), ?)]
   end
 
-  defp expr({:filter, _, _}, _sources, query) do
-    error!(query, "MySQL adapter does not support aggregate filters")
+  defp expr({:filter, _, [agg, filter]}, sources, query) do
+    aggregate = expr(agg, sources, query)
+    [aggregate, " FILTER (WHERE ", expr(filter, sources, query), ?)]
   end
 
   defp expr(%Ecto.SubQuery{query: query}, sources, parent_query) do
@@ -599,7 +600,7 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp expr({:fragment, _, [kw]}, _sources, query) when is_list(kw) or tuple_size(kw) == 3 do
-    error!(query, "MySQL adapter does not support keyword or interpolated fragments")
+    error!(query, "Druid adapter does not support keyword or interpolated fragments")
   end
 
   defp expr({:fragment, _, parts}, sources, query) do
@@ -645,7 +646,7 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp expr({:ilike, _, [_, _]}, _sources, query) do
-    error!(query, "ilike is not supported by MySQL")
+    error!(query, "ilike is not supported by Druid")
   end
 
   defp expr({:over, _, [agg, name]}, sources, query) when is_atom(name) do
@@ -695,7 +696,7 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp expr(list, _sources, query) when is_list(list) do
-    error!(query, "Array type is not supported by MySQL")
+    error!(query, "Array type is not supported by Druid")
   end
 
   defp expr(%Decimal{} = decimal, _sources, _query) do
@@ -738,7 +739,7 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp expr(literal, _sources, _query) when is_float(literal) do
-    # MySQL doesn't support float cast
+    # Druid doesn't support float cast
     Float.to_string(literal)
   end
 
@@ -875,11 +876,11 @@ defmodule Ecto.Adapters.Druid.Query do
 
   def execute_ddl({:create, %Index{} = index}) do
     if index.where do
-      error!(nil, "MySQL adapter does not support where in indexes")
+      error!(nil, "Druid adapter does not support where in indexes")
     end
 
     if index.nulls_distinct == false do
-      error!(nil, "MySQL adapter does not support nulls_distinct set to false in indexes")
+      error!(nil, "Druid adapter does not support nulls_distinct set to false in indexes")
     end
 
     [
@@ -901,16 +902,16 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   def execute_ddl({:create_if_not_exists, %Index{}}),
-    do: error!(nil, "MySQL adapter does not support create if not exists for index")
+    do: error!(nil, "Druid adapter does not support create if not exists for index")
 
   def execute_ddl({:create, %Constraint{check: check}}) when is_binary(check),
-    do: error!(nil, "MySQL adapter does not support check constraints")
+    do: error!(nil, "Druid adapter does not support check constraints")
 
   def execute_ddl({:create, %Constraint{exclude: exclude}}) when is_binary(exclude),
-    do: error!(nil, "MySQL adapter does not support exclusion constraints")
+    do: error!(nil, "Druid adapter does not support exclusion constraints")
 
   def execute_ddl({:drop, %Index{}, :cascade}),
-    do: error!(nil, "MySQL adapter does not support cascade in drop index")
+    do: error!(nil, "Druid adapter does not support cascade in drop index")
 
   def execute_ddl({:drop, %Index{} = index, :restrict}) do
     [
@@ -925,13 +926,13 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   def execute_ddl({:drop, %Constraint{}, _}),
-    do: error!(nil, "MySQL adapter does not support constraints")
+    do: error!(nil, "Druid adapter does not support constraints")
 
   def execute_ddl({:drop_if_exists, %Constraint{}, _}),
-    do: error!(nil, "MySQL adapter does not support constraints")
+    do: error!(nil, "Druid adapter does not support constraints")
 
   def execute_ddl({:drop_if_exists, %Index{}, _}),
-    do: error!(nil, "MySQL adapter does not support drop if exists for index")
+    do: error!(nil, "Druid adapter does not support drop if exists for index")
 
   def execute_ddl({:rename, %Index{} = index, new_name}) do
     [
@@ -973,7 +974,7 @@ defmodule Ecto.Adapters.Druid.Query do
   def execute_ddl(string) when is_binary(string), do: [string]
 
   def execute_ddl(keyword) when is_list(keyword),
-    do: error!(nil, "MySQL adapter does not support keyword lists in execute")
+    do: error!(nil, "Druid adapter does not support keyword lists in execute")
 
   def ddl_logs(_), do: []
 
@@ -1152,7 +1153,7 @@ defmodule Ecto.Adapters.Druid.Query do
     do: []
 
   defp options_expr(keyword) when is_list(keyword),
-    do: error!(nil, "MySQL adapter does not support keyword lists in :options")
+    do: error!(nil, "Druid adapter does not support keyword lists in :options")
 
   defp options_expr(options),
     do: [?\s, to_string(options)]
@@ -1263,7 +1264,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp reference_on_delete({:nilify, _columns}) do
     error!(
       nil,
-      "MySQL adapter does not support the \"{:nilify, columns}\" action for \":on_delete\""
+      "Druid adapter does not support the \"{:nilify, columns}\" action for \":on_delete\""
     )
   end
 
@@ -1356,7 +1357,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp ecto_size_to_db(type), do: ecto_to_db(type)
 
   defp ecto_to_db(type, query \\ nil)
-  defp ecto_to_db({:array, _}, query), do: error!(query, "Array type is not supported by MySQL")
+  defp ecto_to_db({:array, _}, query), do: error!(query, "Array type is not supported by Druid")
   defp ecto_to_db(:id, _query), do: "bigint"
   defp ecto_to_db(:serial, _query), do: "bigint unsigned not null auto_increment"
   defp ecto_to_db(:bigserial, _query), do: "bigint unsigned not null auto_increment"
@@ -1364,7 +1365,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp ecto_to_db(:string, _query), do: "varchar"
   defp ecto_to_db(:float, _query), do: "double"
   defp ecto_to_db(:binary, _query), do: "blob"
-  # MySQL does not support uuid
+  # Druid does not support uuid
   defp ecto_to_db(:uuid, _query), do: "binary(16)"
   defp ecto_to_db(:map, _query), do: "json"
   defp ecto_to_db({:map, _}, _query), do: "json"
