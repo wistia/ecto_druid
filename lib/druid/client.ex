@@ -6,7 +6,7 @@ defmodule Druid.Client do
   @default_scheme "http"
 
   defmodule RequestError do
-    defexception [:message]
+    defexception [:message, :response]
   end
 
   @doc """
@@ -40,6 +40,8 @@ defmodule Druid.Client do
       |> put_present(:plug, Keyword.get(opts, :plug))
       |> put_present(:adapter, Keyword.get(opts, :adapter))
       |> put_present(:finch, Keyword.get(opts, :finch))
+      |> put_present(:auth, Keyword.get(opts, :auth))
+      |> put_present(:receive_timeout, Keyword.get(opts, :timeout))
 
     response = Req.request!(request, request_opts)
 
@@ -49,7 +51,8 @@ defmodule Druid.Client do
 
       code when code in 400..599 ->
         raise RequestError,
-              "Error (#{response.status}) when querying Druid.\n\t#{inspect(response.body)}"
+          message: "Error (#{response.status}) when querying Druid.\n\t#{inspect(response.body)}",
+          response: response
 
       _ ->
         raise RuntimeError,

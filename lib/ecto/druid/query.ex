@@ -802,6 +802,9 @@ defmodule Ecto.Druid.Query do
 
   # Array functions
 
+  @doc "Checks if the scalar value is present in the array. Returns false if the value is non-null, or UNKNOWN if the value is NULL. Returns UNKNOWN if the array is NULL."
+  sql_function scalar_in_array(expr, arr)
+
   @doc "Constructs a SQL ARRAY literal from the expression arguments, using the type of the first argument as the output array type."
   sql_function array(exprs), wrapper: {"[", "]"}
 

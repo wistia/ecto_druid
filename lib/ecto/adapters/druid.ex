@@ -28,7 +28,7 @@ defmodule Ecto.Adapters.Druid do
 
       config :my_app, MyApp.Repo,
         host: "localhost",
-        port: 8082
+        port: 8082,
         finch_opts: [pools: %{default: [size: 10]}]
 
   The following options are supported:
@@ -36,6 +36,7 @@ defmodule Ecto.Adapters.Druid do
   * `:host` - The host of the Druid server.
   * `:port` - The port of the Druid server.
   * `:scheme` - The scheme of the Druid server (http or https).
+  * `:auth` - Authentication options. See `Req` documentation for details.
   * `:finch_opts` - [Options](https://hexdocs.pm/finch/Finch.html#start_link/1-options) to pass to Finch when making requests to Druid.
   """
 
