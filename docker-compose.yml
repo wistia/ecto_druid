@@ -33,29 +33,20 @@ services:
       - zkdata:/data
       - zkdatalog:/datalog
 
-  minio:
-    image: quay.io/minio/minio:RELEASE.2023-03-20T20-16-18Z
-    command: server --console-address ":9001" /data
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.80
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json
     ports:
-      - 9900:9000
-      - 9901:9001
+      - 9900:8333
     healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "-f",
-          "http://minio:9000/minio/health/live"
-        ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
-    hostname: minio
+      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8333/healthz" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    hostname: seaweedfs
     volumes:
-      - miniodata:/data
+      - ./docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+      - seaweedfsdata:/data
 
   druid:
     build:
@@ -74,12 +65,12 @@ services:
     depends_on:
       - zookeeper
       - postgres
-      - minio
+      - seaweedfs
     environment:
       AWS_REGION: us-east-1
 
 volumes:
-  miniodata:
+  seaweedfsdata:
   postgresdata:
   zkdata:
   zkdatalog:

@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "druid",
+      "credentials": [
+        {
+          "accessKey": "seaweedfs",
+          "secretKey": "seaweedfs123"
+        }
+      ],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}
