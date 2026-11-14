@@ -14,13 +14,8 @@ defmodule Ecto.Adapters.Druid.Wikipedia do
   def by_page(page) do
     import Ecto.Query
 
-    import Ecto.Druid.Query,
-      only: [
-        ds_theta: 2,
-        approx_count_distinct_ds_theta: 2,
-        ds_quantiles_sketch: 2,
-        ds_histogram: 2
-      ]
+    import Ecto.Druid.Query.Theta, only: [ds_theta: 2, approx_count_distinct_ds_theta: 2]
+    import Ecto.Druid.Query.Quantiles, only: [ds_quantiles_sketch: 2, ds_histogram: 2]
 
     from(
       m in __MODULE__,
@@ -42,14 +37,9 @@ defmodule Ecto.Adapters.Druid.Wikipedia do
   def over_time(time_range) do
     import Ecto.Query
 
-    import Ecto.Druid.Query,
-      only: [
-        ds_theta: 2,
-        approx_count_distinct_ds_theta: 2,
-        ds_quantiles_sketch: 2,
-        ds_histogram: 2,
-        time_in_interval: 2
-      ]
+    import Ecto.Druid.Query.Theta, only: [ds_theta: 2, approx_count_distinct_ds_theta: 2]
+    import Ecto.Druid.Query.Quantiles, only: [ds_quantiles_sketch: 2, ds_histogram: 2]
+    import Ecto.Druid.Query.DateTime, only: [time_in_interval: 2]
 
     from(
       m in __MODULE__,
@@ -69,6 +59,32 @@ defmodule Ecto.Adapters.Druid.Wikipedia do
       },
       group_by: [m.time, m.page],
       limit: 3
+    )
+  end
+
+  def hll_by_page(page) do
+    import Ecto.Query
+    import Ecto.Druid.Query.HLL, only: [approx_count_distinct_ds_hll: 1, ds_hll: 1]
+
+    from(
+      m in __MODULE__,
+      where: m.page == ^page,
+      select: %{
+        unique_users: approx_count_distinct_ds_hll(m.user),
+        hll: ds_hll(m.user)
+      }
+    )
+  end
+
+  def page_rankings do
+    import Ecto.Query
+
+    from(
+      m in __MODULE__,
+      where: m.page in ["'t Suydevelt", "(1094) Siberia", "(2383) Bradley"],
+      group_by: m.page,
+      select: %{page: m.page, rank: over(row_number(), order_by: m.page)},
+      order_by: m.page
     )
   end
 end

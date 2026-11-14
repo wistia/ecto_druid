@@ -1,10 +1,10 @@
-FROM apache/druid:28.0.1
+FROM apache/druid:38.0.0
 
-FROM alpine:3.16
+FROM alpine:3.21
 
-RUN apk --update add bash perl curl openjdk8 postgresql-client
+RUN apk --update add bash perl curl openjdk21-jre-headless postgresql-client
 
-COPY --from=0 ./opt/* /opt/druid/
+COPY --from=0 /opt/druid/ /opt/druid/
 
 COPY druid.properties /opt/druid/conf/druid/single-server/nano-quickstart/_common/common.runtime.properties
 COPY druid.conf /opt/druid/conf/supervise/single-server/nano-quickstart.conf
