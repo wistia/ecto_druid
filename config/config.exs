@@ -10,5 +10,5 @@ config :logger,
 
 config :ecto_druid, Ecto.Adapters.Druid.TestRepo,
   host: "localhost",
-  port: 8082,
+  port: 9082,
   scheme: "http"

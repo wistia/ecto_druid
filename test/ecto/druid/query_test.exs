@@ -1,11 +1,8 @@
 defmodule Ecto.Druid.QueryTest do
-  import Kernel,
-    except: [abs: 1, ceil: 1, floor: 1, div: 2, length: 1, trunc: 1, round: 1, case: 2]
-
   alias Ecto.Adapters.Druid.TestRepo
   use ExUnit.Case
   import Ecto.Query
-  import Ecto.Druid.Query
+  use Ecto.Druid.Query
 
   defdelegate to_sql(query), to: TestRepo
 
@@ -1459,5 +1456,217 @@ defmodule Ecto.Druid.QueryTest do
       sql = from(t in "test", select: table(extern("{}", "{}", "{}"))) |> to_sql()
       assert sql == {"SELECT TABLE(EXTERN('{}', '{}', '{}')) FROM \"test\" AS t0", []}
     end
+  end
+
+  describe "HLL sketch aggregations" do
+    test "approx_count_distinct_ds_hll/1" do
+      sql = from(t in "test", select: approx_count_distinct_ds_hll(t.user)) |> to_sql()
+
+      assert sql ==
+               {"SELECT APPROX_COUNT_DISTINCT_DS_HLL(t0.\"user\") FROM \"test\" AS t0", []}
+    end
+
+    test "approx_count_distinct_ds_hll/2" do
+      sql = from(t in "test", select: approx_count_distinct_ds_hll(t.user, 12)) |> to_sql()
+
+      assert sql ==
+               {"SELECT APPROX_COUNT_DISTINCT_DS_HLL(t0.\"user\", 12) FROM \"test\" AS t0", []}
+    end
+
+    test "approx_count_distinct_ds_hll/3" do
+      sql =
+        from(t in "test", select: approx_count_distinct_ds_hll(t.user, 12, "HLL_8")) |> to_sql()
+
+      assert sql ==
+               {"SELECT APPROX_COUNT_DISTINCT_DS_HLL(t0.\"user\", 12, 'HLL_8') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "ds_hll/1" do
+      sql = from(t in "test", select: ds_hll(t.user)) |> to_sql()
+      assert sql == {"SELECT DS_HLL(t0.\"user\") FROM \"test\" AS t0", []}
+    end
+
+    test "ds_hll/2" do
+      sql = from(t in "test", select: ds_hll(t.user, 12)) |> to_sql()
+      assert sql == {"SELECT DS_HLL(t0.\"user\", 12) FROM \"test\" AS t0", []}
+    end
+
+    test "ds_hll/3" do
+      sql = from(t in "test", select: ds_hll(t.user, 12, "HLL_8")) |> to_sql()
+      assert sql == {"SELECT DS_HLL(t0.\"user\", 12, 'HLL_8') FROM \"test\" AS t0", []}
+    end
+  end
+
+  describe "new array and mv functions" do
+    test "scalar_in_array/2" do
+      sql = from(t in "test", select: scalar_in_array(t.id, t.ids)) |> to_sql()
+      assert sql == {"SELECT SCALAR_IN_ARRAY(t0.\"id\", t0.\"ids\") FROM \"test\" AS t0", []}
+    end
+
+    test "mv_filter_regex/2" do
+      sql = from(t in "test", select: mv_filter_regex(t.tags, "^a")) |> to_sql()
+      assert sql == {"SELECT MV_FILTER_REGEX(t0.\"tags\", '^a') FROM \"test\" AS t0", []}
+    end
+
+    test "mv_filter_prefix/2" do
+      sql = from(t in "test", select: mv_filter_prefix(t.tags, "a")) |> to_sql()
+      assert sql == {"SELECT MV_FILTER_PREFIX(t0.\"tags\", 'a') FROM \"test\" AS t0", []}
+    end
+  end
+
+  describe "json_merge" do
+    test "json_merge/1" do
+      sql = from(t in "test", select: json_merge([t.a, t.b])) |> to_sql()
+      assert sql == {"SELECT JSON_MERGE(t0.\"a\", t0.\"b\") FROM \"test\" AS t0", []}
+    end
+  end
+
+  describe "window functions" do
+    test "row_number/0 with inline over" do
+      sql =
+        from(t in "test", select: over(row_number(), partition_by: t.page, order_by: t.added))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT row_number() OVER (PARTITION BY t0.\"page\" ORDER BY t0.\"added\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "rank/0 with named window" do
+      sql =
+        from(t in "test", windows: [w: [partition_by: t.page]], select: over(rank(), :w))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT rank() OVER \"w\" FROM \"test\" AS t0 WINDOW \"w\" AS (PARTITION BY t0.\"page\")",
+                []}
+    end
+
+    test "dense_rank/0" do
+      sql = from(t in "test", select: over(dense_rank(), order_by: t.added)) |> to_sql()
+
+      assert sql ==
+               {"SELECT dense_rank() OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
+    end
+
+    test "percent_rank/0" do
+      sql = from(t in "test", select: over(percent_rank(), order_by: t.added)) |> to_sql()
+
+      assert sql ==
+               {"SELECT percent_rank() OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
+    end
+
+    test "cume_dist/0" do
+      sql = from(t in "test", select: over(cume_dist(), order_by: t.added)) |> to_sql()
+
+      assert sql == {"SELECT cume_dist() OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
+    end
+
+    test "ntile/1" do
+      sql = from(t in "test", select: over(ntile(4), order_by: t.added)) |> to_sql()
+
+      assert sql == {"SELECT ntile(4) OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
+    end
+
+    test "lag/3 with default value" do
+      sql = from(t in "test", select: over(lag(t.added, 1, 0), order_by: t.time)) |> to_sql()
+
+      assert sql ==
+               {"SELECT lag(t0.\"added\", 1, 0) OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "lead/2" do
+      sql = from(t in "test", select: over(lead(t.added, 1), order_by: t.time)) |> to_sql()
+
+      assert sql ==
+               {"SELECT lead(t0.\"added\", 1) OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "first_value/1" do
+      sql = from(t in "test", select: over(first_value(t.added), order_by: t.time)) |> to_sql()
+
+      assert sql ==
+               {"SELECT first_value(t0.\"added\") OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "last_value/1" do
+      sql = from(t in "test", select: over(last_value(t.added), order_by: t.time)) |> to_sql()
+
+      assert sql ==
+               {"SELECT last_value(t0.\"added\") OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
+                []}
+    end
+
+    test "window frame via fragment" do
+      sql =
+        from(t in "test",
+          windows: [
+            w: [
+              partition_by: t.page,
+              order_by: t.time,
+              frame: fragment("ROWS BETWEEN 2 PRECEDING AND CURRENT ROW")
+            ]
+          ],
+          select: over(sum(t.added), :w)
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT sum(t0.\"added\") OVER \"w\" FROM \"test\" AS t0 WINDOW \"w\" AS (PARTITION BY t0.\"page\" ORDER BY t0.\"time\" ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)",
+                []}
+    end
+
+    test "nth_value/2 raises" do
+      assert_raise Ecto.QueryError, ~r/nth_value is not supported by Druid/, fn ->
+        from(t in "test", select: over(nth_value(t.added, 2), order_by: t.time)) |> to_sql()
+      end
+    end
+  end
+
+  describe "unnest" do
+    test "unnest/2 as a cross join source" do
+      sql =
+        from(t in "test", cross_join: u in unnest(t.tags, :tag), select: u.tag) |> to_sql()
+
+      assert sql ==
+               {"SELECT f1.\"tag\" FROM \"test\" AS t0 CROSS JOIN UNNEST(t0.\"tags\") AS f1 (\"tag\")",
+                []}
+    end
+
+    test "unnest/2 with multiple columns" do
+      sql =
+        from(t in "test",
+          cross_join: u in unnest(t.pairs, [:a, :b]),
+          select: {u.a, u.b}
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT f1.\"a\", f1.\"b\" FROM \"test\" AS t0 CROSS JOIN UNNEST(t0.\"pairs\") AS f1 (\"a\", \"b\")",
+                []}
+    end
+  end
+end
+
+defmodule Ecto.Druid.QuerySubmoduleTest do
+  alias Ecto.Adapters.Druid.TestRepo
+  use ExUnit.Case
+  import Ecto.Query
+  import Ecto.Druid.Query.DateTime, only: [time_floor: 2]
+
+  defdelegate to_sql(query), to: TestRepo
+
+  setup do
+    start_supervised!(TestRepo, [])
+    :ok
+  end
+
+  test "submodules can be imported directly" do
+    sql = from(t in "test", select: time_floor(t.time, "PT1H")) |> to_sql()
+    assert sql == {"SELECT TIME_FLOOR(t0.\"time\", 'PT1H') FROM \"test\" AS t0", []}
   end
 end

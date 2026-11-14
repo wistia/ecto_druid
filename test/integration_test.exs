@@ -77,4 +77,40 @@ defmodule IntegrationTest do
              }
            ]
   end
+
+  test "queries with hll sketch aggregations" do
+    assert %{unique_users: 1, hll: hll} = TestRepo.one(Wikipedia.hll_by_page("Black Dahlia"))
+    assert is_binary(hll)
+  end
+
+  test "queries with window functions" do
+    assert TestRepo.all(Wikipedia.page_rankings()) ==
+             [
+               %{page: "'t Suydevelt", rank: 1},
+               %{page: "(1094) Siberia", rank: 2},
+               %{page: "(2383) Bradley", rank: 3}
+             ]
+  end
+
+  test "queries with unnest" do
+    import Ecto.Query
+    import Ecto.Druid.Query.Table, only: [unnest: 2]
+    import Ecto.Druid.Query.Array, only: [array: 1]
+
+    query =
+      from(t in "wikipedia",
+        cross_join: u in unnest(array([1, 2, 3]), :n),
+        where: t.page == "Black Dahlia",
+        group_by: u.n,
+        order_by: u.n,
+        select: u.n
+      )
+
+    assert TestRepo.all(query) == [1, 2, 3]
+  end
+
+  test "queries with a custom sql query context" do
+    assert %{added: 3} =
+             TestRepo.one(Wikipedia.by_page("Black Dahlia"), context: %{sqlTimeZone: "Etc/UTC"})
+  end
 end

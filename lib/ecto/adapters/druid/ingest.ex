@@ -43,6 +43,8 @@ defmodule Ecto.Adapters.Druid.Ingest do
       (placeholders ++ Enum.reverse(params, conflict_params))
       |> Enum.map(&Ecto.Adapters.Druid.Types.to_db/1)
 
+    opts = Ecto.Adapters.Druid.merge_context(adapter_meta.config, opts)
+
     result =
       Druid.Client.SQL.insert(sql, params, opts)
       |> Druid.Client.request!(Keyword.merge(adapter_meta.config, opts))

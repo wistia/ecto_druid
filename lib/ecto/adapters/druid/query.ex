@@ -449,7 +449,7 @@ defmodule Ecto.Adapters.Druid.Query do
   defp order_by(%{order_bys: order_bys} = query, sources) do
     [
       " ORDER BY "
-      | Enum.map_intersperse(order_bys, ", ", fn %QueryExpr{expr: expr} ->
+      | Enum.map_intersperse(order_bys, ", ", fn %{expr: expr} ->
           Enum.map_intersperse(expr, ", ", &order_by_expr(&1, sources, query))
         end)
     ]
@@ -647,6 +647,10 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp expr({:ilike, _, [_, _]}, _sources, query) do
     error!(query, "ilike is not supported by Druid")
+  end
+
+  defp expr({:nth_value, _, _}, _sources, query) do
+    error!(query, "nth_value is not supported by Druid")
   end
 
   defp expr({:over, _, [agg, name]}, sources, query) when is_atom(name) do
@@ -1278,6 +1282,18 @@ defmodule Ecto.Adapters.Druid.Query do
   defp reference_on_update(_), do: []
 
   ## Helpers
+
+  defp get_source(query, sources, ix, {:fragment, meta, [{:raw, "UNNEST(" <> _} | _] = parts}) do
+    {_expr, name, _schema} = elem(sources, ix)
+
+    case List.pop_at(parts, -1) do
+      {{:raw, ") AS " <> cols}, core} ->
+        {expr({:fragment, meta, core ++ [raw: ")"]}, sources, query), [name, ?\s, cols]}
+
+      _ ->
+        {expr({:fragment, meta, parts}, sources, query), name}
+    end
+  end
 
   defp get_source(query, sources, ix, source) do
     {expr, name, _schema} = elem(sources, ix)

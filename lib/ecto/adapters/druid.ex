@@ -8,7 +8,7 @@ defmodule Ecto.Adapters.Druid do
 
       defp deps do
         [
-          {:ecto_druid, "~> 0.3.0"}
+          {:ecto_druid, "~> 0.6.0"}
         ]
       end
 
@@ -28,7 +28,7 @@ defmodule Ecto.Adapters.Druid do
 
       config :my_app, MyApp.Repo,
         host: "localhost",
-        port: 8082
+        port: 8082,
         finch_opts: [pools: %{default: [size: 10]}]
 
   The following options are supported:
@@ -37,6 +37,23 @@ defmodule Ecto.Adapters.Druid do
   * `:port` - The port of the Druid server.
   * `:scheme` - The scheme of the Druid server (http or https).
   * `:finch_opts` - [Options](https://hexdocs.pm/finch/Finch.html#start_link/1-options) to pass to Finch when making requests to Druid.
+  * `:context` - A map of default [SQL query context parameters](https://druid.apache.org/docs/latest/querying/sql-query-context)
+    sent with every query, for example `%{sqlTimeZone: "America/New_York"}`.
+
+  ## SQL query context
+
+  Druid accepts [query context parameters](https://druid.apache.org/docs/latest/querying/query-context-reference)
+  that tune how a query runs (`timeout`, `sqlTimeZone`, `useApproximateTopN`,
+  `useLexicographicTopN`, `realtimeSegmentsMode`, and so on). You can set them:
+
+  * per repo, with the `:context` configuration option above, or
+  * per query, with the `:context` option on any repo call:
+
+        MyApp.Repo.all(query, context: %{sqlTimeZone: "America/New_York"})
+
+  Per-query values override repo config values, which override the adapter
+  defaults. Native queries (`native_query/2`) carry their context inline in the
+  query map instead.
   """
 
   @behaviour Ecto.Adapter
@@ -117,13 +134,25 @@ defmodule Ecto.Adapters.Druid do
     {_, _, {_, sql}} = query
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
 
-    request_opts = repo.config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+    config = repo.config
+    opts = merge_context(config, opts)
+    request_opts = config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
 
     values =
       Druid.Client.SQL.query(sql, params, opts)
       |> Druid.Client.request!(request_opts)
 
     {Enum.count(values), values}
+  end
+
+  @doc false
+  def merge_context(config, opts) do
+    context =
+      config
+      |> Keyword.get(:context, %{})
+      |> Map.merge(Keyword.get(opts, :context, %{}))
+
+    Keyword.put(opts, :context, context)
   end
 
   @doc false
