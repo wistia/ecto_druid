@@ -1,7 +1,7 @@
 defmodule Ecto.Adapters.Druid.MixProject do
   use Mix.Project
 
-  @version "0.5.0"
+  @version "0.6.0"
   @source_url "https://github.com/wistia/ecto_druid"
 
   def project do
@@ -59,7 +59,23 @@ defmodule Ecto.Adapters.Druid.MixProject do
       source_url: @source_url,
       groups_for_modules: [
         Querying: [
-          Ecto.Druid.Query
+          Ecto.Druid.Query,
+          Ecto.Druid.Query.Numeric,
+          Ecto.Druid.Query.String,
+          Ecto.Druid.Query.DateTime,
+          Ecto.Druid.Query.Reduction,
+          Ecto.Druid.Query.IP,
+          Ecto.Druid.Query.Scalar,
+          Ecto.Druid.Query.Aggregations,
+          Ecto.Druid.Query.HLL,
+          Ecto.Druid.Query.Theta,
+          Ecto.Druid.Query.Quantiles,
+          Ecto.Druid.Query.Tuple,
+          Ecto.Druid.Query.TDigest,
+          Ecto.Druid.Query.Array,
+          Ecto.Druid.Query.MultiValue,
+          Ecto.Druid.Query.JSON,
+          Ecto.Druid.Query.Table
         ],
         "Druid Ecto Types": [
           Ecto.Druid.DateTime,

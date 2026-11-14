@@ -6,9 +6,18 @@ defmodule Druid.Client.SQL do
   @doc """
   Builds a query request for Druid's SQL API.
 
+  ## Options
+
+  * `:context` - A map of [SQL query context parameters](https://druid.apache.org/docs/latest/querying/sql-query-context),
+    merged over the defaults (`sqlQueryId`, `sqlStringifyArrays`,
+    `skipEmptyBuckets`, `enableWindowing`).
+
   ## Examples
 
       Druid.Client.SQL.query("SELECT * FROM wikipedia")
+      |> Druid.Client.request!(host: "localhost", port: 8082)
+
+      Druid.Client.SQL.query("SELECT * FROM wikipedia", [], context: %{sqlTimeZone: "America/New_York"})
       |> Druid.Client.request!(host: "localhost", port: 8082)
   """
   @query_path "/druid/v2/sql"

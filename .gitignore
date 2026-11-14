@@ -24,3 +24,6 @@ ecto_druid-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Local docker volume data (docker-compose bind mount).
+/.data/
