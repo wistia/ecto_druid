@@ -148,6 +148,15 @@ defmodule IntegrationTest do
 
       assert count.(~U[2016-06-27 00:00:00Z], ~U[2016-06-28 00:00:00Z]) == 24433
       assert count.(~U[2016-06-26 00:00:00Z], ~U[2016-06-27 00:00:00Z]) == 0
+
+      interval = {~U[2016-06-27 00:00:00Z], ~U[2016-06-28 00:00:00Z]}
+
+      assert TestRepo.one(
+               from(w in "wikipedia",
+                 where: time_in_interval(w.__time, ^interval),
+                 select: count()
+               )
+             ) == 24433
     end
 
     test "DateTimes on a schemaless field" do

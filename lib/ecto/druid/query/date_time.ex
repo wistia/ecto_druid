@@ -64,30 +64,52 @@ defmodule Ecto.Druid.Query.DateTime do
   sql_function time_format(timestamp_expr, pattern, timezone)
 
   @doc """
-  Returns whether a timestamp is contained within a particular interval. The start instant of the interval is
-  inclusive and the end instant is exclusive.
+  Returns whether a timestamp is contained within a particular interval, using Druid's `TIME_IN_INTERVAL`. The start
+  instant of the interval is inclusive and the end instant is exclusive.
 
   The interval is either:
 
-    * a literal string containing any ISO8601 interval, such as `"2001-01-01/P1D"` or
-      `"2001-01-01T01:00:00/2001-01-02T01:00:00"`, which is passed to Druid's `TIME_IN_INTERVAL`, or
-    * a `{start, stop}` tuple, which is compiled to `(timestamp_expr >= start AND timestamp_expr < stop)` so the
-      bounds can be pinned values such as `DateTime`s: `time_in_interval(p.time, {^start, ^stop})`.
+    * an ISO8601 interval string, such as `"2001-01-01/P1D"` or `"2001-01-01T01:00:00/2001-01-02T01:00:00"`, or
+    * a `{start, stop}` tuple of `DateTime`s, `NaiveDateTime`s, `Date`s or ISO8601 strings, which is converted to an
+      interval string like `"2001-01-01T00:00:00Z/2001-01-02T00:00:00Z"`.
 
-  The tuple must be written in the query; a pinned tuple (`^{start, stop}`) isn't supported.
+  The interval may be pinned (`^interval`, `^{start, stop}`), and a tuple's bounds may be pinned individually
+  (`{^start, ^stop}`). A tuple is always sent as a parameter, since it's converted when the query runs.
   """
   @spec time_in_interval(Macro.t(), Macro.t()) :: Macro.t()
-  defmacro time_in_interval(timestamp_expr, {start, stop}) do
-    Ecto.Druid.Util.fragment(
-      "(? >= ? AND ? < ?)",
-      [timestamp_expr, start, timestamp_expr, stop],
-      nil
-    )
+  defmacro time_in_interval(timestamp_expr, interval) do
+    Ecto.Druid.Util.sql_function_body("TIME_IN_INTERVAL", nil, [
+      timestamp_expr,
+      interval_param(interval)
+    ])
   end
 
-  defmacro time_in_interval(timestamp_expr, interval) do
-    Ecto.Druid.Util.sql_function_body("TIME_IN_INTERVAL", nil, [timestamp_expr, interval])
+  defp interval_param({start, stop}) do
+    interval =
+      quote do:
+              Ecto.Druid.Query.DateTime.to_interval({unquote(unpin(start)), unquote(unpin(stop))})
+
+    {:^, [], [interval]}
   end
+
+  defp interval_param({:^, meta, [interval]}) do
+    {:^, meta, [quote(do: Ecto.Druid.Query.DateTime.to_interval(unquote(interval)))]}
+  end
+
+  defp interval_param(interval), do: interval
+
+  defp unpin({:^, _, [value]}), do: value
+  defp unpin(value), do: value
+
+  @doc false
+  @spec to_interval(String.t() | {term(), term()}) :: String.t()
+  def to_interval(interval) when is_binary(interval), do: interval
+  def to_interval({start, stop}), do: interval_bound(start) <> "/" <> interval_bound(stop)
+
+  defp interval_bound(value) when is_binary(value), do: value
+  defp interval_bound(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp interval_bound(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp interval_bound(%Date{} = value), do: Date.to_iso8601(value)
 
   @doc "Converts a number of milliseconds since the epoch (1970-01-01 00:00:00 UTC) into a timestamp."
   sql_function millis_to_timestamp(millis_expr)

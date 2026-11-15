@@ -100,9 +100,10 @@ as `day` comes back as Druid returns it, an ISO 8601 string.
 Filter on `__time` whenever you can. Druid uses the time filter to decide
 which segments to read, so it's usually what makes a query fast. `time_in_interval/2`
 takes either an ISO 8601 interval string such as `"2026-11-01/P1W"` or a
-`{start, stop}` tuple. The tuple's bounds can be pinned `DateTime`s, which
-are sent as `TIMESTAMP` parameters. Either way the start is inclusive and the
-stop is exclusive.
+`{start, stop}` tuple of `DateTime`s, `NaiveDateTime`s, `Date`s or strings,
+which is turned into an interval string. Either way the start is inclusive and
+the stop is exclusive. Pinned `DateTime`s also work in plain comparisons, such
+as `p.time >= ^since`.
 
 Complex columns such as `unique_visitors` hold sketches. Merge them with the
 matching aggregation (`ds_hll`, `ds_theta`, `ds_quantiles_sketch`, and so on)
