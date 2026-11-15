@@ -95,6 +95,45 @@ defmodule Druid.LookupsTest do
     end
   end
 
+  describe "render/2 with lookup_factory" do
+    test "generates the factory from a lookup schema", %{tmp_dir: dir} do
+      write!(dir, "countries.json.eex", """
+      <%= lookup_factory Ecto.Druid.TestLookups.Countries, map: @values %>
+      """)
+
+      write!(dir, "realtime/countries.json.eex", """
+      <%= lookup_factory Ecto.Druid.TestLookups.JdbcCountries, connector: [uri: "jdbc:x"] %>
+      """)
+
+      assert [
+               %Lookup{tier: "__default", factory: map},
+               %Lookup{tier: "realtime", factory: jdbc}
+             ] = Lookups.render(TestRepo, opts(dir))
+
+      assert map == factory(%{"US" => "United States"})
+      assert %{"type" => "cachedNamespace", "injective" => true} = jdbc
+    end
+
+    test "raises when the template and schema name different lookups", %{tmp_dir: dir} do
+      write!(dir, "regions.json.eex", """
+      <%= lookup_factory Ecto.Druid.TestLookups.Countries, map: @values %>
+      """)
+
+      assert_raise Lookups.Error,
+                   ~r/defines the "regions" lookup, but Ecto.Druid.TestLookups.Countries reads "countries"/,
+                   fn -> Lookups.render(TestRepo, opts(dir)) end
+    end
+
+    test "exposes @lookup_name", %{tmp_dir: dir} do
+      write!(dir, "realtime/regions.json.eex", """
+      {"type": "map", "map": {"name": <%= json @lookup_name %>}}
+      """)
+
+      assert [%Lookup{factory: %{"map" => %{"name" => "regions"}}}] =
+               Lookups.render(TestRepo, opts(dir))
+    end
+  end
+
   describe "sync/2" do
     # A fake Coordinator. `current` is what Druid returns for all lookups, or
     # :uninitialized for a cluster with no lookups yet.

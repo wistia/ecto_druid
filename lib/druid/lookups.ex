@@ -38,7 +38,18 @@ defmodule Druid.Lookups do
   Templates work the same way as supervisor spec templates: `@name` reads an
   assign (and raises if it's missing), `json/1` encodes a value, and
   `partial/1,2` renders a shared `_name.json.eex` fragment. See
-  `Druid.Supervisors` for details.
+  `Druid.Supervisors` for details. `@lookup_name` holds the lookup's name.
+
+  ## Generating lookups from schemas
+
+  If you query a lookup through an `Ecto.Druid.Lookup` schema, the schema can
+  describe how it's loaded too, and the template can generate the factory
+  with `lookup_factory`, the way supervisor templates use `data_schema`:
+
+      <%= lookup_factory MyApp.Countries, connector: @lookup_db, poll_period: "PT10M" %>
+
+  It raises if the template's name doesn't match the schema's lookup. See
+  `Ecto.Druid.Lookup` and `Ecto.Druid.Lookup.Spec.factory/2`.
 
   Keep secrets such as database passwords out of templates. Druid can read
   them from its own environment with a password provider, as above.
@@ -277,6 +288,12 @@ defmodule Druid.Lookups do
                 "#{name}: lookup templates go directly in the templates directory " <>
                   "or in a tier directory"
       end
+
+    # Lets lookup_factory check the template against its schema.
+    config =
+      Keyword.update(config, :assigns, %{lookup_name: lookup}, fn assigns ->
+        assigns |> Map.new() |> Map.put(:lookup_name, lookup)
+      end)
 
     factory =
       case SpecTemplates.render!(name, path, root, config, Error) do
