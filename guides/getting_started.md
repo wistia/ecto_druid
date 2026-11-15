@@ -50,6 +50,8 @@ the `Ecto.Druid.Schema` macros can be written without parentheses.
 * [Querying](querying.md): `Ecto.Query`, Druid SQL functions, joins and query context
 * [Native Queries](native_queries.md): Druid's JSON query language
 * [Ingestion Specs](ingestion_specs.md): supervisor specs as EEx templates
-* [Compaction, Retention and Lookups](compaction_retention_lookups.md)
+* [Compaction](compaction.md): automatic compaction configs
+* [Retention Rules](retention.md)
+* [Lookups](lookups.md)
 * [System Tables](system_tables.md): `sys.*` and `INFORMATION_SCHEMA.*`
 * [Druid API Client](druid_client.md): Druid's HTTP API

@@ -92,5 +92,5 @@ In a release, call `Druid.Supervisors.sync(MyApp.DruidRepo)` instead. Druid
 only restarts a supervisor when its spec changed. See `Druid.Supervisors` for
 partials and all options.
 
-Compaction configs, retention rules and lookups are managed the same way; see
-[Compaction, Retention and Lookups](compaction_retention_lookups.md).
+[Compaction configs](compaction.md), [retention rules](retention.md) and
+[lookups](lookups.md) are managed the same way.
