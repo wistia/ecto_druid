@@ -20,6 +20,24 @@ defmodule Ecto.Druid.QueryTest do
     end
   end
 
+  describe "distinct query option" do
+    test "distinct: true" do
+      sql = from(t in "test", distinct: true, select: t.channel) |> to_sql()
+      assert sql == {"SELECT DISTINCT t0.\"channel\" FROM \"test\" AS t0", []}
+    end
+
+    test "distinct: false" do
+      sql = from(t in "test", distinct: false, select: t.channel) |> to_sql()
+      assert sql == {"SELECT t0.\"channel\" FROM \"test\" AS t0", []}
+    end
+
+    test "distinct on columns raises" do
+      assert_raise Ecto.QueryError, ~r/DISTINCT with multiple columns/, fn ->
+        from(t in "test", distinct: [t.channel], select: t.channel) |> to_sql()
+      end
+    end
+  end
+
   describe "keyword like functions" do
     test "distinct/1" do
       sql = from(t in "test", select: distinct(t.id)) |> to_sql()
