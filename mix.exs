@@ -53,7 +53,23 @@ defmodule Ecto.Adapters.Druid.MixProject do
 
   defp docs do
     [
-      main: "Ecto.Adapters.Druid",
+      main: "readme",
+      extras: [
+        "README.md",
+        "guides/getting_started.md",
+        "guides/querying.md",
+        "guides/native_queries.md",
+        "guides/ingestion_specs.md",
+        "guides/compaction.md",
+        "guides/retention.md",
+        "guides/lookups.md",
+        "guides/system_tables.md",
+        "guides/druid_client.md",
+        "guides/upgrading.md"
+      ],
+      groups_for_extras: [
+        Guides: ~r/guides\/[^\/]+\.md/
+      ],
       source_ref: "v#{@version}",
       canonical: "http://hexdocs.pm/ecto_druid",
       source_url: @source_url,
