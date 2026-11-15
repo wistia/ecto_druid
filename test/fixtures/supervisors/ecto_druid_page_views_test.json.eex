@@ -1,0 +1,18 @@
+{
+  "type": "kafka",
+  "suspended": true,
+  "spec": {
+    "ioConfig": {
+      "type": "kafka",
+      "topic": "page_views",
+      "consumerProperties": <%= json @consumer_properties %>,
+      "inputFormat": {"type": "json"},
+      "taskCount": <%= @task_count %>
+    },
+    "tuningConfig": {"type": "kafka"},
+    "dataSchema": <%= data_schema Ecto.Adapters.Druid.PageViews,
+                        segment_granularity: "DAY",
+                        query_granularity: "HOUR",
+                        filter: %{type: "not", field: %{type: "selector", dimension: "country", value: nil}} %>
+  }
+}

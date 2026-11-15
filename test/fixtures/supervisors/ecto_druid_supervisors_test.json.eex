@@ -1,0 +1,22 @@
+{
+  "type": "kafka",
+  "suspended": true,
+  "spec": {
+    "ioConfig": {
+      "type": "kafka",
+      "topic": <%= json @topic %>,
+      "consumerProperties": <%= json @consumer_properties %>,
+      "inputFormat": {"type": "json"},
+      "taskCount": <%= @task_count %>,
+      "taskDuration": "PT30M"
+    },
+    "tuningConfig": {"type": "kafka", "indexSpec": <%= partial "index_spec" %>},
+    "dataSchema": {
+      "dataSource": <%= json @spec_name %>,
+      "timestampSpec": {"column": "timestamp", "format": "iso"},
+      "dimensionsSpec": {"dimensions": ["channel", "page", "user"]},
+      "metricsSpec": [{"type": "count", "name": "count"}, {"type": "longSum", "name": "added", "fieldName": "added"}],
+      "granularitySpec": {"segmentGranularity": "HOUR", "queryGranularity": "MINUTE", "rollup": true}
+    }
+  }
+}
