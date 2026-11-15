@@ -219,10 +219,10 @@ defmodule Ecto.Adapters.Druid.Query do
   end
 
   defp distinct(nil, _sources, _query), do: []
-  defp distinct(%QueryExpr{expr: true}, _sources, _query), do: "DISTINCT "
-  defp distinct(%QueryExpr{expr: false}, _sources, _query), do: []
+  defp distinct(%ByExpr{expr: true}, _sources, _query), do: "DISTINCT "
+  defp distinct(%ByExpr{expr: false}, _sources, _query), do: []
 
-  defp distinct(%QueryExpr{expr: exprs}, _sources, query) when is_list(exprs) do
+  defp distinct(%ByExpr{expr: exprs}, _sources, query) when is_list(exprs) do
     error!(query, "DISTINCT with multiple columns is not supported by Druid")
   end
 
