@@ -126,6 +126,90 @@ MyApp.DruidRepo.all(query, context: %{sqlTimeZone: "America/New_York", timeout: 
 
 Per-call values override the repo config.
 
+## Querying from deep storage
+
+The Broker only reads segments that are loaded on Historicals. Retention
+rules with zero replicas keep older segments in deep storage only, which
+is cheaper but leaves them invisible to normal queries. Pass
+`deep_storage: true` to read them anyway through Druid's
+[query from deep storage API](https://druid.apache.org/docs/latest/querying/query-deep-storage):
+
+```elixir
+MyApp.DruidRepo.all(query, deep_storage: true)
+```
+
+The query runs as an asynchronous task. The adapter submits it, checks its
+status until it finishes, then reads the results. Even a small query takes
+several seconds, so only use this for data that isn't loaded. Pass a
+keyword list in place of `true` to change how long it waits:
+
+* `:timeout` - How long to wait for the query to finish, in milliseconds or
+  `:infinity`. Defaults to five minutes. When it runs out, the query is
+  canceled in Druid and `Ecto.Adapters.Druid.StatementError` is raised.
+* `:poll_interval` - How often to check the query's status, in
+  milliseconds. Defaults to `1_000`.
+
+```elixir
+MyApp.DruidRepo.all(query, deep_storage: [timeout: :timer.minutes(30)])
+```
+
+A query that Druid rejects up front raises `Druid.Client.RequestError`, like
+any other query. One that fails while running raises
+`Ecto.Adapters.Druid.StatementError`, with Druid's error in `:details`.
+
+Setting `deep_storage:` in the repo config sends every query from that repo
+through deep storage. That's useful for a separate repo that only reads cold
+data. A per-call value, including `deep_storage: false`, overrides it.
+
+`Repo.stream/2` fetches the results one page at a time, so large results
+don't have to fit in memory at once:
+
+```elixir
+query
+|> MyApp.DruidRepo.stream(deep_storage: true)
+|> Stream.each(&write_row/1)
+|> Stream.run()
+```
+
+The query only starts when the stream is first enumerated. Without
+`deep_storage`, `Repo.stream/2` still works, but the Broker sends every row
+in one response.
+
+### What deep storage queries need from the cluster
+
+* The Broker plans the query from the data source's schema, which it learns
+  from loaded segments. A data source with no loaded segments at all is
+  reported as not found, unless the cluster sets
+  `druid.centralizedDatasourceSchema.enabled=true`. A common setup loads recent data and keeps the rest in deep
+  storage only:
+
+  ```elixir
+  [
+    %{"type" => "loadByPeriod", "period" => "P30D", "tieredReplicants" => %{"_default_tier" => 2}},
+    %{"type" => "loadForever", "tieredReplicants" => %{}, "useDefaultTierForNull" => false}
+  ]
+  ```
+
+* By default Druid keeps the results in the query's task report, which
+  limits how many rows it can return. For large results, configure
+  [durable storage](https://druid.apache.org/docs/latest/operations/durable-storage)
+  on the cluster and send `selectDestination: "durableStorage"` in the
+  context. `rowsPerPage` then controls the page size that `Repo.stream/2`
+  reads:
+
+  ```elixir
+  MyApp.DruidRepo.stream(query,
+    deep_storage: true,
+    context: %{selectDestination: "durableStorage", rowsPerPage: 50_000}
+  )
+  ```
+
+* Rows still being ingested are skipped unless you add
+  `includeSegmentSource: "realtime"` to the context.
+
+`Druid.Client.SQL.Statement` builds the underlying requests if you want to
+submit a query and collect its results later yourself.
+
 ## Inspecting and hand-writing SQL
 
 `to_sql/1` returns the SQL and parameters a query will send:

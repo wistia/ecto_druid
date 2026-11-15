@@ -39,6 +39,25 @@ defmodule Ecto.Adapters.Druid do
   * `:finch_opts` - [Options](https://hexdocs.pm/finch/Finch.html#start_link/1-options) to pass to Finch when making requests to Druid.
   * `:context` - A map of default [SQL query context parameters](https://druid.apache.org/docs/latest/querying/sql-query-context)
     sent with every query, for example `%{sqlTimeZone: "America/New_York"}`.
+  * `:deep_storage` - Send every query from this repo through Druid's query
+    from deep storage API. See below.
+
+  ## Querying from deep storage
+
+  Pass `deep_storage: true` to read segments that are only in deep storage,
+  not loaded on Historicals:
+
+      MyApp.Repo.all(query, deep_storage: true)
+      MyApp.Repo.stream(query, deep_storage: [timeout: :timer.minutes(30)])
+
+  The query runs as an asynchronous task, so it takes several seconds even
+  when it's small. In place of `true`, pass a keyword list with `:timeout`
+  (milliseconds or `:infinity`, default five minutes) or `:poll_interval`
+  (milliseconds, default `1_000`). A query that fails or runs past its
+  timeout raises `Ecto.Adapters.Druid.StatementError`, and on timeout it is
+  canceled first. `Repo.stream/2` fetches one result page at a time.
+  See the [Querying guide](querying.md#querying-from-deep-storage) for what
+  the cluster needs.
 
   ## SQL query context
 
@@ -130,19 +149,50 @@ defmodule Ecto.Adapters.Druid do
   end
 
   @impl Ecto.Adapter.Queryable
-  def execute(repo, _query_meta, query, params, opts) do
-    {_, _, {_, sql}} = query
-    params = Enum.map(params, &__MODULE__.Types.to_db/1)
-
-    config = repo.config
-    opts = merge_context(config, opts)
-    request_opts = config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+  def execute(adapter_meta, _query_meta, query, params, opts) do
+    {sql, params, request_opts} = request(adapter_meta, query, params, opts)
 
     values =
-      Druid.Client.SQL.query(sql, params, opts)
-      |> Druid.Client.request!(request_opts)
+      case __MODULE__.Statement.options(request_opts) do
+        nil -> broker_query(sql, params, request_opts)
+        deep_storage -> __MODULE__.Statement.all(sql, params, deep_storage, request_opts)
+      end
 
     {Enum.count(values), values}
+  end
+
+  @impl Ecto.Adapter.Queryable
+  def stream(adapter_meta, _query_meta, query, params, opts) do
+    {sql, params, request_opts} = request(adapter_meta, query, params, opts)
+
+    case __MODULE__.Statement.options(request_opts) do
+      nil ->
+        # The Broker sends every row in one response, so this is one chunk,
+        # but it is still not sent until the stream is enumerated
+        Stream.flat_map([nil], fn nil ->
+          values = broker_query(sql, params, request_opts)
+          [{Enum.count(values), values}]
+        end)
+
+      deep_storage ->
+        __MODULE__.Statement.stream(sql, params, deep_storage, request_opts)
+    end
+  end
+
+  defp request(%{config: config}, query, params, opts) do
+    params = Enum.map(params, &__MODULE__.Types.to_db/1)
+    opts = merge_context(config, opts)
+    request_opts = config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+    {prepared_sql(query), params, request_opts}
+  end
+
+  defp prepared_sql({:cache, _update, {_id, sql}}), do: sql
+  defp prepared_sql({:cached, _update, _reset, {_id, sql}}), do: sql
+  defp prepared_sql({:nocache, {_id, sql}}), do: sql
+
+  defp broker_query(sql, params, request_opts) do
+    Druid.Client.SQL.query(sql, params, request_opts)
+    |> Druid.Client.request!(request_opts)
   end
 
   @doc false
@@ -176,11 +226,6 @@ defmodule Ecto.Adapters.Druid do
       placeholders,
       opts
     )
-  end
-
-  @impl Ecto.Adapter.Queryable
-  def stream(_adapter_meta, _query_meta, _query_cache, _params, _opts) do
-    []
   end
 
   @doc false
