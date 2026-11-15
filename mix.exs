@@ -83,7 +83,20 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Ecto.Druid.HLLSketch,
           Ecto.Druid.QuantilesSketch,
           Ecto.Druid.ThetaSketch,
-          Ecto.Druid.TupleSketch
+          Ecto.Druid.TupleSketch,
+          Ecto.Druid.JSON
+        ],
+        "System Tables": [
+          Ecto.Druid.Sys.Segments,
+          Ecto.Druid.Sys.ServerSegments,
+          Ecto.Druid.Sys.Servers,
+          Ecto.Druid.Sys.ServerProperties,
+          Ecto.Druid.Sys.Tasks,
+          Ecto.Druid.Sys.Supervisors,
+          Ecto.Druid.InformationSchema.Schemata,
+          Ecto.Druid.InformationSchema.Tables,
+          Ecto.Druid.InformationSchema.Columns,
+          Ecto.Druid.InformationSchema.Routines
         ],
         "Druid Client": [
           Druid.Client,

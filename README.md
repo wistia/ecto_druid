@@ -5,6 +5,7 @@ Ecto Druid [(documentation)](https://hexdocs.pm/ecto_druid) allows interacting w
 * An Ecto adapter for Druid
 * Modules that provide Druid's SQL functions (see `Ecto.Druid.Query`)
 * Types for Druid's complex types
+* Schemas for Druid's system tables (`sys.*` and `INFORMATION_SCHEMA.*`)
 * A Druid API client
 * Supervisor specs (Kafka ingestion), compaction configs, retention rules and
   lookups managed as EEx templates, with per-environment values from config
@@ -161,6 +162,35 @@ mix druid.lookups.sync
 Each only submits what changed. Retention sync also refuses rules that name a
 tier with no Historicals, since Druid would accept them and unload the data.
 See `Druid.Compaction`, `Druid.Retention` and `Druid.Lookups` for details.
+
+## System tables
+
+Druid's metadata tables have ready-made schemas: `Ecto.Druid.Sys.Segments`,
+`ServerSegments`, `Servers`, `ServerProperties`, `Tasks` and `Supervisors` for
+the `sys` schema, and `Ecto.Druid.InformationSchema.Schemata`, `Tables`,
+`Columns` and `Routines` for `INFORMATION_SCHEMA`. Query them like any other
+schema:
+
+```elixir
+import Ecto.Query
+
+MyApp.DruidRepo.all(
+  from s in Ecto.Druid.Sys.Segments,
+    where: s.datasource == "page_views_hourly" and s.is_active == 1,
+    select: %{segment_id: s.segment_id, size: s.size, num_rows: s.num_rows}
+)
+
+MyApp.DruidRepo.all(
+  from c in Ecto.Druid.InformationSchema.Columns,
+    where: c.table_schema == "druid" and c.table_name == "page_views_hourly",
+    order_by: c.ordinal_position,
+    select: {c.column_name, c.data_type}
+)
+```
+
+Flags such as `is_active` are 0/1 integers, as Druid types them. Columns
+holding JSON (a segment's `shard_spec`, a supervisor's `spec`) load as maps
+(see `Ecto.Druid.JSON`).
 
 ## Upgrading from 0.5.x
 
