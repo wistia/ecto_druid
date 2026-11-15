@@ -605,6 +605,19 @@ defmodule Ecto.Druid.QueryTest do
                 []}
     end
 
+    test "time_in_interval/2 with a {start, stop} tuple" do
+      start = ~U[2000-01-01 00:00:00Z]
+      stop = ~U[2000-02-01 00:00:00Z]
+
+      sql =
+        from(t in "test", where: time_in_interval(t.time, {^start, ^stop}), select: t.id)
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT t0.\"id\" FROM \"test\" AS t0 WHERE ((t0.\"time\" >= ? AND t0.\"time\" < ?))",
+                [start, stop]}
+    end
+
     test "millis_to_timestamp/1" do
       sql = from("test", select: millis_to_timestamp(1)) |> to_sql()
       assert sql == {"SELECT MILLIS_TO_TIMESTAMP(1) FROM \"test\" AS t0", []}

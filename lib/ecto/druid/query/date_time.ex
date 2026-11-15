@@ -63,8 +63,31 @@ defmodule Ecto.Druid.Query.DateTime do
   @doc "Formats a timestamp as a string with a given Joda DateTimeFormat pattern, or ISO8601 (e.g. 2000-01-02T03:04:05Z) if the pattern is not provided. The time zone, if provided, should be a time zone name like 'America/Los_Angeles' or offset like '-08:00'. Pattern and time zone must be literals."
   sql_function time_format(timestamp_expr, pattern, timezone)
 
-  @doc "Returns whether a timestamp is contained within a particular interval. The interval must be a literal string containing any ISO8601 interval, such as '2001-01-01/P1D' or '2001-01-01T01:00:00/2001-01-02T01:00:00'. The start instant of the interval is inclusive and the end instant is exclusive."
-  sql_function time_in_interval(timestamp_expr, interval)
+  @doc """
+  Returns whether a timestamp is contained within a particular interval. The start instant of the interval is
+  inclusive and the end instant is exclusive.
+
+  The interval is either:
+
+    * a literal string containing any ISO8601 interval, such as `"2001-01-01/P1D"` or
+      `"2001-01-01T01:00:00/2001-01-02T01:00:00"`, which is passed to Druid's `TIME_IN_INTERVAL`, or
+    * a `{start, stop}` tuple, which is compiled to `(timestamp_expr >= start AND timestamp_expr < stop)` so the
+      bounds can be pinned values such as `DateTime`s: `time_in_interval(p.time, {^start, ^stop})`.
+
+  The tuple must be written in the query; a pinned tuple (`^{start, stop}`) isn't supported.
+  """
+  @spec time_in_interval(Macro.t(), Macro.t()) :: Macro.t()
+  defmacro time_in_interval(timestamp_expr, {start, stop}) do
+    Ecto.Druid.Util.fragment(
+      "(? >= ? AND ? < ?)",
+      [timestamp_expr, start, timestamp_expr, stop],
+      nil
+    )
+  end
+
+  defmacro time_in_interval(timestamp_expr, interval) do
+    Ecto.Druid.Util.sql_function_body("TIME_IN_INTERVAL", nil, [timestamp_expr, interval])
+  end
 
   @doc "Converts a number of milliseconds since the epoch (1970-01-01 00:00:00 UTC) into a timestamp."
   sql_function millis_to_timestamp(millis_expr)

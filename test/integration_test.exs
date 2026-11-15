@@ -137,6 +137,19 @@ defmodule IntegrationTest do
       assert count.(~U[2016-06-27 00:00:00Z]) == 0
     end
 
+    test "DateTimes in a time_in_interval tuple" do
+      use Ecto.Druid.Query
+
+      count = fn start, stop ->
+        TestRepo.one(
+          from(w in Wikipedia, where: time_in_interval(w.time, {^start, ^stop}), select: count())
+        )
+      end
+
+      assert count.(~U[2016-06-27 00:00:00Z], ~U[2016-06-28 00:00:00Z]) == 24433
+      assert count.(~U[2016-06-26 00:00:00Z], ~U[2016-06-27 00:00:00Z]) == 0
+    end
+
     test "DateTimes on a schemaless field" do
       count = fn dt ->
         TestRepo.one(from(w in "wikipedia", where: w.__time < ^dt, select: count()))
