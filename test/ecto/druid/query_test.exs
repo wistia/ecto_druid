@@ -605,6 +605,49 @@ defmodule Ecto.Druid.QueryTest do
                 []}
     end
 
+    test "time_in_interval/2 with a pinned interval" do
+      sql = from(t in "test", select: time_in_interval(t.time, ^"2000-01-01/P1M")) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_IN_INTERVAL(t0.\"time\", ?) FROM \"test\" AS t0", ["2000-01-01/P1M"]}
+    end
+
+    test "time_in_interval/2 with a literal {start, stop} tuple" do
+      sql =
+        from(t in "test",
+          select: time_in_interval(t.time, {~U[2000-01-01 00:00:00Z], ~N[2000-02-01 00:00:00]})
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_IN_INTERVAL(t0.\"time\", '2000-01-01T00:00:00Z/2000-02-01T00:00:00') FROM \"test\" AS t0",
+                []}
+
+      sql =
+        from(t in "test", select: time_in_interval(t.time, {~D[2000-01-01], "P1M"})) |> to_sql()
+
+      assert sql ==
+               {"SELECT TIME_IN_INTERVAL(t0.\"time\", '2000-01-01/P1M') FROM \"test\" AS t0", []}
+    end
+
+    test "time_in_interval/2 with a pinned {start, stop} tuple" do
+      start = ~U[2000-01-01 00:00:00Z]
+      stop = ~D[2000-02-01]
+
+      expected =
+        {"SELECT TIME_IN_INTERVAL(t0.\"time\", ?) FROM \"test\" AS t0",
+         ["2000-01-01T00:00:00Z/2000-02-01"]}
+
+      assert from(t in "test", select: time_in_interval(t.time, {^start, ^stop})) |> to_sql() ==
+               expected
+
+      assert from(t in "test", select: time_in_interval(t.time, ^{start, stop})) |> to_sql() ==
+               expected
+
+      assert from(t in "test", select: time_in_interval(t.time, {^start, ~D[2000-02-01]}))
+             |> to_sql() == expected
+    end
+
     test "millis_to_timestamp/1" do
       sql = from("test", select: millis_to_timestamp(1)) |> to_sql()
       assert sql == {"SELECT MILLIS_TO_TIMESTAMP(1) FROM \"test\" AS t0", []}

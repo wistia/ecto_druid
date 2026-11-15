@@ -83,7 +83,7 @@ use Ecto.Druid.Query
 
 MyApp.DruidRepo.all(
   from p in MyApp.PageViewsHourly,
-    where: time_in_interval(p.time, ^"2026-11-01/2026-11-08"),
+    where: time_in_interval(p.time, {^~U[2026-11-01 00:00:00Z], ^~U[2026-11-08 00:00:00Z]}),
     group_by: [time_floor(p.time, "P1D"), p.country],
     select: %{
       day: time_floor(p.time, "P1D"),
@@ -98,7 +98,12 @@ A schema field like `p.time` loads as a `DateTime`, but a computed value such
 as `day` comes back as Druid returns it, an ISO 8601 string.
 
 Filter on `__time` whenever you can. Druid uses the time filter to decide
-which segments to read, so it's usually what makes a query fast.
+which segments to read, so it's usually what makes a query fast. `time_in_interval/2`
+takes either an ISO 8601 interval string such as `"2026-11-01/P1W"` or a
+`{start, stop}` tuple of `DateTime`s, `NaiveDateTime`s, `Date`s or strings,
+which is turned into an interval string. Either way the start is inclusive and
+the stop is exclusive. Pinned `DateTime`s also work in plain comparisons, such
+as `p.time >= ^since`.
 
 Complex columns such as `unique_visitors` hold sketches. Merge them with the
 matching aggregation (`ds_hll`, `ds_theta`, `ds_quantiles_sketch`, and so on)

@@ -113,4 +113,66 @@ defmodule IntegrationTest do
     assert %{added: 3} =
              TestRepo.one(Wikipedia.by_page("Black Dahlia"), context: %{sqlTimeZone: "Etc/UTC"})
   end
+
+  describe "pinned params" do
+    import Ecto.Query
+
+    test "integers" do
+      query =
+        from(w in "wikipedia",
+          where: w.page == "Black Dahlia" and w.added > ^2,
+          select: w.added
+        )
+
+      assert TestRepo.all(query) == [3]
+      assert TestRepo.all(from(w in query, where: w.added > ^3)) == []
+    end
+
+    test "DateTimes on a schema field" do
+      count = fn dt ->
+        TestRepo.one(from(w in Wikipedia, where: w.time < ^dt, select: count()))
+      end
+
+      assert count.(~U[2016-06-27 00:00:00.001Z]) == 24433
+      assert count.(~U[2016-06-27 00:00:00Z]) == 0
+    end
+
+    test "DateTimes in a time_in_interval tuple" do
+      use Ecto.Druid.Query
+
+      count = fn start, stop ->
+        TestRepo.one(
+          from(w in Wikipedia, where: time_in_interval(w.time, {^start, ^stop}), select: count())
+        )
+      end
+
+      assert count.(~U[2016-06-27 00:00:00Z], ~U[2016-06-28 00:00:00Z]) == 24433
+      assert count.(~U[2016-06-26 00:00:00Z], ~U[2016-06-27 00:00:00Z]) == 0
+
+      assert TestRepo.one(
+               from(w in Wikipedia,
+                 where: time_in_interval(w.time, {~D[2016-06-27], ~D[2016-06-28]}),
+                 select: count()
+               )
+             ) == 24433
+
+      interval = {~U[2016-06-27 00:00:00Z], ~U[2016-06-28 00:00:00Z]}
+
+      assert TestRepo.one(
+               from(w in "wikipedia",
+                 where: time_in_interval(w.__time, ^interval),
+                 select: count()
+               )
+             ) == 24433
+    end
+
+    test "DateTimes on a schemaless field" do
+      count = fn dt ->
+        TestRepo.one(from(w in "wikipedia", where: w.__time < ^dt, select: count()))
+      end
+
+      assert count.(~U[2016-06-27 00:00:00.001Z]) == 24433
+      assert count.(~U[2016-06-27 00:00:00Z]) == 0
+    end
+  end
 end

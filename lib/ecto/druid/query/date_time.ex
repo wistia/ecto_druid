@@ -63,8 +63,90 @@ defmodule Ecto.Druid.Query.DateTime do
   @doc "Formats a timestamp as a string with a given Joda DateTimeFormat pattern, or ISO8601 (e.g. 2000-01-02T03:04:05Z) if the pattern is not provided. The time zone, if provided, should be a time zone name like 'America/Los_Angeles' or offset like '-08:00'. Pattern and time zone must be literals."
   sql_function time_format(timestamp_expr, pattern, timezone)
 
-  @doc "Returns whether a timestamp is contained within a particular interval. The interval must be a literal string containing any ISO8601 interval, such as '2001-01-01/P1D' or '2001-01-01T01:00:00/2001-01-02T01:00:00'. The start instant of the interval is inclusive and the end instant is exclusive."
-  sql_function time_in_interval(timestamp_expr, interval)
+  @doc """
+  Returns whether a timestamp is contained within a particular interval, using Druid's `TIME_IN_INTERVAL`. The start
+  instant of the interval is inclusive and the end instant is exclusive.
+
+  The interval is either:
+
+    * an ISO8601 interval string, such as `"2001-01-01/P1D"` or `"2001-01-01T01:00:00/2001-01-02T01:00:00"`, or
+    * a `{start, stop}` tuple of `DateTime`s, `NaiveDateTime`s, `Date`s or ISO8601 strings, which is converted to an
+      interval string like `"2001-01-01T00:00:00Z/2001-01-02T00:00:00Z"`.
+
+  When the tuple's bounds are literals (strings or `~U`, `~N` and `~D` sigils), it's converted at compile time and
+  the interval is written into the SQL. The interval may also be pinned (`^interval`, `^{start, stop}`), or a tuple's
+  bounds pinned individually (`{^start, ^stop}`), in which case it's converted when the query runs and sent as a
+  parameter.
+  """
+  @spec time_in_interval(Macro.t(), Macro.t()) :: Macro.t()
+  defmacro time_in_interval(timestamp_expr, interval) do
+    Ecto.Druid.Util.sql_function_body("TIME_IN_INTERVAL", nil, [
+      timestamp_expr,
+      interval_arg(interval)
+    ])
+  end
+
+  defp interval_arg({start, stop}) do
+    case {literal_bound(start), literal_bound(stop)} do
+      {{:ok, start}, {:ok, stop}} ->
+        start <> "/" <> stop
+
+      _ ->
+        start = runtime_bound(start)
+        stop = runtime_bound(stop)
+        {:^, [], [quote(do: unquote(start) <> "/" <> unquote(stop))]}
+    end
+  end
+
+  defp interval_arg({:^, meta, [interval]}) do
+    interval =
+      quote do
+        case unquote(interval) do
+          interval when is_binary(interval) ->
+            interval
+
+          {start, stop} ->
+            unquote(runtime_bound(quote do: start)) <>
+              "/" <> unquote(runtime_bound(quote do: stop))
+        end
+      end
+
+    {:^, meta, [interval]}
+  end
+
+  defp interval_arg(interval), do: interval
+
+  # Converts a literal bound to an ISO8601 string at compile time.
+  defp literal_bound(bound) when is_binary(bound), do: {:ok, bound}
+
+  defp literal_bound({sigil, _, [{:<<>>, _, [string]}, _modifiers]} = bound)
+       when sigil in [:sigil_U, :sigil_N, :sigil_D] and is_binary(string) do
+    {%module{} = value, _binding} = Code.eval_quoted(bound)
+    {:ok, module.to_iso8601(value)}
+  end
+
+  defp literal_bound(_bound), do: :error
+
+  # Generates code that converts a bound to an ISO8601 string when the query runs.
+  defp runtime_bound(bound) do
+    case literal_bound(bound) do
+      {:ok, string} ->
+        string
+
+      :error ->
+        bound = with {:^, _, [value]} <- bound, do: value
+
+        quote do
+          case unquote(bound) do
+            bound when is_binary(bound) ->
+              bound
+
+            %module{} = bound when module in [DateTime, NaiveDateTime, Date] ->
+              module.to_iso8601(bound)
+          end
+        end
+    end
+  end
 
   @doc "Converts a number of milliseconds since the epoch (1970-01-01 00:00:00 UTC) into a timestamp."
   sql_function millis_to_timestamp(millis_expr)

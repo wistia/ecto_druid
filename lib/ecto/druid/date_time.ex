@@ -54,7 +54,7 @@ defmodule Ecto.Druid.DateTime do
   end
 
   def cast(value) when is_struct(value, DateTime) do
-    value
+    {:ok, value}
   end
 
   def cast(value) when is_integer(value) do
