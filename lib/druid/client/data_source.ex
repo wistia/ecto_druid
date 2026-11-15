@@ -71,7 +71,7 @@ defmodule Druid.Client.DataSource do
   Builds a request to list the IDs of a data source's loaded segments within
   an interval. Takes the same options as `intervals/2`.
   """
-  @spec interval(String.t(), String.t(), Keyword.t()) :: Req.Request.t()
+  @spec interval(String.t(), Ecto.Druid.Interval.t() | String.t(), Keyword.t()) :: Req.Request.t()
   def interval(data_source, interval, opts \\ []) do
     coordinator(data_source, ["intervals", path_interval(interval)], params(opts, @detail))
   end
@@ -187,7 +187,7 @@ defmodule Druid.Client.DataSource do
   source's unused segments within an interval, from both the metadata store
   and deep storage. This cannot be undone.
   """
-  @spec kill(String.t(), String.t()) :: Req.Request.t()
+  @spec kill(String.t(), Ecto.Druid.Interval.t() | String.t()) :: Req.Request.t()
   def kill(data_source, interval) do
     Req.new(
       method: :delete,

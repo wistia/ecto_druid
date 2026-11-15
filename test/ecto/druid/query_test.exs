@@ -648,6 +648,20 @@ defmodule Ecto.Druid.QueryTest do
              |> to_sql() == expected
     end
 
+    test "time_in_interval/2 with a pinned Ecto.Druid.Interval" do
+      interval = Ecto.Druid.Interval.new(~D[2000-01-01], month: 1)
+
+      assert from(t in "test", select: time_in_interval(t.time, ^interval)) |> to_sql() ==
+               {"SELECT TIME_IN_INTERVAL(t0.\"time\", ?) FROM \"test\" AS t0", ["2000-01-01/P1M"]}
+    end
+
+    test "time_in_interval/2 with a period bound in a tuple" do
+      start = ~D[2000-01-01]
+
+      assert from(t in "test", select: time_in_interval(t.time, {^start, month: 1})) |> to_sql() ==
+               {"SELECT TIME_IN_INTERVAL(t0.\"time\", ?) FROM \"test\" AS t0", ["2000-01-01/P1M"]}
+    end
+
     test "millis_to_timestamp/1" do
       sql = from("test", select: millis_to_timestamp(1)) |> to_sql()
       assert sql == {"SELECT MILLIS_TO_TIMESTAMP(1) FROM \"test\" AS t0", []}

@@ -105,6 +105,17 @@ which is turned into an interval string. Either way the start is inclusive and
 the stop is exclusive. Pinned `DateTime`s also work in plain comparisons, such
 as `p.time >= ^since`.
 
+`Ecto.Druid.Interval` builds intervals you can pin into `time_in_interval/2` or put
+in a native query's `intervals`. One bound can be a period, given as a
+`Duration`, a keyword list or an ISO 8601 period string:
+
+```elixir
+interval = Ecto.Druid.Interval.new(~D[2026-11-01], week: 1)  # "2026-11-01/P1W"
+interval = Ecto.Druid.Interval.last(day: 7)                  # the 7 days up to now
+
+from p in MyApp.PageViewsHourly, where: time_in_interval(p.time, ^interval)
+```
+
 Complex columns such as `unique_visitors` hold sketches. Merge them with the
 matching aggregation (`ds_hll`, `ds_theta`, `ds_quantiles_sketch`, and so on)
 and turn the result into a number with an estimate function. A sketch selected
@@ -192,6 +203,9 @@ MyApp.DruidRepo.native_query(%{
 #=> [%{"timestamp" => "2016-06-27T00:00:00.000Z",
 #      "result" => [%{"channel" => "#en.wikipedia", "edits" => 6650}, ...]}]
 ```
+
+A `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
+`intervals: [Ecto.Druid.Interval.last(day: 1)]`.
 
 A native query carries its context in the query map, so the repo's
 `:context` config doesn't apply. `Druid.Client.Native` also builds requests

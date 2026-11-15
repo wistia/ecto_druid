@@ -34,6 +34,16 @@ defmodule Druid.Client.DataSourceTest do
     )
   end
 
+  test "interval/3 takes a Ecto.Druid.Interval" do
+    interval = Ecto.Druid.Interval.new(~D[2015-09-12], day: 1)
+
+    assert_request(
+      DataSource.interval("ds", interval),
+      "GET",
+      @coordinator <> "/ds/intervals/2015-09-12_P1D"
+    )
+  end
+
   test "segments/2 and segment/2" do
     assert_request(DataSource.segments("ds"), "GET", @coordinator <> "/ds/segments")
     assert_request(DataSource.segment("ds", "seg_1"), "GET", @coordinator <> "/ds/segments/seg_1")
