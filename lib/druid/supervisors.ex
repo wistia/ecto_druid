@@ -136,9 +136,12 @@ defmodule Druid.Supervisors do
 
   Druid compares each submitted spec with the running one and only restarts a
   supervisor when its spec changed, so syncing unchanged specs is safe.
+
+  Retention rules and lookups are managed the same way, from their own
+  template directories. See `Druid.Retention` and `Druid.Lookups`.
   """
 
-  alias Druid.Supervisors.Template
+  alias Druid.SpecTemplates
 
   defmodule Spec do
     @moduledoc """
@@ -159,7 +162,6 @@ defmodule Druid.Supervisors do
   end
 
   @default_path "priv/druid/supervisors"
-  @connection_keys [:host, :port, :scheme, :plug, :adapter, :finch]
 
   @doc """
   Renders every supervisor spec template for `repo`.
@@ -174,18 +176,19 @@ defmodule Druid.Supervisors do
   """
   @spec render(Ecto.Repo.t(), Keyword.t()) :: [Spec.t()]
   def render(repo, opts \\ []) do
-    config = config(repo, opts)
-    root = templates_path(repo, config)
-
-    unless File.dir?(root) do
-      raise Error, "supervisor templates directory not found: #{root}"
-    end
+    config = SpecTemplates.config(repo, :supervisors, opts)
+    root = SpecTemplates.root!(repo, config, @default_path, Error, "supervisor")
 
     root
-    |> discover()
-    |> filter_only(Keyword.get(opts, :only))
+    |> SpecTemplates.discover()
+    |> SpecTemplates.filter_only(Keyword.get(opts, :only), Error, "supervisor")
     |> Enum.map(&render_spec(&1, root, config))
-    |> check_unique_ids!()
+    |> SpecTemplates.check_unique!(
+      & &1.id,
+      & &1.name,
+      Error,
+      "multiple templates have the same supervisor ID"
+    )
   end
 
   @doc """
@@ -224,7 +227,9 @@ defmodule Druid.Supervisors do
     end
 
     specs = render(repo, opts)
-    request_opts = request_opts(repo, config(repo, opts))
+
+    request_opts =
+      SpecTemplates.request_opts(repo, SpecTemplates.config(repo, :supervisors, opts))
 
     existing =
       Druid.Client.Supervisor.list()
@@ -299,54 +304,11 @@ defmodule Druid.Supervisors do
   def supervisor_id(%{"dataSchema" => %{"dataSource" => ds}}) when is_binary(ds), do: ds
   def supervisor_id(_spec), do: nil
 
-  defp discover(root) do
-    root
-    |> Path.join("**/*.{json,json.eex}")
-    |> Path.wildcard()
-    |> Enum.reject(&String.starts_with?(Path.basename(&1), "_"))
-    |> Enum.sort()
-    |> Enum.map(&{&1 |> Path.relative_to(root) |> strip_ext(), &1})
-  end
-
-  defp filter_only(templates, nil), do: templates
-
-  defp filter_only(templates, only) do
-    only = List.wrap(only)
-    names = MapSet.new(templates, fn {name, _path} -> name end)
-
-    case Enum.reject(only, &MapSet.member?(names, &1)) do
-      [] -> Enum.filter(templates, fn {name, _path} -> name in only end)
-      missing -> raise Error, "no supervisor templates named: #{Enum.join(missing, ", ")}"
-    end
-  end
-
   defp render_spec({name, path}, root, config) do
-    assigns =
-      config
-      |> Keyword.get(:assigns, %{})
-      |> to_map()
-      |> deep_merge(config |> Keyword.get(:specs, %{}) |> Map.get(name, %{}) |> to_map())
-      |> Map.put(:spec_name, name)
-
-    rendered =
-      try do
-        Template.render_file(path, assigns, root)
-      rescue
-        error in Template.Error ->
-          raise Error, "failed to render #{name}: #{Exception.message(error)}"
-      end
-
     spec =
-      case Jason.decode(rendered) do
-        {:ok, %{} = spec} ->
-          spec
-
-        {:ok, _} ->
-          raise Error, "#{name} must render a JSON object"
-
-        {:error, error} ->
-          raise Error,
-                "#{name} rendered invalid JSON: #{Exception.message(error)}\n\n#{rendered}"
+      case SpecTemplates.render!(name, path, root, config, Error) do
+        %{} = spec -> spec
+        _ -> raise Error, "#{name} must render a JSON object"
       end
 
     id =
@@ -356,58 +318,5 @@ defmodule Druid.Supervisors do
                 "or spec.dataSource for autocompact"
 
     %Spec{name: name, path: path, id: id, spec: spec}
-  end
-
-  defp check_unique_ids!(specs) do
-    specs
-    |> Enum.group_by(& &1.id)
-    |> Enum.filter(fn {_id, specs} -> length(specs) > 1 end)
-    |> case do
-      [] ->
-        specs
-
-      dupes ->
-        details =
-          Enum.map_join(dupes, "; ", fn {id, specs} ->
-            "#{id} (#{Enum.map_join(specs, ", ", & &1.name)})"
-          end)
-
-        raise Error, "multiple templates have the same supervisor ID: #{details}"
-    end
-  end
-
-  defp strip_ext(path) do
-    path |> String.replace_suffix(".eex", "") |> String.replace_suffix(".json", "")
-  end
-
-  defp config(repo, opts) do
-    repo.config()
-    |> Keyword.get(:supervisors, [])
-    |> Keyword.merge(opts)
-  end
-
-  defp templates_path(repo, config) do
-    path = Keyword.get(config, :path, @default_path)
-
-    case Path.type(path) do
-      :absolute -> path
-      _ -> Application.app_dir(Keyword.fetch!(repo.config(), :otp_app), path)
-    end
-  end
-
-  defp request_opts(repo, config) do
-    repo.config()
-    |> Keyword.take([:host, :port, :scheme])
-    |> Keyword.merge(Keyword.take(config, @connection_keys))
-  end
-
-  defp to_map(value) when is_map(value), do: value
-  defp to_map(value) when is_list(value), do: Map.new(value)
-
-  defp deep_merge(left, right) do
-    Map.merge(left, right, fn
-      _key, %{} = l, %{} = r when not is_struct(l) and not is_struct(r) -> deep_merge(l, r)
-      _key, _l, r -> r
-    end)
   end
 end

@@ -6,8 +6,9 @@ Ecto Druid [(documentation)](https://hexdocs.pm/ecto_druid) allows interacting w
 * Modules that provide Druid's SQL functions (see `Ecto.Druid.Query`)
 * Types for Druid's complex types
 * A Druid API client
-* Supervisor specs (Kafka ingestion, automatic compaction) managed as EEx
-  templates, with per-environment values from config (see `Druid.Supervisors`)
+* Supervisor specs (Kafka ingestion, automatic compaction), retention rules
+  and lookups managed as EEx templates, with per-environment values from
+  config (see `Druid.Supervisors`, `Druid.Retention` and `Druid.Lookups`)
 
 The library targets and is tested against Apache Druid 38.0.0.
 
@@ -87,6 +88,55 @@ mix druid.supervisors.sync
 In a release, call `Druid.Supervisors.sync(MyApp.DruidRepo)` instead. Druid only
 restarts a supervisor when its spec changed. See `Druid.Supervisors` for
 partials, compaction supervisors, and all options.
+
+## Retention rules and lookups
+
+Retention rules and lookups work the same way, each from its own directory and
+config key.
+
+`priv/druid/retention/page_views_hourly.json.eex` holds the rules for the
+`page_views_hourly` data source:
+
+```eex
+[
+  {"type": "loadByPeriod", "period": "P2Y",
+   "tieredReplicants": {<%= json @historical_tier %>: <%= @replicas %>}},
+  {"type": "dropForever"}
+]
+```
+
+`priv/druid/lookups/countries.json.eex` defines the `countries` lookup. A
+template renders only the lookup's `lookupExtractorFactory`. The library
+manages the version and only bumps it when the lookup changes:
+
+```eex
+{"type": "map", "map": <%= json @countries %>}
+```
+
+```elixir
+config :my_app, MyApp.DruidRepo,
+  retention: [
+    host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
+    port: 8888,
+    assigns: %{historical_tier: "_default_tier", replicas: 2}
+  ],
+  lookups: [
+    host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
+    port: 8888,
+    assigns: %{countries: %{"US" => "United States"}}
+  ]
+```
+
+```sh
+mix druid.retention.sync --dry-run
+mix druid.retention.sync
+mix druid.lookups.sync --dry-run
+mix druid.lookups.sync
+```
+
+Both only submit what changed. Retention sync also refuses rules that name a
+tier with no Historicals, since Druid would accept them and unload the data.
+See `Druid.Retention` and `Druid.Lookups` for details.
 
 ## Upgrading from 0.5.x
 
