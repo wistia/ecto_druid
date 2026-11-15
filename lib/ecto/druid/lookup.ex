@@ -39,6 +39,10 @@ defmodule Ecto.Druid.Lookup do
       module name, underscored (`MyApp.CountryNames` reads `country_names`).
     * `:key` - the name of the key field. Defaults to `:k`.
     * `:value` - the name of the value field. Defaults to `:v`.
+    * `:injective` - whether each value belongs to only one key. Druid can
+      then rewrite queries on `LOOKUP` more aggressively. Defaults to `false`.
+    * `:jdbc` - load the lookup from a database table. See "Defining the
+      lookup" below. Without it, the lookup is a map lookup.
 
   Renamed fields still read the `k` and `v` columns:
 
@@ -49,15 +53,58 @@ defmodule Ecto.Druid.Lookup do
       MyApp.Repo.get(MyApp.Countries, "US")
       #=> %MyApp.Countries{code: "US", name: "United States"}
 
-  The key is the schema's primary key. Lookups are read-only: change them
-  with `Druid.Lookups` or `Druid.Client.Lookup`.
+  The key is the schema's primary key. Lookups are read-only through Ecto.
+
+  ## Defining the lookup
+
+  The schema also describes how the lookup is loaded, so a lookup template
+  (see `Druid.Lookups`) can generate its `lookupExtractorFactory` with the
+  `lookup_factory` helper, the way supervisor templates use `data_schema`.
+  The schema holds what stays the same everywhere. The template passes what
+  changes between environments, from assigns.
+
+  A map lookup takes its values from the template:
+
+      # priv/druid/lookups/countries.json.eex
+      <%= lookup_factory MyApp.Countries, map: @countries %>
+
+  A JDBC lookup names its table in the schema, and its connection in the
+  template:
+
+      defmodule MyApp.Countries do
+        use Ecto.Druid.Lookup,
+          key: :code,
+          value: :name,
+          injective: true,
+          jdbc: [table: "countries"]
+      end
+
+      # priv/druid/lookups/countries.json.eex
+      <%= lookup_factory MyApp.Countries,
+            connector: @lookup_db,
+            poll_period: "PT10M" %>
+
+  `:jdbc` takes:
+
+    * `:table` - required.
+    * `:key_column` - defaults to the key field's name (`"code"` above).
+    * `:value_column` - defaults to the value field's name (`"name"` above).
+    * `:filter` - a SQL `WHERE` condition limiting the rows loaded.
+    * `:ts_column` - a last-modified column, so Druid only reloads changed
+      rows.
+
+  See `Ecto.Druid.Lookup.Spec.factory/2` for the template options.
   """
+
+  @jdbc_opts [:table, :key_column, :value_column, :filter, :ts_column]
 
   @doc false
   defmacro __using__(opts) do
     {name, opts} = Keyword.pop(opts, :name)
     {key, opts} = Keyword.pop(opts, :key, :k)
     {value, opts} = Keyword.pop(opts, :value, :v)
+    {injective, opts} = Keyword.pop(opts, :injective, false)
+    {jdbc, opts} = Keyword.pop(opts, :jdbc)
 
     if opts != [] do
       raise ArgumentError,
@@ -67,6 +114,12 @@ defmodule Ecto.Druid.Lookup do
     unless is_atom(key) and is_atom(value) do
       raise ArgumentError, "Ecto.Druid.Lookup :key and :value must be atoms"
     end
+
+    unless is_boolean(injective) do
+      raise ArgumentError, "Ecto.Druid.Lookup :injective must be a boolean"
+    end
+
+    source = if jdbc, do: {:jdbc, jdbc_source(jdbc, key, value)}
 
     name = name || default_name(__CALLER__.module)
 
@@ -87,8 +140,18 @@ defmodule Ecto.Druid.Lookup do
       end
 
       @doc "Returns the name of this lookup in Druid."
-      @spec __lookup__(:name) :: String.t()
+      @doc """
+      Returns information about this lookup:
+
+        * `:name` - its name in Druid.
+        * `:injective` - whether each value belongs to only one key.
+        * `:source` - `nil` for a map lookup, or `{:jdbc, opts}` with the
+          `:jdbc` options, column defaults filled in.
+      """
+      @spec __lookup__(:name | :injective | :source) :: term()
       def __lookup__(:name), do: unquote(name)
+      def __lookup__(:injective), do: unquote(injective)
+      def __lookup__(:source), do: unquote(Macro.escape(source))
 
       @doc """
       Maps `expr` through this lookup with Druid's `LOOKUP` function, giving
@@ -106,6 +169,29 @@ defmodule Ecto.Druid.Lookup do
         Ecto.Druid.Util.fragment(unquote(lookup_default_sql), [expr, default], nil)
       end
     end
+  end
+
+  defp jdbc_source(jdbc, key, value) do
+    unless Keyword.keyword?(jdbc) do
+      raise ArgumentError, "Ecto.Druid.Lookup :jdbc must be a literal keyword list"
+    end
+
+    case Keyword.keys(jdbc) -- @jdbc_opts do
+      [] -> :ok
+      unknown -> raise ArgumentError, "unknown :jdbc options: #{inspect(unknown)}"
+    end
+
+    for {opt, val} <- jdbc, not is_binary(val) do
+      raise ArgumentError, "Ecto.Druid.Lookup :jdbc option #{inspect(opt)} must be a string"
+    end
+
+    unless Keyword.has_key?(jdbc, :table) do
+      raise ArgumentError, "Ecto.Druid.Lookup :jdbc requires :table"
+    end
+
+    jdbc
+    |> Keyword.put_new(:key_column, Atom.to_string(key))
+    |> Keyword.put_new(:value_column, Atom.to_string(value))
   end
 
   defp default_name(module) do

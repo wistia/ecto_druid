@@ -54,6 +54,60 @@ Lookups go in the `__default` tier, or the one set by the `:tier` option. To put
 its template in a directory named after the tier, such as
 `priv/druid/lookups/realtime/countries.json.eex`.
 
+## Generating lookups from schemas
+
+A lookup schema can also describe how the lookup is loaded. Its template then
+generates the factory with `lookup_factory`, the way supervisor templates use
+`data_schema`. The schema holds what is the same everywhere, and the template
+passes what changes between environments.
+
+A map lookup only needs its values:
+
+```eex
+<%= lookup_factory MyApp.Countries, map: @countries %>
+```
+
+A JDBC lookup names its table in the schema. The key and value columns
+default to the field names:
+
+```elixir
+defmodule MyApp.Countries do
+  use Ecto.Druid.Lookup,
+    key: :code,
+    value: :name,
+    injective: true,
+    jdbc: [table: "countries", filter: "active = true"]
+end
+```
+
+The template supplies the connection:
+
+```eex
+<%= lookup_factory MyApp.Countries, connector: @lookup_db, poll_period: "PT10M" %>
+```
+
+```elixir
+config :my_app, MyApp.DruidRepo,
+  lookups: [
+    assigns: %{
+      lookup_db: %{
+        uri: System.get_env("LOOKUP_DB_URI"),
+        user: "druid",
+        # Druid reads the password from its own environment
+        password: {:env, "LOOKUP_DB_PASSWORD"}
+      }
+    }
+  ]
+```
+
+JDBC lookups need Druid's `druid-lookups-cached-global` extension and the
+database's JDBC driver.
+
+`lookup_factory` raises if the template's name doesn't match the schema's
+lookup, so renaming one without the other fails at render time instead of
+leaving queries pointed at a lookup that doesn't exist. See
+`Ecto.Druid.Lookup.Spec.factory/2` for every option.
+
 ## Configuration
 
 ```elixir

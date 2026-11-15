@@ -158,6 +158,43 @@ defmodule Druid.Supervisors.Template do
       do: json(Ecto.Druid.Schema.Spec.metrics_spec(schema, opts))
 
     @doc """
+    Generates a lookup's `lookupExtractorFactory` from a schema that uses
+    `Ecto.Druid.Lookup`. See `Ecto.Druid.Lookup.Spec.factory/2` for options.
+
+        <%= lookup_factory MyApp.Countries, map: @countries %>
+
+        <%= lookup_factory MyApp.Countries, connector: @lookup_db, poll_period: "PT10M" %>
+
+    In a lookup template, raises if the template defines a different lookup
+    from the schema's, so the template's file name and the schema can't
+    drift apart.
+    """
+    defmacro lookup_factory(schema, opts \\ []) do
+      quote do
+        Druid.Supervisors.Template.Helpers.__lookup_factory__(
+          unquote(schema),
+          unquote(opts),
+          var!(assigns)
+        )
+      end
+    end
+
+    @doc false
+    def __lookup_factory__(schema, opts, assigns) do
+      factory = Ecto.Druid.Lookup.Spec.factory(schema, opts)
+
+      with {:ok, template_lookup} <- Map.fetch(assigns, :lookup_name),
+           schema_lookup when schema_lookup != template_lookup <- schema.__lookup__(:name) do
+        raise Druid.Supervisors.Template.Error,
+              "this template defines the #{inspect(template_lookup)} lookup, but " <>
+                "#{inspect(schema)} reads #{inspect(schema_lookup)}. Rename the template " <>
+                "or set the schema's :name"
+      end
+
+      json(factory)
+    end
+
+    @doc """
     Renders a partial: a template that starts with `_` in the templates
     directory. `partial("index_spec")` renders `_index_spec.json.eex`, and
     `partial("shared/index_spec")` renders `shared/_index_spec.json.eex`.

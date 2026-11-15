@@ -17,13 +17,14 @@ defmodule LookupQueryIntegrationTest do
   @load_timeout_s 180
 
   setup_all do
-    Druid.Client.Lookup.initialize() |> Druid.Client.request(@druid)
+    # Create the lookup from a template that generates it from the schema
+    assert [{status, _}] =
+             Druid.Lookups.sync(TestRepo,
+               path: Path.expand("fixtures/lookup_schemas", __DIR__),
+               assigns: %{countries: %{"US" => "United States", "IT" => "Italy"}}
+             )
 
-    Druid.Client.Lookup.set("__default", @lookup, "v1", %{
-      "type" => "map",
-      "map" => %{"US" => "United States", "IT" => "Italy"}
-    })
-    |> Druid.Client.request!(@druid)
+    assert status in [:created, :updated, :unchanged]
 
     on_exit(fn ->
       Druid.Client.Lookup.delete("__default", @lookup) |> Druid.Client.request(@druid)
