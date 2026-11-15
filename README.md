@@ -16,6 +16,183 @@ The library targets and is tested against Apache Druid 38.0.0.
 
 To learn more about getting started, see the [Ecto repository](https://github.com/elixir-ecto/ecto).
 
+## Setup
+
+Add the dependency and define a repo that uses the adapter:
+
+```elixir
+# mix.exs
+defp deps do
+  [{:ecto_druid, "~> 0.6.0"}]
+end
+
+defmodule MyApp.DruidRepo do
+  use Ecto.Repo, otp_app: :my_app, adapter: Ecto.Adapters.Druid
+end
+```
+
+Point it at a Druid Broker or Router and add it to your supervision tree:
+
+```elixir
+config :my_app, MyApp.DruidRepo,
+  host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
+  port: 8888,
+  context: %{sqlTimeZone: "Etc/UTC"}
+```
+
+The repo is read-only. `all`, `one` and the other query functions work.
+Updates, deletes and migrations don't. Data gets into Druid through ingestion
+(see [Supervisor specs](#supervisor-specs) and `Druid.Client.SQL.insert/3`).
+
+## Querying with SQL
+
+Queries are written with `Ecto.Query` and sent to Druid's SQL API. Query a
+data source by name, selecting the columns you need. Druid's time column is
+`__time`:
+
+```elixir
+import Ecto.Query
+
+MyApp.DruidRepo.all(
+  from p in "page_views_hourly",
+    where: p.country == ^country,
+    group_by: p.browser,
+    order_by: [desc: count()],
+    limit: 10,
+    select: %{browser: p.browser, views: count()}
+)
+```
+
+Or describe the data source with a schema and query that. A schema built with
+`Ecto.Druid.Schema` (see [Supervisor specs](#supervisor-specs)) maps
+`__time` to a field and loads it as a `DateTime`. Use a plain `Ecto.Schema`
+with `field :time, Ecto.Druid.DateTime, source: :__time` if you don't generate
+ingestion specs.
+
+### Druid SQL functions
+
+`use Ecto.Druid.Query` imports macros for Druid's
+[SQL functions](https://druid.apache.org/docs/latest/querying/sql-functions):
+time bucketing, sketches, lookups, strings, arrays, JSON and more. Each
+category is also its own module, such as `Ecto.Druid.Query.DateTime` or
+`Ecto.Druid.Query.HLL`, if you'd rather import only what you use.
+
+```elixir
+import Ecto.Query
+use Ecto.Druid.Query
+
+MyApp.DruidRepo.all(
+  from p in MyApp.PageViewsHourly,
+    where: time_in_interval(p.time, ^"2026-11-01/2026-11-08"),
+    group_by: [time_floor(p.time, "P1D"), p.country],
+    select: %{
+      day: time_floor(p.time, "P1D"),
+      country: lookup(p.country, "countries", "Unknown"),
+      views: sum(p.views),
+      visitors: hll_sketch_estimate(ds_hll(p.unique_visitors))
+    }
+)
+```
+
+A schema field like `p.time` loads as a `DateTime`, but a computed value such
+as `day` comes back as Druid returns it, an ISO 8601 string.
+
+Filter on `__time` whenever you can. Druid uses the time filter to decide
+which segments to read, so it's usually what makes a query fast.
+
+Complex columns such as `unique_visitors` hold sketches. Merge them with the
+matching aggregation (`ds_hll`, `ds_theta`, `ds_quantiles_sketch`, and so on)
+and turn the result into a number with an estimate function. A sketch selected
+as is loads as its Base64 string.
+
+### Joins, subqueries and table functions
+
+Joins, subqueries, `union`/`union_all`, and window functions (via
+`Ecto.Query.WindowAPI`) all work. Druid lookups are tables in the `lookup`
+schema with `k` and `v` columns, so you can join one as well as calling
+`lookup/3`:
+
+```elixir
+# Join a lookup
+from p in MyApp.PageViewsHourly,
+  join: c in "countries", prefix: "lookup", on: c.k == p.country,
+  group_by: c.v,
+  select: {c.v, sum(p.views)}
+
+# Filter on a subquery
+top = from p in MyApp.PageViewsHourly,
+  group_by: p.country, order_by: [desc: sum(p.views)], limit: 5, select: p.country
+
+from p in MyApp.PageViewsHourly,
+  where: p.country in subquery(top),
+  group_by: p.country,
+  select: {p.country, sum(p.views)}
+
+# Expand an ARRAY or multi-value column into rows
+from p in MyApp.PageViewsHourly,
+  cross_join: t in unnest(p.tags, :tag),
+  group_by: t.tag,
+  select: {t.tag, sum(p.views)}
+```
+
+### Query context
+
+Druid's [query context](https://druid.apache.org/docs/latest/querying/sql-query-context)
+(timeouts, time zone, approximation settings, and so on) can be set for the
+whole repo with the `:context` config shown above, or per call:
+
+```elixir
+MyApp.DruidRepo.all(query, context: %{sqlTimeZone: "America/New_York", timeout: 30_000})
+```
+
+### Inspecting and hand-writing SQL
+
+`to_sql/1` returns the SQL and parameters a query will send:
+
+```elixir
+MyApp.DruidRepo.to_sql(from p in "page_views_hourly", select: count())
+#=> {"SELECT count(*) FROM \"page_views_hourly\" AS p0", []}
+```
+
+To run SQL you've written yourself, send it with `Druid.Client.SQL`. Rows come
+back as lists, and parameters take a Druid SQL type:
+
+```elixir
+Druid.Client.SQL.query(
+  "SELECT channel, COUNT(*) FROM wikipedia GROUP BY 1 ORDER BY 2 DESC LIMIT ?",
+  [%{type: "BIGINT", value: 10}]
+)
+|> Druid.Client.request!(MyApp.DruidRepo.config())
+```
+
+## Native queries
+
+Druid also has a [native JSON query language](https://druid.apache.org/docs/latest/querying/),
+which Druid SQL is translated into. Use it for query types or options SQL
+doesn't expose. `native_query/2` on the repo sends a query map to the same
+host and returns the decoded JSON response, with string keys:
+
+```elixir
+MyApp.DruidRepo.native_query(%{
+  queryType: "topN",
+  dataSource: "wikipedia",
+  intervals: ["2016-06-27/2016-06-28"],
+  granularity: "all",
+  dimension: "channel",
+  metric: "edits",
+  threshold: 10,
+  aggregations: [%{type: "count", name: "edits"}],
+  context: %{timeout: 30_000}
+})
+#=> [%{"timestamp" => "2016-06-27T00:00:00.000Z",
+#      "result" => [%{"channel" => "#en.wikipedia", "edits" => 6650}, ...]}]
+```
+
+A native query carries its context in the query map, so the repo's
+`:context` config doesn't apply. `Druid.Client.Native` also builds requests
+to list the segments a native query would read (`candidates/1`) and to cancel
+a running query by its `queryId` (`cancel/1`).
+
 ## Supervisor specs
 
 Put one supervisor spec per file in `priv/druid/supervisors/*.json.eex`. Each
