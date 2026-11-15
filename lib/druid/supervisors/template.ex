@@ -1,7 +1,8 @@
 defmodule Druid.Supervisors.Template do
   @moduledoc """
-  Renders spec templates: supervisor specs (`Druid.Supervisors`), retention
-  rules (`Druid.Retention`) and lookups (`Druid.Lookups`). See
+  Renders spec templates: supervisor specs (`Druid.Supervisors`), compaction
+  configs (`Druid.Compaction`), retention rules (`Druid.Retention`) and
+  lookups (`Druid.Lookups`). See
   `Druid.Supervisors` for the template format.
 
   Templates are EEx with a few differences from plain `EEx.eval_file/3`:

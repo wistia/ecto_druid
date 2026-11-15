@@ -47,10 +47,14 @@ defmodule Druid.Supervisors do
     * `@spec_name` is the template's path relative to the templates directory,
       without the extension.
 
-  Compaction supervisors are supervisor specs too, so they go in the same
+  Compaction supervisors are supervisor specs too, so they can go in the same
   directory:
 
       {"type": "autocompact", "spec": {"dataSource": "wikipedia", "skipOffsetFromLatest": "P1D"}}
+
+  `Druid.Compaction` manages the same compaction configs through Druid's
+  compaction API instead, which also works when the cluster runs compaction
+  on the Coordinator. Use one or the other for each data source.
 
   ## Generating the data schema
 
@@ -137,8 +141,9 @@ defmodule Druid.Supervisors do
   Druid compares each submitted spec with the running one and only restarts a
   supervisor when its spec changed, so syncing unchanged specs is safe.
 
-  Retention rules and lookups are managed the same way, from their own
-  template directories. See `Druid.Retention` and `Druid.Lookups`.
+  Compaction configs, retention rules and lookups are managed the same way,
+  from their own template directories. See `Druid.Compaction`,
+  `Druid.Retention` and `Druid.Lookups`.
   """
 
   alias Druid.SpecTemplates

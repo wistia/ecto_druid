@@ -91,6 +91,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Client.Native,
           Druid.Client.Task,
           Druid.Client.Supervisor,
+          Druid.Client.Compaction,
           Druid.Client.Retention,
           Druid.Client.Lookup
         ],
@@ -101,6 +102,8 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Supervisors.Spec,
           Druid.Supervisors.Template,
           Druid.Supervisors.Template.Helpers,
+          Druid.Compaction,
+          Druid.Compaction.Config,
           Druid.Retention,
           Druid.Retention.Rules,
           Druid.Lookups,

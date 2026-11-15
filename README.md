@@ -6,9 +6,10 @@ Ecto Druid [(documentation)](https://hexdocs.pm/ecto_druid) allows interacting w
 * Modules that provide Druid's SQL functions (see `Ecto.Druid.Query`)
 * Types for Druid's complex types
 * A Druid API client
-* Supervisor specs (Kafka ingestion, automatic compaction), retention rules
-  and lookups managed as EEx templates, with per-environment values from
-  config (see `Druid.Supervisors`, `Druid.Retention` and `Druid.Lookups`)
+* Supervisor specs (Kafka ingestion), compaction configs, retention rules and
+  lookups managed as EEx templates, with per-environment values from config
+  (see `Druid.Supervisors`, `Druid.Compaction`, `Druid.Retention` and
+  `Druid.Lookups`)
 
 The library targets and is tested against Apache Druid 38.0.0.
 
@@ -87,12 +88,28 @@ mix druid.supervisors.sync
 
 In a release, call `Druid.Supervisors.sync(MyApp.DruidRepo)` instead. Druid only
 restarts a supervisor when its spec changed. See `Druid.Supervisors` for
-partials, compaction supervisors, and all options.
+partials and all options.
 
-## Retention rules and lookups
+## Compaction, retention rules and lookups
 
-Retention rules and lookups work the same way, each from its own directory and
-config key.
+Compaction configs, retention rules and lookups work the same way, each from
+its own directory and config key.
+
+`priv/druid/compaction/page_views_hourly.json.eex` holds the automatic
+compaction config for the `page_views_hourly` data source. The schema helpers
+work here too:
+
+```eex
+{
+  "skipOffsetFromLatest": "P1D",
+  "dimensionsSpec": <%= dimensions_spec MyApp.PageViewsHourly %>,
+  "metricsSpec": <%= metrics_spec MyApp.PageViewsHourly, combining: true %>,
+  "tuningConfig": {"maxNumConcurrentSubTasks": <%= @max_subtasks %>}
+}
+```
+
+This uses Druid's compaction API, which works whether the cluster runs
+compaction as supervisors (the default) or on the Coordinator.
 
 `priv/druid/retention/page_views_hourly.json.eex` holds the rules for the
 `page_views_hourly` data source:
@@ -115,6 +132,11 @@ manages the version and only bumps it when the lookup changes:
 
 ```elixir
 config :my_app, MyApp.DruidRepo,
+  compaction: [
+    host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
+    port: 8888,
+    assigns: %{max_subtasks: 1}
+  ],
   retention: [
     host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
     port: 8888,
@@ -128,15 +150,17 @@ config :my_app, MyApp.DruidRepo,
 ```
 
 ```sh
+mix druid.compaction.sync --dry-run
+mix druid.compaction.sync
 mix druid.retention.sync --dry-run
 mix druid.retention.sync
 mix druid.lookups.sync --dry-run
 mix druid.lookups.sync
 ```
 
-Both only submit what changed. Retention sync also refuses rules that name a
+Each only submits what changed. Retention sync also refuses rules that name a
 tier with no Historicals, since Druid would accept them and unload the data.
-See `Druid.Retention` and `Druid.Lookups` for details.
+See `Druid.Compaction`, `Druid.Retention` and `Druid.Lookups` for details.
 
 ## Upgrading from 0.5.x
 
