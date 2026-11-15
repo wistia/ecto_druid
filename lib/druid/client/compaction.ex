@@ -2,60 +2,78 @@ defmodule Druid.Client.Compaction do
   @moduledoc """
   Builds requests for Druid's [automatic compaction API](https://druid.apache.org/docs/latest/api-reference/automatic-compaction-api).
 
-  These requests manage compaction run by the Coordinator. To run compaction
-  as an `autocompact` supervisor instead, see `Druid.Client.Supervisor` and
-  `Druid.Supervisors`. Send these requests to the Router.
+  These are the Overlord's compaction endpoints. Druid runs automatic
+  compaction either as compaction supervisors or as a Coordinator duty,
+  depending on the cluster's `useSupervisors` setting. These endpoints work
+  in both modes: with supervisors, setting a data source's config creates or
+  updates its `autocompact__<dataSource>` supervisor.
+
+  To manage compaction configs from templates, see `Druid.Compaction`.
+  """
+
+  import Druid.Client.Util, only: [audit_headers: 1, escape: 1]
+
+  @base_path "/druid/indexer/v1/compaction"
+
+  @doc """
+  Builds a request to get every data source's compaction config.
+
+  Druid responds with `%{"compactionConfigs" => [config, ...]}`.
 
   ## Examples
 
-      Druid.Client.Compaction.set(%{"dataSource" => "wikipedia", "skipOffsetFromLatest" => "PT1H"})
+      Druid.Client.Compaction.all()
       |> Druid.Client.request!(host: "localhost", port: 8888)
-
-      Druid.Client.Compaction.status(data_source: "wikipedia")
-      |> Druid.Client.request!(host: "localhost", port: 8888)
-  """
-
-  import Druid.Client.Util, only: [params: 2, path: 2]
-
-  @config_path "/druid/coordinator/v1/config/compaction"
-  @cluster_path "/druid/indexer/v1/compaction/config/cluster"
-
-  @doc """
-  Builds a request to get the cluster's compaction settings and every data
-  source's compaction config.
   """
   @spec all() :: Req.Request.t()
-  def all, do: Req.new(method: :get, url: @config_path)
+  def all do
+    Req.new(method: :get, url: @base_path <> "/config/datasources")
+  end
 
   @doc """
   Builds a request to get a data source's compaction config.
   """
   @spec get(String.t()) :: Req.Request.t()
   def get(data_source) do
-    Req.new(method: :get, url: path(@config_path, [data_source]))
+    Req.new(method: :get, url: datasource_path(data_source))
   end
 
   @doc """
   Builds a request to create or replace a data source's compaction config.
-  `config` must include `"dataSource"`.
+  The data source is taken from the config's `"dataSource"`.
+
+  ## Options
+
+    * `:author` - Recorded in the config's audit history.
+    * `:comment` - Recorded in the config's audit history.
   """
-  @spec set(map()) :: Req.Request.t()
-  def set(config) do
-    Req.new(method: :post, url: @config_path, json: config)
+  @spec set(map(), Keyword.t()) :: Req.Request.t()
+  def set(%{"dataSource" => data_source} = config, opts \\ []) do
+    Req.new(
+      method: :post,
+      url: datasource_path(data_source),
+      headers: audit_headers(opts),
+      json: config
+    )
   end
 
   @doc """
-  Builds a request to remove a data source's compaction config, which stops
-  automatic compaction for it.
+  Builds a request to delete a data source's compaction config, which stops
+  automatic compaction of that data source.
+
+  ## Options
+
+    * `:author` - Recorded in the config's audit history.
+    * `:comment` - Recorded in the config's audit history.
   """
-  @spec delete(String.t()) :: Req.Request.t()
-  def delete(data_source) do
-    Req.new(method: :delete, url: path(@config_path, [data_source]))
+  @spec delete(String.t(), Keyword.t()) :: Req.Request.t()
+  def delete(data_source, opts \\ []) do
+    Req.new(method: :delete, url: datasource_path(data_source), headers: audit_headers(opts))
   end
 
   @doc """
-  Builds a request to get the history of a data source's compaction config,
-  newest first.
+  Builds a request to get the audit history of a data source's compaction
+  config.
 
   ## Options
 
@@ -66,22 +84,8 @@ defmodule Druid.Client.Compaction do
   def history(data_source, opts \\ []) do
     Req.new(
       method: :get,
-      url: path(@config_path, [data_source, "history"]),
-      params: params(opts, count: "count", interval: "interval")
-    )
-  end
-
-  @doc """
-  Builds a request to get how many bytes of a data source are still waiting
-  to be compacted. Druid responds with a 404 for a data source without a
-  compaction config.
-  """
-  @spec progress(String.t()) :: Req.Request.t()
-  def progress(data_source) do
-    Req.new(
-      method: :get,
-      url: "/druid/coordinator/v1/compaction/progress",
-      params: [dataSource: data_source]
+      url: datasource_path(data_source) <> "/history",
+      params: Keyword.take(opts, [:count, :interval])
     )
   end
 
@@ -89,31 +93,40 @@ defmodule Druid.Client.Compaction do
   Builds a request to get the compaction status of every data source with a
   compaction config.
 
-  ## Options
-
-    * `:data_source` - Only this data source.
+  Druid responds with `%{"latestStatus" => [status, ...]}`.
   """
-  @spec status(Keyword.t()) :: Req.Request.t()
-  def status(opts \\ []) do
-    Req.new(
-      method: :get,
-      url: "/druid/coordinator/v1/compaction/status",
-      params: params(opts, data_source: "dataSource")
-    )
+  @spec statuses() :: Req.Request.t()
+  def statuses do
+    Req.new(method: :get, url: @base_path <> "/status/datasources")
   end
 
   @doc """
-  Builds a request to get the cluster's compaction settings, such as
-  `compactionTaskSlotRatio`, `maxCompactionTaskSlots`, and `useSupervisors`.
+  Builds a request to get a data source's compaction status: how much of it
+  is compacted and awaiting compaction.
   """
-  @spec cluster() :: Req.Request.t()
-  def cluster, do: Req.new(method: :get, url: @cluster_path)
+  @spec status(String.t()) :: Req.Request.t()
+  def status(data_source) do
+    Req.new(method: :get, url: @base_path <> "/status/datasources/" <> escape(data_source))
+  end
 
   @doc """
-  Builds a request to update the cluster's compaction settings.
+  Builds a request to get the cluster-wide compaction config, including
+  `useSupervisors`, `engine` and the task slot limits.
+  """
+  @spec cluster() :: Req.Request.t()
+  def cluster do
+    Req.new(method: :get, url: @base_path <> "/config/cluster")
+  end
+
+  @doc """
+  Builds a request to update the cluster-wide compaction config, for example
+  `%{"useSupervisors" => false}`.
   """
   @spec set_cluster(map()) :: Req.Request.t()
   def set_cluster(config) do
-    Req.new(method: :post, url: @cluster_path, json: config)
+    Req.new(method: :post, url: @base_path <> "/config/cluster", json: config)
   end
+
+  defp datasource_path(data_source),
+    do: @base_path <> "/config/datasources/" <> escape(data_source)
 end

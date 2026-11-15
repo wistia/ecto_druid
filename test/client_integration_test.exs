@@ -27,7 +27,7 @@ defmodule ClientIntegrationTest do
     assert is_list(ok!(Config.history(:coordinator, count: 1)))
     assert %{"compactionConfigs" => _} = ok!(Compaction.all())
     assert %{"compactionTaskSlotRatio" => _} = ok!(Compaction.cluster())
-    assert %{"latestStatus" => _} = ok!(Compaction.status())
+    assert %{"latestStatus" => _} = ok!(Compaction.statuses())
   end
 
   test "lists tasks, supervisors, data sources, and segments" do

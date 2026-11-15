@@ -5,10 +5,12 @@ Ecto Druid [(documentation)](https://hexdocs.pm/ecto_druid) allows interacting w
 * An Ecto adapter for Druid
 * Modules that provide Druid's SQL functions (see `Ecto.Druid.Query`)
 * Types for Druid's complex types
+* Schemas for Druid's system tables (`sys.*` and `INFORMATION_SCHEMA.*`)
 * A Druid API client
-* Supervisor specs (Kafka ingestion, automatic compaction), retention rules
-  and lookups managed as EEx templates, with per-environment values from
-  config (see `Druid.Supervisors`, `Druid.Retention` and `Druid.Lookups`)
+* Supervisor specs (Kafka ingestion), compaction configs, retention rules and
+  lookups managed as EEx templates, with per-environment values from config
+  (see `Druid.Supervisors`, `Druid.Compaction`, `Druid.Retention` and
+  `Druid.Lookups`)
 
 The library targets and is tested against Apache Druid 38.0.0.
 
@@ -87,12 +89,28 @@ mix druid.supervisors.sync
 
 In a release, call `Druid.Supervisors.sync(MyApp.DruidRepo)` instead. Druid only
 restarts a supervisor when its spec changed. See `Druid.Supervisors` for
-partials, compaction supervisors, and all options.
+partials and all options.
 
-## Retention rules and lookups
+## Compaction, retention rules and lookups
 
-Retention rules and lookups work the same way, each from its own directory and
-config key.
+Compaction configs, retention rules and lookups work the same way, each from
+its own directory and config key.
+
+`priv/druid/compaction/page_views_hourly.json.eex` holds the automatic
+compaction config for the `page_views_hourly` data source. The schema helpers
+work here too:
+
+```eex
+{
+  "skipOffsetFromLatest": "P1D",
+  "dimensionsSpec": <%= dimensions_spec MyApp.PageViewsHourly %>,
+  "metricsSpec": <%= metrics_spec MyApp.PageViewsHourly, combining: true %>,
+  "tuningConfig": {"maxNumConcurrentSubTasks": <%= @max_subtasks %>}
+}
+```
+
+This uses Druid's compaction API, which works whether the cluster runs
+compaction as supervisors (the default) or on the Coordinator.
 
 `priv/druid/retention/page_views_hourly.json.eex` holds the rules for the
 `page_views_hourly` data source:
@@ -115,6 +133,11 @@ manages the version and only bumps it when the lookup changes:
 
 ```elixir
 config :my_app, MyApp.DruidRepo,
+  compaction: [
+    host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
+    port: 8888,
+    assigns: %{max_subtasks: 1}
+  ],
   retention: [
     host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
     port: 8888,
@@ -128,15 +151,46 @@ config :my_app, MyApp.DruidRepo,
 ```
 
 ```sh
+mix druid.compaction.sync --dry-run
+mix druid.compaction.sync
 mix druid.retention.sync --dry-run
 mix druid.retention.sync
 mix druid.lookups.sync --dry-run
 mix druid.lookups.sync
 ```
 
-Both only submit what changed. Retention sync also refuses rules that name a
+Each only submits what changed. Retention sync also refuses rules that name a
 tier with no Historicals, since Druid would accept them and unload the data.
-See `Druid.Retention` and `Druid.Lookups` for details.
+See `Druid.Compaction`, `Druid.Retention` and `Druid.Lookups` for details.
+
+## System tables
+
+Druid's metadata tables have ready-made schemas: `Ecto.Druid.Sys.Segments`,
+`ServerSegments`, `Servers`, `ServerProperties`, `Tasks` and `Supervisors` for
+the `sys` schema, and `Ecto.Druid.InformationSchema.Schemata`, `Tables`,
+`Columns` and `Routines` for `INFORMATION_SCHEMA`. Query them like any other
+schema:
+
+```elixir
+import Ecto.Query
+
+MyApp.DruidRepo.all(
+  from s in Ecto.Druid.Sys.Segments,
+    where: s.datasource == "page_views_hourly" and s.is_active == 1,
+    select: %{segment_id: s.segment_id, size: s.size, num_rows: s.num_rows}
+)
+
+MyApp.DruidRepo.all(
+  from c in Ecto.Druid.InformationSchema.Columns,
+    where: c.table_schema == "druid" and c.table_name == "page_views_hourly",
+    order_by: c.ordinal_position,
+    select: {c.column_name, c.data_type}
+)
+```
+
+Flags such as `is_active` are 0/1 integers, as Druid types them. Columns
+holding JSON (a segment's `shard_spec`, a supervisor's `spec`) load as maps
+(see `Ecto.Druid.JSON`).
 
 ## Druid API client
 
@@ -161,7 +215,7 @@ Druid.Client.DataSource.mark_unused("wikipedia", %{"interval" => "2015-09-12/201
 | `Druid.Client.Supervisor` | Streaming ingestion and compaction supervisors |
 | `Druid.Client.DataSource` | Data sources and their segments, including marking segments used or unused and kill tasks |
 | `Druid.Client.Metadata` | Segments in the metadata store and segment loading |
-| `Druid.Client.Compaction` | Automatic compaction run by the Coordinator |
+| `Druid.Client.Compaction` | Automatic compaction configs and status |
 | `Druid.Client.Retention` | Retention rules |
 | `Druid.Client.Lookup` | Lookups |
 | `Druid.Client.Config` | Coordinator, Broker, and Overlord worker dynamic config |
