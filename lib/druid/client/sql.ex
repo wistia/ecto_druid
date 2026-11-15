@@ -28,16 +28,7 @@ defmodule Druid.Client.SQL do
     body = %{
       query: query,
       parameters: params,
-      context:
-        Map.merge(
-          %{
-            sqlQueryId: Ecto.UUID.generate(),
-            sqlStringifyArrays: false,
-            skipEmptyBuckets: false,
-            enableWindowing: true
-          },
-          context
-        ),
+      context: context(context),
       resultFormat: "array",
       header: false,
       typesHeader: false
@@ -100,18 +91,40 @@ defmodule Druid.Client.SQL do
     body = %{
       query: query,
       parameters: params,
-      context:
-        Map.merge(
-          %{
-            sqlQueryId: Ecto.UUID.generate(),
-            sqlStringifyArrays: false,
-            skipEmptyBuckets: false,
-            enableWindowing: true
-          },
-          context
-        )
+      context: context(context)
     }
 
     Req.new(method: :post, url: @insert_path, json: body)
+  end
+
+  @doc """
+  Builds a request to cancel a running query by its `sqlQueryId`. Druid
+  responds with a 202 once the cancellation is accepted.
+
+  To cancel a SQL-based ingestion query, use `Druid.Client.Task.shutdown/1`.
+  To cancel a query from deep storage, use `Druid.Client.SQL.Statement.cancel/1`.
+
+  ## Examples
+
+      Druid.Client.SQL.cancel("my-query")
+      |> Druid.Client.request!(host: "localhost", port: 8082)
+  """
+  @spec cancel(String.t()) :: Req.Request.t()
+  def cancel(sql_query_id) do
+    Req.new(method: :delete, url: Druid.Client.Util.path(@query_path, [sql_query_id]))
+  end
+
+  @doc false
+  @spec context(map()) :: map()
+  def context(context) do
+    Map.merge(
+      %{
+        sqlQueryId: Ecto.UUID.generate(),
+        sqlStringifyArrays: false,
+        skipEmptyBuckets: false,
+        enableWindowing: true
+      },
+      context
+    )
   end
 end

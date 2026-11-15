@@ -13,6 +13,8 @@ defmodule Druid.Client.Lookup do
   To manage lookups from templates, see `Druid.Lookups`.
   """
 
+  import Druid.Client.Util, only: [escape: 1]
+
   @config_path "/druid/coordinator/v1/lookups/config"
 
   @doc """
@@ -95,6 +97,4 @@ defmodule Druid.Client.Lookup do
   end
 
   defp lookup_path(tier, name), do: @config_path <> "/" <> escape(tier) <> "/" <> escape(name)
-
-  defp escape(segment), do: URI.encode(segment, &URI.char_unreserved?/1)
 end

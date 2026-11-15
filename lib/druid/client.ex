@@ -1,6 +1,24 @@
 defmodule Druid.Client do
   @moduledoc """
-  A client for querying Druid.
+  A client for Druid's HTTP API.
+
+  The modules under `Druid.Client` build `Req` requests for each part of the
+  API, and `request/2` or `request!/2` send them:
+
+    * `Druid.Client.SQL` and `Druid.Client.SQL.Statement` - SQL queries,
+      SQL-based ingestion, and queries from deep storage.
+    * `Druid.Client.Native` - Native JSON queries.
+    * `Druid.Client.Task` and `Druid.Client.Supervisor` - Ingestion tasks
+      and supervisors.
+    * `Druid.Client.DataSource` and `Druid.Client.Metadata` - Data sources,
+      segments, and segment loading.
+    * `Druid.Client.Compaction`, `Druid.Client.Retention`,
+      `Druid.Client.Lookup`, and `Druid.Client.Config` - Cluster
+      configuration.
+    * `Druid.Client.Status` - Service health and leaders.
+
+  Most requests can go to the Router, which forwards them to the right
+  service.
   """
 
   @default_scheme "http"
@@ -45,23 +63,41 @@ defmodule Druid.Client do
       |> put_present(:adapter, Keyword.get(opts, :adapter))
       |> put_present(:finch, Keyword.get(opts, :finch))
 
-    response = Req.request!(request, request_opts)
+    response = Req.request!(request, [decode_body: false] ++ request_opts)
+    body = decode_body(response)
 
     case response.status do
       code when code in 200..299 ->
-        response.body
+        body
 
       code when code in 400..599 ->
         raise RequestError,
-          message: "Error (#{response.status}) when querying Druid.\n\t#{inspect(response.body)}",
+          message: "Error (#{response.status}) when querying Druid.\n\t#{inspect(body)}",
           status: response.status,
-          body: response.body
+          body: body
 
       _ ->
         raise RuntimeError,
               "Unexpected error (#{response.status}) when querying Druid.\n\t#{inspect(response)}"
     end
   end
+
+  # Druid sends some plain text answers, such as the leader's address, as
+  # application/json, so fall back to the raw body when it is not JSON.
+  defp decode_body(%Req.Response{body: body} = response) when is_binary(body) and body != "" do
+    json? =
+      response
+      |> Req.Response.get_header("content-type")
+      |> Enum.any?(&String.contains?(&1, "json"))
+
+    with true <- json?, {:ok, decoded} <- Jason.decode(body) do
+      decoded
+    else
+      _ -> body
+    end
+  end
+
+  defp decode_body(response), do: response.body
 
   defp base_url(opts) do
     scheme = Keyword.get(opts, :scheme, @default_scheme)

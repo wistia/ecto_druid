@@ -42,4 +42,23 @@ defmodule Druid.Client.NativeTest do
              }
     end
   end
+
+  test "candidates/1" do
+    Native.candidates(%{queryType: "scan", dataSource: "wikipedia"})
+    |> Client.request!(plug: TestPlug, host: "localhost", port: 8082)
+
+    assert_received {:request, conn, body}
+    assert conn.method == "POST"
+    assert conn.request_path == "/druid/v2/candidates"
+    assert body == %{"queryType" => "scan", "dataSource" => "wikipedia"}
+  end
+
+  test "cancel/1" do
+    Native.cancel("my-query")
+    |> Client.request!(plug: TestPlug, host: "localhost", port: 8082)
+
+    assert_received {:request, conn, _body}
+    assert conn.method == "DELETE"
+    assert conn.request_path == "/druid/v2/my-query"
+  end
 end
