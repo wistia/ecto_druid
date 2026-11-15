@@ -2,8 +2,8 @@ defmodule Mix.Tasks.WikiExplorer.Ingest do
   @shortdoc "Loads the sample Wikipedia edits into Druid"
 
   @moduledoc """
-  Submits the batch ingestion task in `priv/druid/ingestion/wiki_edits.json`
-  and waits until the `wiki_edits` data source can be queried.
+  Submits a batch ingestion task for the `wiki_edits` data source and waits
+  until it can be queried.
 
       mix wiki_explorer.ingest
 
@@ -11,12 +11,16 @@ defmodule Mix.Tasks.WikiExplorer.Ingest do
   druid.apache.org, so the Druid container needs internet access. Running the
   task again replaces the data.
 
+  The task's `dataSchema` (timestamp, dimensions and metrics) is generated
+  from `WikiExplorer.Wiki.Edit` with `Ecto.Druid.Schema.Spec.data_schema/2`.
   It uses `Druid.Client` with the repo's config as connection options.
   """
   use Mix.Task
 
   alias Druid.Client
+  alias Ecto.Druid.Schema.Spec
   alias WikiExplorer.DruidRepo
+  alias WikiExplorer.Wiki.Edit
 
   @poll_ms 2_000
   @timeout_ms 300_000
@@ -27,12 +31,7 @@ defmodule Mix.Tasks.WikiExplorer.Ingest do
     {:ok, _} = Application.ensure_all_started(:req)
     druid = DruidRepo.config()
 
-    spec =
-      Application.app_dir(:wiki_explorer, "priv/druid/ingestion/wiki_edits.json")
-      |> File.read!()
-      |> Jason.decode!()
-
-    %{"task" => task_id} = spec |> Client.Task.submit() |> Client.request!(druid)
+    %{"task" => task_id} = ingestion_task() |> Client.Task.submit() |> Client.request!(druid)
     Mix.shell().info("Submitted ingestion task #{task_id}")
 
     wait("ingestion task", fn ->
@@ -54,6 +53,29 @@ defmodule Mix.Tasks.WikiExplorer.Ingest do
         _ -> :wait
       end
     end)
+  end
+
+  defp ingestion_task do
+    %{
+      "type" => "index_parallel",
+      "spec" => %{
+        "ioConfig" => %{
+          "type" => "index_parallel",
+          "inputSource" => %{
+            "type" => "http",
+            "uris" => ["https://druid.apache.org/data/wikipedia.json.gz"]
+          },
+          "inputFormat" => %{"type" => "json"}
+        },
+        "tuningConfig" => %{
+          "type" => "index_parallel",
+          "partitionsSpec" => %{"type" => "dynamic"}
+        },
+        # Keep one row per edit: the app shows individual edits and counts
+        # them with COUNT(*).
+        "dataSchema" => Spec.data_schema(Edit, segment_granularity: "DAY", rollup: false)
+      }
+    }
   end
 
   defp wait(what, check, waited \\ 0) do

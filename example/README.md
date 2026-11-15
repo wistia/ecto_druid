@@ -5,7 +5,8 @@ Wikipedia edits stored in Apache Druid.
 
 It shows how to:
 
-* Define a Druid repo and an Ecto schema for a data source
+* Define a Druid repo, and describe a data source with the `Ecto.Druid.Schema`
+  macros `timestamp`, `dimension` and `metric`
   ([`DruidRepo`](lib/wiki_explorer/druid_repo.ex),
   [`Wiki.Edit`](lib/wiki_explorer/wiki/edit.ex))
 * Write Ecto queries that use Druid SQL functions: `time_in_interval`,
@@ -18,7 +19,8 @@ It shows how to:
 * Read Druid's system tables with the bundled `sys.*` and
   `INFORMATION_SCHEMA` schemas ([`Cluster`](lib/wiki_explorer/cluster.ex))
 * Run a native `topN` query with `native_query/1`
-* Submit an ingestion task and poll its status with `Druid.Client`
+* Generate an ingestion task's `dataSchema` from that schema, submit it and
+  poll its status with `Druid.Client`
   ([`mix wiki_explorer.ingest`](lib/mix/tasks/wiki_explorer.ingest.ex))
 
 ## Running it
@@ -50,8 +52,9 @@ always runs against the code in this repository. Your own app would use
    ```
 
    This runs `mix druid.lookups.sync`, then `mix wiki_explorer.ingest`, which
-   submits [an ingestion task](priv/druid/ingestion/wiki_edits.json) for the
-   `wiki_edits` data source and waits until it can be queried. Druid downloads
+   submits a batch ingestion task for the `wiki_edits` data source and waits
+   until it can be queried. The task's `dataSchema` is generated from
+   [`Wiki.Edit`](lib/wiki_explorer/wiki/edit.ex). Druid downloads
    the data from druid.apache.org, so the container needs internet access.
 
    Druid pushes lookups to its services every couple of minutes. Until it
