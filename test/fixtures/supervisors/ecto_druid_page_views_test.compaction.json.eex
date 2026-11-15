@@ -1,0 +1,11 @@
+{
+  "type": "autocompact",
+  "suspended": true,
+  "spec": {
+    "dataSource": "ecto_druid_page_views_test",
+    "skipOffsetFromLatest": "P1D",
+    "dimensionsSpec": <%= dimensions_spec Ecto.Adapters.Druid.PageViews %>,
+    "metricsSpec": <%= metrics_spec Ecto.Adapters.Druid.PageViews, combining: true %>,
+    "granularitySpec": {"segmentGranularity": "MONTH", "queryGranularity": "DAY", "rollup": true}
+  }
+}

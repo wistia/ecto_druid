@@ -1,0 +1,1 @@
+{"bitmap": {"type": "roaring"}, "dimensionCompression": "lz4", "metricCompression": "lz4"}

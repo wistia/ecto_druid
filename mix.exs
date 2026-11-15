@@ -89,7 +89,16 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Client,
           Druid.Client.SQL,
           Druid.Client.Native,
-          Druid.Client.Task
+          Druid.Client.Task,
+          Druid.Client.Supervisor
+        ],
+        "Supervisor Specs": [
+          Ecto.Druid.Schema,
+          Ecto.Druid.Schema.Spec,
+          Druid.Supervisors,
+          Druid.Supervisors.Spec,
+          Druid.Supervisors.Template,
+          Druid.Supervisors.Template.Helpers
         ],
         Utilities: [
           Ecto.Druid.ComplexType,
