@@ -105,13 +105,13 @@ which is turned into an interval string. Either way the start is inclusive and
 the stop is exclusive. Pinned `DateTime`s also work in plain comparisons, such
 as `p.time >= ^since`.
 
-`Druid.Interval` builds intervals you can pin into `time_in_interval/2` or put
+`Ecto.Druid.Interval` builds intervals you can pin into `time_in_interval/2` or put
 in a native query's `intervals`. One bound can be a period, given as a
 `Duration`, a keyword list or an ISO 8601 period string:
 
 ```elixir
-interval = Druid.Interval.new(~D[2026-11-01], week: 1)  # "2026-11-01/P1W"
-interval = Druid.Interval.last(day: 7)                  # the 7 days up to now
+interval = Ecto.Druid.Interval.new(~D[2026-11-01], week: 1)  # "2026-11-01/P1W"
+interval = Ecto.Druid.Interval.last(day: 7)                  # the 7 days up to now
 
 from p in MyApp.PageViewsHourly, where: time_in_interval(p.time, ^interval)
 ```
@@ -204,8 +204,8 @@ MyApp.DruidRepo.native_query(%{
 #      "result" => [%{"channel" => "#en.wikipedia", "edits" => 6650}, ...]}]
 ```
 
-A `Druid.Interval` encodes to its ISO 8601 string, so you can also write
-`intervals: [Druid.Interval.last(day: 1)]`.
+A `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
+`intervals: [Ecto.Druid.Interval.last(day: 1)]`.
 
 A native query carries its context in the query map, so the repo's
 `:context` config doesn't apply. `Druid.Client.Native` also builds requests

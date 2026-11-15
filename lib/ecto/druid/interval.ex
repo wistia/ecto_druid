@@ -1,4 +1,4 @@
-defmodule Druid.Interval do
+defmodule Ecto.Druid.Interval do
   @moduledoc """
   An ISO 8601 time interval, for filtering on `__time` in Druid SQL and native
   queries.
@@ -9,20 +9,20 @@ defmodule Druid.Interval do
   `:minute`, `:second`), or an ISO 8601 period string such as `"P1D"`. As in
   Druid, the start is inclusive and the stop is exclusive.
 
-      iex> Druid.Interval.new(~U[2026-11-01 00:00:00Z], ~U[2026-11-08 00:00:00Z]) |> to_string()
+      iex> Ecto.Druid.Interval.new(~U[2026-11-01 00:00:00Z], ~U[2026-11-08 00:00:00Z]) |> to_string()
       "2026-11-01T00:00:00Z/2026-11-08T00:00:00Z"
 
-      iex> Druid.Interval.new(~D[2026-11-01], week: 1) |> to_string()
+      iex> Ecto.Druid.Interval.new(~D[2026-11-01], week: 1) |> to_string()
       "2026-11-01/P1W"
 
-      iex> Druid.Interval.new([day: 1, hour: 12], ~D[2026-11-08]) |> to_string()
+      iex> Ecto.Druid.Interval.new([day: 1, hour: 12], ~D[2026-11-08]) |> to_string()
       "P1DT12H/2026-11-08"
 
   ## SQL
 
   Pin an interval in `Ecto.Druid.Query.DateTime.time_in_interval/2`:
 
-      interval = Druid.Interval.last(day: 7)
+      interval = Ecto.Druid.Interval.last(day: 7)
 
       from p in "page_views", where: time_in_interval(p.__time, ^interval)
 
@@ -34,7 +34,7 @@ defmodule Druid.Interval do
       MyApp.DruidRepo.native_query(%{
         queryType: "timeseries",
         dataSource: "page_views",
-        intervals: [Druid.Interval.last(day: 7)],
+        intervals: [Ecto.Druid.Interval.last(day: 7)],
         granularity: "day",
         aggregations: [%{type: "count", name: "rows"}]
       })
@@ -76,8 +76,8 @@ defmodule Druid.Interval do
   Builds an interval covering `period` up to `stop`, which defaults to now
   (`DateTime.utc_now/0`).
 
-      Druid.Interval.last(day: 7)
-      Druid.Interval.last("PT1H", ~U[2026-11-15 12:00:00Z])
+      Ecto.Druid.Interval.last(day: 7)
+      Ecto.Druid.Interval.last("PT1H", ~U[2026-11-15 12:00:00Z])
   """
   @spec last(period(), DateTime.t() | NaiveDateTime.t() | Date.t() | String.t()) :: t()
   def last(period, stop \\ DateTime.utc_now()) do
@@ -101,7 +101,7 @@ defmodule Druid.Interval do
 
   def to_iso8601(other) do
     raise ArgumentError,
-          "expected a Druid.Interval, {start, stop} tuple or interval string, got: #{inspect(other)}"
+          "expected a Ecto.Druid.Interval, {start, stop} tuple or interval string, got: #{inspect(other)}"
   end
 
   defp bound_to_iso8601(bound) when is_binary(bound), do: bound
@@ -147,12 +147,12 @@ defmodule Druid.Interval do
   defp period?(_), do: false
 
   defimpl String.Chars do
-    def to_string(interval), do: Druid.Interval.to_iso8601(interval)
+    def to_string(interval), do: Ecto.Druid.Interval.to_iso8601(interval)
   end
 
   defimpl Jason.Encoder do
     def encode(interval, opts) do
-      interval |> Druid.Interval.to_iso8601() |> Jason.Encode.string(opts)
+      interval |> Ecto.Druid.Interval.to_iso8601() |> Jason.Encode.string(opts)
     end
   end
 end

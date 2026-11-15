@@ -34,8 +34,8 @@ defmodule Druid.Client.DataSourceTest do
     )
   end
 
-  test "interval/3 takes a Druid.Interval" do
-    interval = Druid.Interval.new(~D[2015-09-12], day: 1)
+  test "interval/3 takes a Ecto.Druid.Interval" do
+    interval = Ecto.Druid.Interval.new(~D[2015-09-12], day: 1)
 
     assert_request(
       DataSource.interval("ds", interval),

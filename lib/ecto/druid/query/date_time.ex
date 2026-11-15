@@ -70,8 +70,8 @@ defmodule Ecto.Druid.Query.DateTime do
   The interval is either:
 
     * an ISO8601 interval string, such as `"2001-01-01/P1D"` or `"2001-01-01T01:00:00/2001-01-02T01:00:00"`,
-    * a `Druid.Interval`, such as `Druid.Interval.last(day: 7)`, or
-    * a `{start, stop}` tuple of bounds accepted by `Druid.Interval.new/2`: `DateTime`s, `NaiveDateTime`s, `Date`s,
+    * a `Ecto.Druid.Interval`, such as `Ecto.Druid.Interval.last(day: 7)`, or
+    * a `{start, stop}` tuple of bounds accepted by `Ecto.Druid.Interval.new/2`: `DateTime`s, `NaiveDateTime`s, `Date`s,
       ISO8601 strings, or a period for one of the bounds. It's converted to an interval string like
       `"2001-01-01T00:00:00Z/2001-01-02T00:00:00Z"`.
 
@@ -94,12 +94,16 @@ defmodule Ecto.Druid.Query.DateTime do
 
       _ ->
         {:^, [],
-         [quote(do: Druid.Interval.to_iso8601({unquote(unpin(start)), unquote(unpin(stop))}))]}
+         [
+           quote(
+             do: Ecto.Druid.Interval.to_iso8601({unquote(unpin(start)), unquote(unpin(stop))})
+           )
+         ]}
     end
   end
 
   defp interval_arg({:^, meta, [interval]}) do
-    {:^, meta, [quote(do: Druid.Interval.to_iso8601(unquote(interval)))]}
+    {:^, meta, [quote(do: Ecto.Druid.Interval.to_iso8601(unquote(interval)))]}
   end
 
   defp interval_arg(interval), do: interval

@@ -1,8 +1,8 @@
-defmodule Druid.IntervalTest do
+defmodule Ecto.Druid.IntervalTest do
   use ExUnit.Case, async: true
-  alias Druid.Interval
+  alias Ecto.Druid.Interval
 
-  doctest Druid.Interval
+  doctest Ecto.Druid.Interval
 
   describe "new/2" do
     test "formats DateTime, NaiveDateTime, Date and string bounds" do

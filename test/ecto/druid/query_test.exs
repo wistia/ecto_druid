@@ -648,8 +648,8 @@ defmodule Ecto.Druid.QueryTest do
              |> to_sql() == expected
     end
 
-    test "time_in_interval/2 with a pinned Druid.Interval" do
-      interval = Druid.Interval.new(~D[2000-01-01], month: 1)
+    test "time_in_interval/2 with a pinned Ecto.Druid.Interval" do
+      interval = Ecto.Druid.Interval.new(~D[2000-01-01], month: 1)
 
       assert from(t in "test", select: time_in_interval(t.time, ^interval)) |> to_sql() ==
                {"SELECT TIME_IN_INTERVAL(t0.\"time\", ?) FROM \"test\" AS t0", ["2000-01-01/P1M"]}

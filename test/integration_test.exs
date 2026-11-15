@@ -166,10 +166,10 @@ defmodule IntegrationTest do
              ) == 24433
     end
 
-    test "a Druid.Interval in time_in_interval" do
+    test "a Ecto.Druid.Interval in time_in_interval" do
       use Ecto.Druid.Query
 
-      interval = Druid.Interval.new(~D[2016-06-27], day: 1)
+      interval = Ecto.Druid.Interval.new(~D[2016-06-27], day: 1)
 
       assert TestRepo.one(
                from(w in Wikipedia, where: time_in_interval(w.time, ^interval), select: count())

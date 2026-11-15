@@ -11,9 +11,9 @@ defmodule Druid.Client.Util do
   def escape(segment), do: URI.encode(segment, &URI.char_unreserved?/1)
 
   # Druid's path intervals use "_" in place of the ISO 8601 "/" separator.
-  @spec path_interval(Druid.Interval.t() | String.t()) :: String.t()
+  @spec path_interval(Ecto.Druid.Interval.t() | String.t()) :: String.t()
   def path_interval(interval),
-    do: interval |> Druid.Interval.to_iso8601() |> String.replace("/", "_")
+    do: interval |> Ecto.Druid.Interval.to_iso8601() |> String.replace("/", "_")
 
   @doc """
   Turns `opts` into query params using `mapping` of option to param name.
