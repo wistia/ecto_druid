@@ -62,4 +62,13 @@ defmodule Druid.Client.SQLTest do
              }
     end
   end
+
+  test "cancel/1" do
+    Druid.Client.SQL.cancel("my/query")
+    |> Client.request!(plug: TestPlug, host: "localhost", port: 8082)
+
+    assert_received {:request, conn, _body}
+    assert conn.method == "DELETE"
+    assert conn.request_path == "/druid/v2/sql/my%2Fquery"
+  end
 end

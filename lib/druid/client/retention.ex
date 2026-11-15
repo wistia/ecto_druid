@@ -12,6 +12,8 @@ defmodule Druid.Client.Retention do
   To manage retention rules from templates, see `Druid.Retention`.
   """
 
+  import Druid.Client.Util, only: [audit_headers: 1, escape: 1]
+
   @rules_path "/druid/coordinator/v1/rules"
 
   @doc """
@@ -85,16 +87,7 @@ defmodule Druid.Client.Retention do
     Req.new(method: :get, url: "/druid/coordinator/v1/tiers")
   end
 
-  defp audit_headers(opts) do
-    Enum.flat_map([author: "x-druid-author", comment: "x-druid-comment"], fn {key, header} ->
-      case Keyword.get(opts, key) do
-        nil -> []
-        value -> [{header, value}]
-      end
-    end)
-  end
-
   defp rules_path(data_source) do
-    @rules_path <> "/" <> URI.encode(data_source, &URI.char_unreserved?/1)
+    @rules_path <> "/" <> escape(data_source)
   end
 end

@@ -46,6 +46,11 @@ defmodule Druid.Client.CompactionTest do
     assert conn.query_string == "count=2"
   end
 
+  test "statuses/0" do
+    {conn, _} = request!(Compaction.statuses())
+    assert {conn.method, conn.request_path} == {"GET", @base <> "/status/datasources"}
+  end
+
   test "status/1" do
     {conn, _} = request!(Compaction.status("wikipedia"))
     assert conn.request_path == @base <> "/status/datasources/wikipedia"

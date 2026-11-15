@@ -11,6 +11,8 @@ defmodule Druid.Client.Compaction do
   To manage compaction configs from templates, see `Druid.Compaction`.
   """
 
+  import Druid.Client.Util, only: [audit_headers: 1, escape: 1]
+
   @base_path "/druid/indexer/v1/compaction"
 
   @doc """
@@ -88,6 +90,17 @@ defmodule Druid.Client.Compaction do
   end
 
   @doc """
+  Builds a request to get the compaction status of every data source with a
+  compaction config.
+
+  Druid responds with `%{"latestStatus" => [status, ...]}`.
+  """
+  @spec statuses() :: Req.Request.t()
+  def statuses do
+    Req.new(method: :get, url: @base_path <> "/status/datasources")
+  end
+
+  @doc """
   Builds a request to get a data source's compaction status: how much of it
   is compacted and awaiting compaction.
   """
@@ -114,17 +127,6 @@ defmodule Druid.Client.Compaction do
     Req.new(method: :post, url: @base_path <> "/config/cluster", json: config)
   end
 
-  defp audit_headers(opts) do
-    Enum.flat_map([author: "x-druid-author", comment: "x-druid-comment"], fn {key, header} ->
-      case Keyword.get(opts, key) do
-        nil -> []
-        value -> [{header, value}]
-      end
-    end)
-  end
-
   defp datasource_path(data_source),
     do: @base_path <> "/config/datasources/" <> escape(data_source)
-
-  defp escape(segment), do: URI.encode(segment, &URI.char_unreserved?/1)
 end
