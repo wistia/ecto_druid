@@ -30,11 +30,56 @@ defmodule Ecto.Druid.Query.String do
   @doc "Alias for LENGTH."
   sql_function strlen(expr)
 
-  @doc "Look up expr in a registered query-time lookup table. Note that lookups can also be queried directly using the lookup schema. Optional constant replaceMissingValueWith can be passed as a third argument to be returned when value is missing from lookup."
-  sql_function lookup(expr, lookup_name)
+  @doc """
+  Looks up `expr` in a registered query-time lookup, giving `NULL` for keys
+  that are not in it.
 
-  @doc "Look up expr in a registered query-time lookup table. Note that lookups can also be queried directly using the lookup schema. Optional constant replaceMissingValueWith can be passed as a third argument to be returned when value is missing from lookup."
-  sql_function lookup(expr, lookup_name, replace_missing_value_with)
+  `lookup_name` is the lookup's name, or an `Ecto.Druid.Lookup` schema module:
+
+      lookup(p.country, "countries")
+      lookup(p.country, MyApp.Countries)
+
+  Lookups can also be queried directly as tables; see `Ecto.Druid.Lookup`.
+  """
+  defmacro lookup(expr, lookup_name) do
+    lookup_sql([expr, lookup_name(lookup_name, __CALLER__)])
+  end
+
+  @doc """
+  Looks up `expr` in a registered query-time lookup, giving
+  `replace_missing_value_with` for keys that are not in it.
+
+      lookup(p.country, MyApp.Countries, "Unknown")
+
+  See `lookup/2`.
+  """
+  defmacro lookup(expr, lookup_name, replace_missing_value_with) do
+    lookup_sql([expr, lookup_name(lookup_name, __CALLER__), replace_missing_value_with])
+  end
+
+  defp lookup_sql(args), do: Ecto.Druid.Util.sql_function_body("LOOKUP", nil, args)
+
+  # An alias for an Ecto.Druid.Lookup schema becomes that lookup's name, inlined
+  # as a string literal. Anything else is passed through as the name.
+  defp lookup_name({:__aliases__, _, _} = alias, caller) do
+    module = Macro.expand(alias, caller)
+
+    case Code.ensure_compiled(module) do
+      {:module, module} ->
+        if function_exported?(module, :__lookup__, 1) do
+          module.__lookup__(:name)
+        else
+          raise ArgumentError,
+                "#{inspect(module)} is not a lookup schema; define it with `use Ecto.Druid.Lookup`"
+        end
+
+      {:error, reason} ->
+        raise ArgumentError,
+              "could not load lookup schema #{inspect(module)}: #{inspect(reason)}"
+    end
+  end
+
+  defp lookup_name(name, _caller), do: name
   @doc "Returns expr in all lowercase."
   sql_function lower(expr)
   @doc "Returns expr in all uppercase."
