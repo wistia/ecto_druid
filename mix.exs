@@ -76,6 +76,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
       groups_for_modules: [
         Querying: [
           Ecto.Druid.Query,
+          Ecto.Druid.Lookup,
           Ecto.Druid.Query.Numeric,
           Ecto.Druid.Query.String,
           Ecto.Druid.Query.DateTime,

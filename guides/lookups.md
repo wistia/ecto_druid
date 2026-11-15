@@ -2,8 +2,43 @@
 
 Lookups work the same way as [ingestion specs](ingestion_specs.md): EEx
 templates in your project, values from config, and Mix tasks that sync them.
-Once synced, query them with `lookup/3` or by joining them (see
-[Querying](querying.md)).
+Once synced, query them through a lookup schema (below), with `lookup/3`, or
+by joining them (see [Querying](querying.md)).
+
+## Lookup schemas
+
+Define a schema for a lookup with `Ecto.Druid.Lookup`. It reads the lookup
+named after the module (`countries` here) from Druid's `lookup` schema:
+
+```elixir
+defmodule MyApp.Countries do
+  use Ecto.Druid.Lookup, key: :code, value: :name
+end
+```
+
+Fetch from it, join it, or pass it to `lookup/2,3` in place of the lookup's
+name:
+
+```elixir
+MyApp.DruidRepo.get(MyApp.Countries, "US")
+#=> %MyApp.Countries{code: "US", name: "United States"}
+
+from p in MyApp.PageViewsHourly,
+  join: c in MyApp.Countries, on: c.code == p.country,
+  group_by: c.name,
+  select: {c.name, sum(p.views)}
+
+from p in MyApp.PageViewsHourly,
+  group_by: 1,
+  select: {lookup(p.country, MyApp.Countries, "Unknown"), sum(p.views)}
+```
+
+The schema also defines `MyApp.Countries.lookup/1,2`, which do the same once
+you `require MyApp.Countries`.
+
+`:key` and `:value` name the fields and default to `:k` and `:v`, Druid's
+column names. Pass `name: "..."` when the lookup's name doesn't match the
+module.
 
 ## Templates
 

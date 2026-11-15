@@ -87,14 +87,15 @@ as is loads as its Base64 string.
 Joins, subqueries, `union`/`union_all`, and window functions (via
 `Ecto.Query.WindowAPI`) all work. Druid lookups are tables in the `lookup`
 schema with `k` and `v` columns, so you can join one as well as calling
-`lookup/3`:
+`lookup/3`. An `Ecto.Druid.Lookup` schema makes this easier (see
+[Lookups](lookups.md)):
 
 ```elixir
 # Join a lookup
 from p in MyApp.PageViewsHourly,
-  join: c in "countries", prefix: "lookup", on: c.k == p.country,
-  group_by: c.v,
-  select: {c.v, sum(p.views)}
+  join: c in MyApp.Countries, on: c.code == p.country,
+  group_by: c.name,
+  select: {c.name, sum(p.views)}
 
 # Filter on a subquery
 top = from p in MyApp.PageViewsHourly,
