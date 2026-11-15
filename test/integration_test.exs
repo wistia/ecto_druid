@@ -113,4 +113,37 @@ defmodule IntegrationTest do
     assert %{added: 3} =
              TestRepo.one(Wikipedia.by_page("Black Dahlia"), context: %{sqlTimeZone: "Etc/UTC"})
   end
+
+  describe "pinned params" do
+    import Ecto.Query
+
+    test "integers" do
+      query =
+        from(w in "wikipedia",
+          where: w.page == "Black Dahlia" and w.added > ^2,
+          select: w.added
+        )
+
+      assert TestRepo.all(query) == [3]
+      assert TestRepo.all(from(w in query, where: w.added > ^3)) == []
+    end
+
+    test "DateTimes on a schema field" do
+      count = fn dt ->
+        TestRepo.one(from(w in Wikipedia, where: w.time < ^dt, select: count()))
+      end
+
+      assert count.(~U[2016-06-27 00:00:00.001Z]) == 24433
+      assert count.(~U[2016-06-27 00:00:00Z]) == 0
+    end
+
+    test "DateTimes on a schemaless field" do
+      count = fn dt ->
+        TestRepo.one(from(w in "wikipedia", where: w.__time < ^dt, select: count()))
+      end
+
+      assert count.(~U[2016-06-27 00:00:00.001Z]) == 24433
+      assert count.(~U[2016-06-27 00:00:00Z]) == 0
+    end
+  end
 end
