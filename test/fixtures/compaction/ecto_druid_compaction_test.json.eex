@@ -1,0 +1,9 @@
+{
+  "skipOffsetFromLatest": <%= json @skip_offset %>,
+  "granularitySpec": {"segmentGranularity": "DAY"},
+  "dimensionsSpec": {"dimensions": ["country", {"type": "long", "name": "duration_ms"}]},
+  "metricsSpec": <%= metrics_spec Ecto.Adapters.Druid.PageViews, combining: true %>,
+  "tuningConfig": {
+    "partitionsSpec": {"type": "dynamic", "maxRowsPerSegment": <%= @target_rows %>}
+  }
+}

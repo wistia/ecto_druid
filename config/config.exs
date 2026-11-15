@@ -35,4 +35,9 @@ config :ecto_druid, Ecto.Adapters.Druid.TestRepo,
     port: 9888,
     path: Path.expand("../test/fixtures/lookups", __DIR__),
     assigns: %{countries: %{"US" => "United States", "CA" => "Canada"}}
+  ],
+  compaction: [
+    port: 9888,
+    path: Path.expand("../test/fixtures/compaction", __DIR__),
+    assigns: %{target_rows: 5_000_000, skip_offset: "P1D"}
   ]
