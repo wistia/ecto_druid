@@ -60,6 +60,13 @@ MyApp.DruidRepo.all(
 * [Druid API Client](guides/druid_client.md)
 * [Upgrading](guides/upgrading.md)
 
+## Example app
+
+[`example/`](example) is a Phoenix LiveView app that explores a day of
+Wikipedia edits with ecto_druid: schemas, Druid SQL functions, sketches,
+lookups, system tables, native queries and ingestion. See its
+[README](example/README.md) to run it.
+
 ## Running Tests
 
 ```sh
