@@ -24,4 +24,15 @@ config :ecto_druid, Ecto.Adapters.Druid.TestRepo,
       consumer_properties: %{"bootstrap.servers" => "localhost:1"},
       task_count: 1
     }
+  ],
+  # The rules and lookups APIs are on the router too
+  retention: [
+    port: 9888,
+    path: Path.expand("../test/fixtures/retention", __DIR__),
+    assigns: %{tier: "_default_tier", replicas: 1, keep: "P2Y"}
+  ],
+  lookups: [
+    port: 9888,
+    path: Path.expand("../test/fixtures/lookups", __DIR__),
+    assigns: %{countries: %{"US" => "United States", "CA" => "Canada"}}
   ]

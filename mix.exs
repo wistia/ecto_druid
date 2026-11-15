@@ -90,7 +90,9 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Client.SQL,
           Druid.Client.Native,
           Druid.Client.Task,
-          Druid.Client.Supervisor
+          Druid.Client.Supervisor,
+          Druid.Client.Retention,
+          Druid.Client.Lookup
         ],
         "Supervisor Specs": [
           Ecto.Druid.Schema,
@@ -98,7 +100,11 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Supervisors,
           Druid.Supervisors.Spec,
           Druid.Supervisors.Template,
-          Druid.Supervisors.Template.Helpers
+          Druid.Supervisors.Template.Helpers,
+          Druid.Retention,
+          Druid.Retention.Rules,
+          Druid.Lookups,
+          Druid.Lookups.Lookup
         ],
         Utilities: [
           Ecto.Druid.ComplexType,

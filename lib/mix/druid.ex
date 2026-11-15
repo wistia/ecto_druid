@@ -41,4 +41,51 @@ defmodule Mix.Druid do
       values -> [only: Enum.flat_map(values, &String.split(&1, ",", trim: true))]
     end
   end
+
+  @doc """
+  Prints rendered templates, or writes each to `<out>/<name>.json`.
+  `header` returns the comment line printed above each one.
+  """
+  def print_rendered(items, out, header, body) do
+    case out do
+      nil ->
+        Enum.each(items, fn item ->
+          Mix.shell().info("# " <> header.(item))
+          Mix.shell().info(Jason.encode!(body.(item), pretty: true))
+        end)
+
+      out ->
+        Enum.each(items, fn item ->
+          path = Path.join(out, item.name <> ".json")
+          File.mkdir_p!(Path.dirname(path))
+          File.write!(path, Jason.encode!(body.(item), pretty: true) <> "\n")
+          Mix.shell().info("Wrote #{path}")
+        end)
+    end
+  end
+
+  @doc """
+  Prints one line per sync result and raises if any failed. `label` turns a
+  result's subject into text.
+  """
+  def report_results!(results, label, what) do
+    Enum.each(results, fn
+      {:error, subject, error} ->
+        Mix.shell().error(
+          String.pad_trailing("failed", 14) <>
+            label.(subject) <> "\n  " <> Exception.message(error)
+        )
+
+      {status, subject} ->
+        Mix.shell().info(String.pad_trailing(describe(status), 14) <> label.(subject))
+    end)
+
+    errors = Enum.count(results, &(elem(&1, 0) == :error))
+
+    if errors > 0 do
+      Mix.raise("#{errors} #{what} failed")
+    end
+  end
+
+  defp describe(status), do: status |> Atom.to_string() |> String.replace("_", " ")
 end

@@ -1,0 +1,9 @@
+[
+  {
+    "type": "loadByPeriod",
+    "period": <%= json @keep %>,
+    "tieredReplicants": {<%= json @tier %>: <%= @replicas %>}
+  },
+  {"type": "loadByInterval", "interval": "2020-01-01/2021-01-01"},
+  {"type": "dropForever"}
+]

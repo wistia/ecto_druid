@@ -6,7 +6,11 @@ defmodule Druid.Client do
   @default_scheme "http"
 
   defmodule RequestError do
-    defexception [:message]
+    @moduledoc """
+    Raised when Druid responds with an error status. `:status` is the HTTP
+    status and `:body` the decoded response body.
+    """
+    defexception [:message, :status, :body]
   end
 
   @doc """
@@ -49,7 +53,9 @@ defmodule Druid.Client do
 
       code when code in 400..599 ->
         raise RequestError,
-              "Error (#{response.status}) when querying Druid.\n\t#{inspect(response.body)}"
+          message: "Error (#{response.status}) when querying Druid.\n\t#{inspect(response.body)}",
+          status: response.status,
+          body: response.body
 
       _ ->
         raise RuntimeError,
