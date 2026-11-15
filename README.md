@@ -39,4 +39,4 @@ mix test
 
 The compose file maps services to non-default host ports so they don't clash
 with other local containers: Druid router on 9888, Druid broker on 9082,
-Postgres on 6432, ZooKeeper on 3181, and MinIO on 9900/9901.
+Postgres on 6432, ZooKeeper on 3181, and SeaweedFS (S3 API) on 9900.
