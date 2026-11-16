@@ -83,6 +83,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Ecto.Druid.Query.String,
           Ecto.Druid.Query.DateTime,
           Ecto.Druid.Interval,
+          Ecto.Druid.Native,
           Ecto.Druid.Query.Reduction,
           Ecto.Druid.Query.IP,
           Ecto.Druid.Query.Scalar,
