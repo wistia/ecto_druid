@@ -17,7 +17,6 @@
     },
     "dataSchema": <%= data_schema Ecto.Adapters.Druid.PageViews,
                         data_source: "ecto_druid_tasks_test",
-                        segment_granularity: "DAY",
-                        intervals: Map.get(assigns, :interval) %>
+                        segment_granularity: "DAY" %>
   }
 }

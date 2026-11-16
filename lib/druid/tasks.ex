@@ -46,10 +46,10 @@ defmodule Druid.Tasks do
 
   Unlike supervisors, tasks run once rather than being kept in sync, so
   templates often need values that change from run to run, such as the
-  interval to backfill. Pass them as `:assigns` when running the task. They
+  interval to reindex. Pass them as `:assigns` when running the task. They
   are deep-merged over the configured assigns:
 
-      Druid.Tasks.run(MyApp.DruidRepo, "backfill_page_views",
+      Druid.Tasks.run(MyApp.DruidRepo, "reindex_page_views",
         assigns: %{interval: "2026-11-01/2026-11-02"}
       )
 
@@ -59,9 +59,14 @@ defmodule Druid.Tasks do
 
   ## Backfills
 
-  To reprocess a range of time, run a template once per day (or hour, week
-  or month) with `backfill/5`. Splitting a backfill up keeps each task small
-  and lets a failed day be retried on its own:
+  To reprocess a range of time, run a backfill template once per day (or
+  hour, week or month) with `backfill/5`. Splitting a backfill up keeps each
+  task small and lets a failed day be retried on its own.
+
+  Backfill templates live in their own directory, `priv/druid/backfills` by
+  default, since they need `@interval` and can't be run as one-off tasks.
+  They use the `:tasks` config, with anything under `:backfills` merged over
+  it (see "Configuration"):
 
       Druid.Tasks.backfill(MyApp.DruidRepo, "page_views", ~D[2026-10-01], ~D[2026-11-01],
         step: :day,
@@ -115,7 +120,7 @@ defmodule Druid.Tasks do
           host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
           port: 8888,
           assigns: %{source_prefix: System.get_env("PAGE_VIEWS_PREFIX"), subtasks: 1},
-          specs: %{"backfill_page_views" => %{subtasks: 4}}
+          specs: %{"reindex_page_views" => %{subtasks: 4}}
         ]
 
   The supported options are:
@@ -127,6 +132,14 @@ defmodule Druid.Tasks do
     * `:host`, `:port`, `:scheme` - Where to send task API requests. Default
       to the repo's values.
 
+  Backfills use the same options, under `:backfills`. Its `:assigns` and
+  `:specs` are deep-merged over the ones under `:tasks`, and its other options
+  replace them, except `:path`, which defaults to `"priv/druid/backfills"`:
+
+      config :my_app, MyApp.DruidRepo,
+        tasks: [host: "druid-router", port: 8888, assigns: %{bucket: "my-bucket"}],
+        backfills: [assigns: %{subtasks: 8}]
+
   Every option can also be given to the functions in this module directly.
   `:assigns` given that way are deep-merged over the configured ones; other
   options replace them.
@@ -135,8 +148,8 @@ defmodule Druid.Tasks do
 
   In development, use the Mix tasks:
 
-      mix druid.tasks.render backfill_page_views --assign interval=2026-11-01/P1D
-      mix druid.tasks.run backfill_page_views --assign interval=2026-11-01/P1D
+      mix druid.tasks.render --only reindex_page_views --assign interval=2026-11-01/P1D
+      mix druid.tasks.run reindex_page_views --assign interval=2026-11-01/P1D
       mix druid.tasks.backfill page_views --from 2026-10-01 --to 2026-11-01 --concurrency 4
       mix druid.tasks.status tmp/druid/backfills/page_views-20261115T120000Z.jsonl
 
@@ -263,6 +276,7 @@ defmodule Druid.Tasks do
   end
 
   @default_path "priv/druid/tasks"
+  @default_backfills_path "priv/druid/backfills"
   @default_poll_interval 2_000
   # The Coordinator only reports on the last two weeks of segments unless
   # given an interval.
@@ -283,12 +297,15 @@ defmodule Druid.Tasks do
   """
   @spec render(Ecto.Repo.t(), Keyword.t()) :: [Spec.t()]
   def render(repo, opts \\ []) do
-    config = config(repo, opts)
-    root = SpecTemplates.root!(repo, config, @default_path, Error, "task")
+    render_templates(repo, config(repo, opts), @default_path, "task", Keyword.get(opts, :only))
+  end
+
+  defp render_templates(repo, config, default_path, kind, only) do
+    root = SpecTemplates.root!(repo, config, default_path, Error, kind)
 
     root
     |> SpecTemplates.discover()
-    |> SpecTemplates.filter_only(Keyword.get(opts, :only), Error, "task")
+    |> SpecTemplates.filter_only(only, Error, kind)
     |> Enum.map(&render_spec(&1, root, config))
   end
 
@@ -372,7 +389,8 @@ defmodule Druid.Tasks do
   Renders a template once per interval from `from` to `to`, submits the
   tasks, and waits for them. See "Backfills" in the module docs.
 
-  Templates are all rendered before anything is submitted, so a template
+  `name` is a template in the backfills directory. Templates are all
+  rendered before anything is submitted, so a template
   error raises `Druid.Tasks.Error` without starting any tasks. Returns one
   `Druid.Tasks.Run` per interval, in order. A run whose `:error` is set
   failed, timed out or couldn't be submitted; the others still ran.
@@ -425,7 +443,7 @@ defmodule Druid.Tasks do
     if Keyword.get(opts, :dry_run, false) do
       runs
     else
-      request_opts = request_opts(repo, opts)
+      request_opts = SpecTemplates.request_opts(repo, backfill_config(repo, opts))
 
       runs
       |> Druid.Tasks.Batch.run(request_opts, batch_opts(opts))
@@ -541,6 +559,32 @@ defmodule Druid.Tasks do
   defp request_opts(repo, opts),
     do: SpecTemplates.request_opts(repo, SpecTemplates.config(repo, :tasks, opts))
 
+  # Backfills are tasks, so they use the :tasks config, with :backfills
+  # merged over it. Only the templates directory isn't inherited.
+  defp backfill_config(repo, opts) do
+    tasks = repo.config() |> Keyword.get(:tasks, []) |> Keyword.delete(:path)
+    backfills = Keyword.get(repo.config(), :backfills, [])
+
+    config =
+      tasks
+      |> Keyword.merge(backfills, fn
+        key, left, right when key in [:assigns, :specs] ->
+          SpecTemplates.deep_merge(SpecTemplates.to_map(left), SpecTemplates.to_map(right))
+
+        _key, _left, right ->
+          right
+      end)
+      |> Keyword.merge(Keyword.delete(opts, :assigns))
+
+    assigns =
+      config
+      |> Keyword.get(:assigns, %{})
+      |> SpecTemplates.to_map()
+      |> SpecTemplates.deep_merge(opts |> Keyword.get(:assigns, %{}) |> SpecTemplates.to_map())
+
+    Keyword.put(config, :assigns, assigns)
+  end
+
   defp task_spec(repo, name, opts) when is_binary(name) do
     [spec] = render(repo, Keyword.put(opts, :only, [name]))
     spec.spec
@@ -559,13 +603,11 @@ defmodule Druid.Tasks do
   defp render_interval(repo, name, interval, opts) do
     interval_assigns = %{interval: interval, start: interval.start, stop: interval.stop}
 
-    assigns =
-      opts
-      |> Keyword.get(:assigns, %{})
-      |> SpecTemplates.to_map()
-      |> Map.merge(interval_assigns)
+    config = backfill_config(repo, opts)
+    assigns = config |> Keyword.fetch!(:assigns) |> Map.merge(interval_assigns)
 
-    [spec] = render(repo, Keyword.merge(opts, only: [name], assigns: assigns))
+    config = Keyword.put(config, :assigns, assigns)
+    [spec] = render_templates(repo, config, @default_backfills_path, "backfill", [name])
     %{spec | interval: interval}
   end
 

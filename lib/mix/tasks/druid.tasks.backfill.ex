@@ -2,8 +2,10 @@ defmodule Mix.Tasks.Druid.Tasks.Backfill do
   @shortdoc "Runs a Druid task template once per interval over a range"
 
   @moduledoc """
-  Renders a task template once per day (or other step) from `--from` to
-  `--to`, submits the tasks, and waits for them.
+  Renders a backfill template once per day (or other step) from `--from` to
+  `--to`, submits the tasks, and waits for them. Backfill templates live in
+  `priv/druid/backfills`, or the `:path` under the repo's `:backfills`
+  config.
 
       mix druid.tasks.backfill page_views --from 2026-10-01 --to 2026-11-01 --dry-run
       mix druid.tasks.backfill page_views --from 2026-10-01 --to 2026-11-01 --out tmp/backfill

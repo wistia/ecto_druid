@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Druid.Tasks.Render do
   them to a directory. Nothing is sent to Druid.
 
       mix druid.tasks.render
-      mix druid.tasks.render --only backfill_page_views --assign interval=2026-11-01/P1D
+      mix druid.tasks.render --only reindex_page_views --assign interval=2026-11-01/P1D
       mix druid.tasks.render --out tmp/tasks
 
   Config is loaded the same way as when the app starts, including

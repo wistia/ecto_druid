@@ -5,9 +5,9 @@ defmodule Mix.Tasks.Druid.Tasks.Run do
   Renders a task spec template, submits it to Druid, and waits for the task to
   finish.
 
-      mix druid.tasks.run backfill_page_views --assign interval=2026-11-01/P1D
-      mix druid.tasks.run backfill_page_views --wait-for-segments
-      mix druid.tasks.run backfill_page_views --no-wait
+      mix druid.tasks.run reindex_page_views --assign interval=2026-11-01/P1D
+      mix druid.tasks.run reindex_page_views --wait-for-segments
+      mix druid.tasks.run reindex_page_views --no-wait
 
   Each run submits a new task, so running a batch ingestion task twice
   ingests its data twice (or replaces it, depending on the spec). In a

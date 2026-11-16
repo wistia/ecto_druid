@@ -192,6 +192,28 @@ defmodule Druid.TasksBackfillTest do
       refute_received {:submit, _, _}
     end
 
+    test "reads templates from the :backfills directory with :tasks assigns" do
+      # TestRepo's :backfills config sets only the path
+      assert [%Run{spec: spec}] =
+               Tasks.backfill(TestRepo, "ecto_druid_tasks_test", ~D[2026-11-01], ~D[2026-11-02],
+                 assigns: %{rows: []},
+                 dry_run: true
+               )
+
+      assert spec["spec"]["tuningConfig"]["maxParseExceptions"] == 0
+
+      assert spec["spec"]["dataSchema"]["granularitySpec"]["intervals"] ==
+               ["2026-11-01T00:00:00Z/2026-11-02T00:00:00Z"]
+
+      # Backfill templates aren't tasks, and tasks aren't backfills
+      assert Enum.map(Tasks.render(TestRepo, assigns: %{rows: []}), & &1.path) ==
+               [Path.expand("../fixtures/tasks/ecto_druid_tasks_test.json.eex", __DIR__)]
+
+      assert_raise Tasks.Error, ~r/no backfill templates named: other/, fn ->
+        Tasks.backfill(TestRepo, "other", ~D[2026-11-01], ~D[2026-11-02], dry_run: true)
+      end
+    end
+
     test "renders every task before submitting any", %{tmp_dir: dir} do
       File.write!(Path.join(dir, "events.json.eex"), ~s({"x": <%= @missing %>}))
 

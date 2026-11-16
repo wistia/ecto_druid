@@ -131,12 +131,12 @@ config :my_app, MyApp.DruidRepo,
 ```
 
 A task runs once each time you submit it, so values that change from run to
-run, such as the interval to backfill, are passed when running it. They are
+run, such as the interval to reindex, are passed when running it. They are
 merged over the configured assigns:
 
 ```sh
-mix druid.tasks.render backfill_page_views --assign interval=2026-11-01/P1D
-mix druid.tasks.run backfill_page_views --assign interval=2026-11-01/P1D --wait-for-segments
+mix druid.tasks.render --only reindex_page_views --assign interval=2026-11-01/P1D
+mix druid.tasks.run reindex_page_views --assign interval=2026-11-01/P1D --wait-for-segments
 ```
 
 `mix druid.tasks.run` submits the task and waits for it to finish.
@@ -148,7 +148,7 @@ In a release, or from your own code, use `Druid.Tasks`:
 
 ```elixir
 {:ok, %{"status" => "SUCCESS"}} =
-  Druid.Tasks.run(MyApp.DruidRepo, "backfill_page_views",
+  Druid.Tasks.run(MyApp.DruidRepo, "reindex_page_views",
     assigns: %{interval: "2026-11-01/P1D"},
     wait_for_segments: true
   )
@@ -156,8 +156,9 @@ In a release, or from your own code, use `Druid.Tasks`:
 
 ### Backfills
 
-To reprocess a range of time, run a template once per day (or `hour`, `week`,
-`month`) with `mix druid.tasks.backfill`. Each task is rendered with
+To reprocess a range of time, run a backfill template once per day (or
+`hour`, `week`, `month`) with `mix druid.tasks.backfill`. Backfill templates
+go in their own directory, `priv/druid/backfills`. Each task is rendered with
 `@interval`, `@start` and `@stop` for its part of the range:
 
 ```eex
@@ -168,13 +169,13 @@ To reprocess a range of time, run a template once per day (or `hour`, `week`,
       "type": "index_parallel",
       "inputSource": {
         "type": "s3",
-        "prefixes": <%= partition_prefixes "s3://my-bucket/page_views", @interval,
+        "prefixes": <%= partition_prefixes "s3://#{@bucket}/page_views", @interval,
                           "year=%Y/month=%m/day=%d/" %>
       },
       "inputFormat": {"type": "parquet"},
       "appendToExisting": false
     },
-    "tuningConfig": {"type": "index_parallel", "maxNumConcurrentSubTasks": 8},
+    "tuningConfig": {"type": "index_parallel", "maxNumConcurrentSubTasks": <%= @subtasks %>},
     "dataSchema": <%= data_schema MyApp.PageViewsHourly,
                         segment_granularity: "DAY",
                         intervals: [@interval] %>
@@ -185,6 +186,15 @@ To reprocess a range of time, run a template once per day (or `hour`, `week`,
 `partition_prefixes` lists the time-partitioned input paths the interval
 covers. `intervals: [@interval]` makes each task replace exactly its interval
 and skip input rows outside it.
+
+Backfills use the `:tasks` config. Set anything that differs under
+`:backfills`, whose assigns are merged over the `:tasks` ones:
+
+```elixir
+config :my_app, MyApp.DruidRepo,
+  tasks: [port: 8888, assigns: %{bucket: "my-bucket"}],
+  backfills: [assigns: %{subtasks: 8}]
+```
 
 Check what will run, then run it:
 
