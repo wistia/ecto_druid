@@ -37,145 +37,67 @@ defmodule Ecto.Adapters.Druid.Query do
     ]
   end
 
-  def update_all(query, prefix \\ nil) do
-    %{from: %{source: source}, select: select} = query
-
-    if select do
-      error!(nil, ":select is not supported in update_all by Druid")
-    end
-
-    sources = create_names(query, [])
-    cte = cte(query, sources)
-    {from, name} = get_source(query, sources, 0, source)
-
-    fields =
-      if prefix do
-        update_fields(:on_conflict, query, sources)
-      else
-        update_fields(:update, query, sources)
-      end
-
-    {join, wheres} = using_join(query, :update_all, sources)
-    prefix = prefix || ["UPDATE ", from, " AS ", name, join, " SET "]
-    where = where(%{query | wheres: wheres ++ query.wheres}, sources)
-
-    [cte, prefix, fields | where]
-  end
-
-  def delete_all(query) do
-    if query.select do
-      error!(nil, ":select is not supported in delete_all by Druid")
-    end
-
-    sources = create_names(query, [])
-    cte = cte(query, sources)
-    {_, name, _} = elem(sources, 0)
-
-    from = from(query, sources)
-    join = join(query, sources)
-    where = where(query, sources)
-
-    [cte, "DELETE ", name, ".*", from, join | where]
-  end
-
-  def insert(prefix, table, header, rows, on_conflict, [], []) do
-    fields = quote_names(header)
-
+  # SQL-based ingestion: INSERT INTO, or REPLACE INTO with an :overwrite.
+  # Druid doesn't take a target column list, so the rows or query are
+  # selected through an alias that names their columns in header order.
+  def insert(prefix, table, header, rows, opts) do
     [
-      "INSERT INTO ",
-      quote_table(prefix, table),
-      " (",
-      fields,
-      ") ",
-      insert_all(rows) | on_conflict(on_conflict, header)
+      insert_target(quote_table(prefix, table), Keyword.get(opts, :overwrite)),
+      " SELECT * FROM ",
+      insert_source(rows),
+      " AS \"input\"(",
+      quote_names(header),
+      ?),
+      partitioned_by(Keyword.fetch!(opts, :partitioned_by))
+      | clustered_by(Keyword.get(opts, :clustered_by, []))
     ]
   end
 
-  def insert(_prefix, _table, _header, _rows, _on_conflict, _returning, []) do
-    error!(nil, ":returning is not supported in insert/insert_all by Druid")
-  end
+  defp insert_target(table, nil), do: ["INSERT INTO ", table]
+  defp insert_target(table, :all), do: ["REPLACE INTO ", table, " OVERWRITE ALL"]
 
-  def insert(_prefix, _table, _header, _rows, _on_conflict, _returning, _placeholders) do
-    error!(nil, ":placeholders is not supported by Druid")
-  end
+  # The interval's bounds are sent as the first two parameters
+  defp insert_target(table, _interval),
+    do: ["REPLACE INTO ", table, " OVERWRITE WHERE \"__time\" >= ? AND \"__time\" < ?"]
 
-  defp on_conflict({_, _, [_ | _]}, _header) do
-    error!(nil, ":conflict_target is not supported in insert/insert_all by Druid")
-  end
-
-  defp on_conflict({:raise, _, []}, _header) do
-    []
-  end
-
-  defp on_conflict({:nothing, _, []}, [field | _]) do
-    quoted = quote_name(field)
-    [" ON DUPLICATE KEY UPDATE ", quoted, " = " | quoted]
-  end
-
-  defp on_conflict({fields, _, []}, _header) when is_list(fields) do
+  defp insert_source(rows) when is_list(rows) do
     [
-      " ON DUPLICATE KEY UPDATE "
-      | Enum.map_intersperse(fields, ?,, fn field ->
-          quoted = quote_name(field)
-          [quoted, " = VALUES(", quoted, ?)]
-        end)
+      "(VALUES ",
+      Enum.map_intersperse(rows, ", ", fn row ->
+        [?(, Enum.map_intersperse(row, ", ", &insert_value/1), ?)]
+      end),
+      ?)
     ]
   end
 
-  defp on_conflict({%{wheres: []} = query, _, []}, _header) do
-    [" ON DUPLICATE KEY " | update_all(query, "UPDATE ")]
+  defp insert_source(%Ecto.Query{} = query), do: [?(, all(query), ?)]
+
+  defp insert_value(nil), do: "NULL"
+  defp insert_value({%Ecto.Query{} = query, _params_counter}), do: [?(, all(query), ?)]
+  defp insert_value(_), do: ~c"?"
+
+  @granularities ~w(second minute five_minute ten_minute fifteen_minute thirty_minute
+                    hour six_hour eight_hour day week month quarter year)a
+
+  defp partitioned_by(:all), do: " PARTITIONED BY ALL TIME"
+
+  defp partitioned_by(granularity) when granularity in @granularities,
+    do: [" PARTITIONED BY '", granularity |> Atom.to_string() |> String.upcase(), ?']
+
+  # An ISO 8601 period, such as "PT6H"
+  defp partitioned_by("P" <> _ = period), do: [" PARTITIONED BY '", escape_string(period), ?']
+
+  defp partitioned_by(other) do
+    raise ArgumentError,
+          ":partitioned_by must be :all, one of #{inspect(@granularities)} or an ISO 8601 " <>
+            "period such as \"PT6H\", got: #{inspect(other)}"
   end
 
-  defp on_conflict({_query, _, []}, _header) do
-    error!(
-      nil,
-      "Using a query with :where in combination with the :on_conflict option is not supported by Druid"
-    )
-  end
+  defp clustered_by([]), do: []
+  defp clustered_by(columns) when is_list(columns), do: [" CLUSTERED BY " | quote_names(columns)]
 
-  defp insert_all(rows) when is_list(rows) do
-    [
-      "VALUES ",
-      Enum.map_intersperse(rows, ?,, fn row ->
-        [?(, Enum.map_intersperse(row, ?,, &insert_all_value/1), ?)]
-      end)
-    ]
-  end
-
-  defp insert_all(%Ecto.Query{} = query) do
-    [?(, all(query), ?)]
-  end
-
-  defp insert_all_value(nil), do: "DEFAULT"
-  defp insert_all_value({%Ecto.Query{} = query, _params_counter}), do: [?(, all(query), ?)]
-  defp insert_all_value(_), do: ~c"?"
-
-  def update(prefix, table, fields, filters, _returning) do
-    fields = Enum.map_intersperse(fields, ", ", &[quote_name(&1), " = ?"])
-
-    filters =
-      Enum.map_intersperse(filters, " AND ", fn
-        {field, nil} ->
-          [quote_name(field), " IS NULL"]
-
-        {field, _value} ->
-          [quote_name(field), " = ?"]
-      end)
-
-    ["UPDATE ", quote_table(prefix, table), " SET ", fields, " WHERE " | filters]
-  end
-
-  def delete(prefix, table, filters, _returning) do
-    filters =
-      Enum.map_intersperse(filters, " AND ", fn
-        {field, nil} ->
-          [quote_name(field), " IS NULL"]
-
-        {field, _value} ->
-          [quote_name(field), " = ?"]
-      end)
-
-    ["DELETE FROM ", quote_table(prefix, table), " WHERE " | filters]
+  defp clustered_by(other) do
+    raise ArgumentError, ":clustered_by must be a list of columns, got: #{inspect(other)}"
   end
 
   def build_explain_query(query, []) do
@@ -302,67 +224,6 @@ defmodule Ecto.Adapters.Druid.Query do
 
   defp cte_query(%QueryExpr{expr: expr}, sources, query, _operation) do
     expr(expr, sources, query)
-  end
-
-  defp update_fields(type, %{updates: updates} = query, sources) do
-    fields =
-      for(
-        %{expr: expr} <- updates,
-        {op, kw} <- expr,
-        {key, value} <- kw,
-        do: update_op(op, update_key(type, key, query, sources), value, sources, query)
-      )
-
-    Enum.intersperse(fields, ", ")
-  end
-
-  defp update_key(:update, key, %{from: from} = query, sources) do
-    {_from, name} = get_source(query, sources, 0, from)
-
-    [name, ?. | quote_name(key)]
-  end
-
-  defp update_key(:on_conflict, key, _query, _sources) do
-    quote_name(key)
-  end
-
-  defp update_op(:set, quoted_key, value, sources, query) do
-    [quoted_key, " = " | expr(value, sources, query)]
-  end
-
-  defp update_op(:inc, quoted_key, value, sources, query) do
-    [quoted_key, " = ", quoted_key, " + " | expr(value, sources, query)]
-  end
-
-  defp update_op(command, _quoted_key, _value, _sources, query) do
-    error!(query, "Unknown update operation #{inspect(command)} for Druid")
-  end
-
-  defp using_join(%{joins: []}, _kind, _sources), do: {[], []}
-
-  defp using_join(%{joins: joins} = query, kind, sources) do
-    froms =
-      Enum.map_intersperse(joins, ", ", fn
-        %JoinExpr{source: %Ecto.SubQuery{params: [_ | _]}} ->
-          error!(
-            query,
-            "Druid adapter does not support subqueries with parameters in update_all/delete_all joins"
-          )
-
-        %JoinExpr{qual: :inner, ix: ix, source: source} ->
-          {join, name} = get_source(query, sources, ix, source)
-          [join, " AS " | name]
-
-        %JoinExpr{qual: qual} ->
-          error!(query, "Druid adapter supports only inner joins on #{kind}, got: \"#{qual}\"")
-      end)
-
-    wheres =
-      for %JoinExpr{on: %QueryExpr{expr: value} = expr} <- joins,
-          value != true,
-          do: expr |> Map.put(:__struct__, BooleanExpr) |> Map.put(:op, :and)
-
-    {[?,, ?\s | froms], wheres}
   end
 
   defp join(%{joins: []}, _sources), do: []
