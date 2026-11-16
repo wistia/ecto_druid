@@ -1,8 +1,9 @@
 # Ingestion Specs
 
-Druid supervisor specs (Kafka ingestion) can live in your project as EEx
-templates, with per-environment values from config. Mix tasks render them and
-sync them to Druid.
+Druid supervisor specs (Kafka ingestion) and batch ingestion tasks can live in
+your project as EEx templates, with per-environment values from config. Mix
+tasks render them and send them to Druid. Supervisors are kept in sync;
+[batch tasks](#batch-ingestion-tasks) run once each time you submit them.
 
 ## Templates
 
@@ -94,3 +95,66 @@ partials and all options.
 
 [Compaction configs](compaction.md), [retention rules](retention.md) and
 [lookups](lookups.md) are managed the same way.
+
+## Batch ingestion tasks
+
+Batch tasks such as `index_parallel` go in `priv/druid/tasks/*.json.eex`.
+They use the same template format and helpers as supervisor specs:
+
+```eex
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {"type": "s3", "prefixes": [<%= json @source_prefix %>]},
+      "inputFormat": {"type": "json"}
+    },
+    "tuningConfig": {"type": "index_parallel", "partitionsSpec": {"type": "dynamic"}},
+    "dataSchema": <%= data_schema MyApp.PageViewsHourly,
+                        segment_granularity: "DAY",
+                        intervals: [@interval] %>
+  }
+}
+```
+
+Configure their values under `:tasks`:
+
+```elixir
+config :my_app, MyApp.DruidRepo,
+  tasks: [
+    host: System.get_env("DRUID_ROUTER_HOST", "localhost"),
+    port: 8888,
+    assigns: %{source_prefix: System.get_env("PAGE_VIEWS_PREFIX")}
+  ]
+```
+
+A task runs once each time you submit it, so values that change from run to
+run, such as the interval to backfill, are passed when running it. They are
+merged over the configured assigns:
+
+```sh
+mix druid.tasks.render backfill_page_views --assign interval=2026-11-01/P1D
+mix druid.tasks.run backfill_page_views --assign interval=2026-11-01/P1D --wait-for-segments
+```
+
+`mix druid.tasks.run` submits the task and waits for it to finish.
+`--wait-for-segments` also waits until Historicals have loaded the new
+segments, so the data can be queried as soon as it returns. Pass `--no-wait`
+to submit and exit.
+
+In a release, or from your own code, use `Druid.Tasks`:
+
+```elixir
+{:ok, %{"status" => "SUCCESS"}} =
+  Druid.Tasks.run(MyApp.DruidRepo, "backfill_page_views",
+    assigns: %{interval: "2026-11-01/P1D"},
+    wait_for_segments: true
+  )
+```
+
+`Druid.Tasks.run/3` also takes a task spec as a map, and `Druid.Tasks.await/3`
+waits for any task ID, including SQL-based ingestion queries submitted with
+`Druid.Client.SQL.insert/3`. Submitting a batch ingestion task again ingests
+its data again, adding to or replacing what's there depending on the spec's
+`appendToExisting`.

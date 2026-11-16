@@ -43,6 +43,28 @@ defmodule Mix.Druid do
   end
 
   @doc """
+  Turns `--assign key=value` options into an `assigns:` option. Values are
+  strings.
+  """
+  def assigns(opts) do
+    case Keyword.get_values(opts, :assign) do
+      [] ->
+        []
+
+      values ->
+        assigns =
+          Map.new(values, fn value ->
+            case String.split(value, "=", parts: 2) do
+              [key, value] when key != "" -> {String.to_atom(key), value}
+              _ -> Mix.raise("Expected --assign key=value, got: #{value}")
+            end
+          end)
+
+        [assigns: assigns]
+    end
+  end
+
+  @doc """
   Prints rendered templates, or writes each to `<out>/<name>.json`.
   `header` returns the comment line printed above each one.
   """

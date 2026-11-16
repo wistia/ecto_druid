@@ -4,9 +4,9 @@ defmodule WikiExplorer.Wiki.Edit do
 
   `timestamp`, `dimension` and `metric` from `Ecto.Druid.Schema` define normal
   Ecto fields for queries, and also describe how each column is ingested.
-  `mix wiki_explorer.ingest` builds the ingestion spec's `dataSchema` from
-  them with `Ecto.Druid.Schema.Spec.data_schema/2`, so the schema and the data
-  source can't drift apart.
+  The ingestion task template, `priv/druid/tasks/wiki_edits.json.eex`,
+  generates its `dataSchema` from them with `data_schema`, so the schema and
+  the data source can't drift apart.
 
   Druid's column names are camelCase, so fields use `:source` to map them to
   snake_case.
@@ -33,7 +33,7 @@ defmodule WikiExplorer.Wiki.Edit do
     dimension :is_new, :string, source: :isNew
     dimension :is_minor, :string, source: :isMinor
 
-    # The ingest task turns rollup off, so every edit stays its own row and
+    # The ingestion task turns rollup off, so every edit stays its own row and
     # these sums are each edit's own values. With rollup on, Druid would
     # combine edits that share a timestamp and dimensions into one row.
     metric :added, :integer, aggregate: :sum

@@ -40,4 +40,10 @@ config :ecto_druid, Ecto.Adapters.Druid.TestRepo,
     port: 9888,
     path: Path.expand("../test/fixtures/compaction", __DIR__),
     assigns: %{target_rows: 5_000_000, skip_offset: "P1D"}
+  ],
+  # The tasks API is on the router too
+  tasks: [
+    port: 9888,
+    path: Path.expand("../test/fixtures/tasks", __DIR__),
+    assigns: %{max_parse_exceptions: 0}
   ]

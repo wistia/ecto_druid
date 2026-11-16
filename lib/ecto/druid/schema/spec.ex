@@ -9,7 +9,7 @@ defmodule Ecto.Druid.Schema.Spec do
   """
 
   @doc """
-  Builds a complete `dataSchema` for a streaming supervisor spec.
+  Builds a complete `dataSchema` for a supervisor or batch ingestion spec.
 
   ## Options
 
@@ -17,6 +17,9 @@ defmodule Ecto.Druid.Schema.Spec do
     * `:segment_granularity` - Defaults to `"HOUR"`.
     * `:query_granularity` - Defaults to `"NONE"`.
     * `:rollup` - Defaults to `true` if the schema has metrics.
+    * `:intervals` - The `granularitySpec` intervals of a batch ingestion
+      task: the time ranges to ingest, which a task that doesn't append
+      replaces. Strings or `Ecto.Druid.Interval`s.
     * `:transforms` - Extra `transformSpec` transforms, added after the ones
       generated for dimensions with `:from` (see `transforms/1`). Raises if
       one has the same name as a generated transform.
@@ -44,16 +47,24 @@ defmodule Ecto.Druid.Schema.Spec do
       "timestampSpec" => timestamp_spec(schema),
       "dimensionsSpec" => dimensions_spec(schema),
       "metricsSpec" => metrics,
-      "granularitySpec" => %{
-        "type" => "uniform",
-        "segmentGranularity" => Keyword.get(opts, :segment_granularity, "HOUR"),
-        "queryGranularity" => Keyword.get(opts, :query_granularity, "NONE"),
-        "rollup" => Keyword.get(opts, :rollup, metrics != [])
-      }
+      "granularitySpec" =>
+        put_present(
+          %{
+            "type" => "uniform",
+            "segmentGranularity" => Keyword.get(opts, :segment_granularity, "HOUR"),
+            "queryGranularity" => Keyword.get(opts, :query_granularity, "NONE"),
+            "rollup" => Keyword.get(opts, :rollup, metrics != [])
+          },
+          "intervals",
+          intervals(Keyword.get(opts, :intervals))
+        )
     }
     |> put_present("transformSpec", if(transform_spec == %{}, do: nil, else: transform_spec))
     |> deep_merge(Keyword.get(opts, :merge, %{}))
   end
+
+  defp intervals(nil), do: nil
+  defp intervals(intervals), do: Enum.map(List.wrap(intervals), &Ecto.Druid.Interval.to_iso8601/1)
 
   @doc """
   Builds the transforms for dimensions that read an input field with a

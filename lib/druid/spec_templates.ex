@@ -1,7 +1,7 @@
 defmodule Druid.SpecTemplates do
   @moduledoc false
   # Shared plumbing for the template directories managed by Druid.Supervisors,
-  # Druid.Retention and Druid.Lookups: config lookup, template discovery,
+  # Druid.Retention, Druid.Lookups and Druid.Tasks: config lookup, template discovery,
   # rendering to decoded JSON, and request options.
 
   alias Druid.Supervisors.Template
@@ -128,10 +128,12 @@ defmodule Druid.SpecTemplates do
     path |> String.replace_suffix(".eex", "") |> String.replace_suffix(".json", "")
   end
 
-  defp to_map(value) when is_map(value), do: value
-  defp to_map(value) when is_list(value), do: Map.new(value)
+  @doc "Turns a keyword list of assigns into a map."
+  def to_map(value) when is_map(value), do: value
+  def to_map(value) when is_list(value), do: Map.new(value)
 
-  defp deep_merge(left, right) do
+  @doc "Merges `right` into `left`, recursing into nested maps."
+  def deep_merge(left, right) do
     Map.merge(left, right, fn
       _key, %{} = l, %{} = r when not is_struct(l) and not is_struct(r) -> deep_merge(l, r)
       _key, _l, r -> r
