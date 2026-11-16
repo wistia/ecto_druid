@@ -123,6 +123,14 @@ defmodule Ecto.Adapters.Druid do
   Per-query values override repo config values, which override the adapter
   defaults. Native queries (`native_query/2`) carry their context inline in the
   query map instead.
+
+  ## Native queries
+
+  `native_query/2` sends a [native JSON query](https://druid.apache.org/docs/latest/querying/)
+  and returns Druid's decoded response, which `Ecto.Druid.Native.rows/3`
+  flattens into one map per row. To see the native query Druid runs for an
+  Ecto query, for debugging, use `to_native/2`. See the
+  [Native Queries guide](native_queries.md).
   """
 
   @behaviour Ecto.Adapter
@@ -138,6 +146,10 @@ defmodule Ecto.Adapters.Druid do
 
       def native_query(query, opts \\ []) do
         Ecto.Adapters.Druid.native_query(get_dynamic_repo(), query, opts)
+      end
+
+      def to_native(query, opts \\ []) do
+        Ecto.Adapters.Druid.to_native(get_dynamic_repo(), query, opts)
       end
     end
   end
@@ -299,5 +311,33 @@ defmodule Ecto.Adapters.Druid do
 
     Druid.Client.Native.query(query)
     |> Druid.Client.request!(request_opts)
+  end
+
+  # Druid's EXPLAIN PLAN FOR returns the native query a SQL statement plans
+  # to, as a JSON list with one entry per native query it runs.
+  @doc false
+  def to_native(repo, queryable, opts) do
+    {sql, params} = Ecto.Adapters.SQL.to_sql(:all, repo, queryable)
+    config = repo.config()
+
+    request_opts =
+      config
+      |> Keyword.merge(merge_context(config, opts))
+      |> Keyword.put(:finch, __MODULE__.Finch)
+
+    params = Enum.map(params, &__MODULE__.Types.to_db/1)
+
+    [[plan | _] | _] =
+      Druid.Client.SQL.query("EXPLAIN PLAN FOR " <> sql, params, request_opts)
+      |> Druid.Client.request!(request_opts)
+
+    case Jason.decode!(plan) do
+      [%{"query" => query}] ->
+        Map.update(query, "context", %{}, &Map.delete(&1, "sqlQueryId"))
+
+      plan ->
+        raise ArgumentError,
+              "expected Druid to plan the query into one native query, got: #{inspect(plan)}"
+    end
   end
 end

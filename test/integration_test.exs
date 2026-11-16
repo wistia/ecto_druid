@@ -78,6 +78,33 @@ defmodule IntegrationTest do
            ]
   end
 
+  test "to_native returns the native query Druid plans" do
+    native = TestRepo.to_native(Wikipedia.by_page("Black Dahlia"))
+
+    assert native["queryType"] == "timeseries"
+    assert native["dataSource"] == %{"type" => "table", "name" => "wikipedia"}
+    refute Map.has_key?(native["context"], "sqlQueryId")
+
+    # The planned query runs as is
+    assert [%{"result" => %{"a0" => 3}}] = TestRepo.native_query(native)
+  end
+
+  test "native query rows" do
+    query = %{
+      queryType: "topN",
+      dataSource: "wikipedia",
+      intervals: ["2016-06-27/2016-06-28"],
+      granularity: "all",
+      dimension: "channel",
+      metric: "edits",
+      threshold: 2,
+      aggregations: [%{type: "count", name: "edits"}]
+    }
+
+    assert [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => _, "edits" => _} | _] =
+             query |> TestRepo.native_query() |> Ecto.Druid.Native.rows(query)
+  end
+
   test "queries with hll sketch aggregations" do
     assert %{unique_users: 1, hll: hll} = TestRepo.one(Wikipedia.hll_by_page("Black Dahlia"))
     assert is_binary(hll)
