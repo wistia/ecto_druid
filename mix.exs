@@ -60,6 +60,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
         "guides/querying.md",
         "guides/native_queries.md",
         "guides/ingestion_specs.md",
+        "guides/sql_ingestion.md",
         "guides/compaction.md",
         "guides/retention.md",
         "guides/lookups.md",

@@ -11,6 +11,7 @@ via Ecto. It features:
 * Types for Druid's complex types
 * Schemas for Druid's system tables (`sys.*` and `INFORMATION_SCHEMA.*`)
 * A Druid API client
+* `Repo.insert_all/3` through SQL-based ingestion (`INSERT` and `REPLACE`)
 * Supervisor specs (Kafka ingestion), batch ingestion tasks, compaction
   configs, retention rules and lookups managed as EEx templates, with
   per-environment values from config
@@ -54,6 +55,7 @@ MyApp.DruidRepo.all(
 * [Querying](guides/querying.md)
 * [Native Queries](guides/native_queries.md)
 * [Ingestion Specs](guides/ingestion_specs.md)
+* [SQL Ingestion](guides/sql_ingestion.md)
 * [Compaction](guides/compaction.md)
 * [Retention Rules](guides/retention.md)
 * [Lookups](guides/lookups.md)

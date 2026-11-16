@@ -59,6 +59,22 @@ defmodule Ecto.Adapters.Druid do
   See the [Querying guide](querying.md#querying-from-deep-storage) for what
   the cluster needs.
 
+  ## Inserting data
+
+  `Repo.insert_all/3` runs Druid's SQL-based ingestion (`INSERT`, or
+  `REPLACE` with `:overwrite`) and waits for the task to finish. It needs
+  `:partitioned_by`:
+
+      MyApp.Repo.insert_all(MyApp.PageViews, rows, partitioned_by: :day)
+      MyApp.Repo.insert_all("page_views_hourly", query,
+        partitioned_by: :day,
+        overwrite: Ecto.Druid.Interval.new(~D[2026-11-01], ~D[2026-11-02])
+      )
+
+  Druid can't change or delete single rows, so `insert/2`, `update/2`,
+  `delete/2`, `update_all/3` and `delete_all/2` raise. See the
+  [SQL Ingestion guide](sql_ingestion.md) for the options.
+
   ## SQL query context
 
   Druid accepts [query context parameters](https://druid.apache.org/docs/latest/querying/query-context-reference)
@@ -77,6 +93,7 @@ defmodule Ecto.Adapters.Druid do
 
   @behaviour Ecto.Adapter
   @behaviour Ecto.Adapter.Queryable
+  @behaviour Ecto.Adapter.Schema
 
   @impl Ecto.Adapter
   defmacro __before_compile__(_env) do
@@ -88,19 +105,6 @@ defmodule Ecto.Adapters.Druid do
       def native_query(query, opts \\ []) do
         Ecto.Adapters.Druid.native_query(get_dynamic_repo(), query, opts)
       end
-
-      # TODO: Implement insert_all
-      # def insert_all(schema_or_source, entries, opts \\ []) do
-      #   repo = get_dynamic_repo()
-
-      #   Ecto.Repo.Schema.insert_all(
-      #     __MODULE__,
-      #     repo,
-      #     schema_or_source,
-      #     entries,
-      #     Ecto.Repo.Supervisor.tuplet(repo, prepare_opts(:insert_all, opts))
-      #   )
-      # end
     end
   end
 
@@ -143,8 +147,12 @@ defmodule Ecto.Adapters.Druid do
         sql = IO.iodata_to_binary(__MODULE__.Query.all(query))
         {:cache, {System.unique_integer([:positive]), sql}}
 
-      _ ->
-        raise RuntimeError, "Unsupported query kind: #{inspect(kind)}"
+      kind when kind in [:update_all, :delete_all] ->
+        raise Ecto.QueryError,
+          query: query,
+          message:
+            "Druid doesn't support #{kind}. To replace data, use `insert_all/3` with " <>
+              "`:overwrite`. To drop it, use `Druid.Client.DataSource.mark_unused/2`"
     end
   end
 
@@ -205,7 +213,12 @@ defmodule Ecto.Adapters.Druid do
     Keyword.put(opts, :context, context)
   end
 
-  @doc false
+  @impl Ecto.Adapter.Schema
+  def autogenerate(:id), do: nil
+  def autogenerate(:embed_id), do: Ecto.UUID.generate()
+  def autogenerate(:binary_id), do: Ecto.UUID.generate()
+
+  @impl Ecto.Adapter.Schema
   def insert_all(
         adapter_meta,
         schema_meta,
@@ -226,6 +239,24 @@ defmodule Ecto.Adapters.Druid do
       placeholders,
       opts
     )
+  end
+
+  @impl Ecto.Adapter.Schema
+  def insert(_adapter_meta, _schema_meta, _fields, _on_conflict, _returning, _opts) do
+    raise ArgumentError,
+          "Druid ingests rows in batches, so it doesn't support insert/2. Use insert_all/3"
+  end
+
+  @impl Ecto.Adapter.Schema
+  def update(_adapter_meta, _schema_meta, _fields, _filters, _returning, _opts) do
+    raise ArgumentError,
+          "Druid doesn't support update/2. To replace data, use insert_all/3 with :overwrite"
+  end
+
+  @impl Ecto.Adapter.Schema
+  def delete(_adapter_meta, _schema_meta, _filters, _returning, _opts) do
+    raise ArgumentError,
+          "Druid doesn't support delete/2. To drop data, use Druid.Client.DataSource.mark_unused/2"
   end
 
   @doc false
