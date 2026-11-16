@@ -19,6 +19,26 @@ defmodule Druid.Client do
 
   Most requests can go to the Router, which forwards them to the right
   service.
+
+  ## Options
+
+  `request/2` and `request!/2` take:
+
+    * `:host`, `:port` - Where Druid is. Required.
+    * `:scheme` - `"http"` (the default) or `"https"`.
+    * `:auth` - Credentials sent with every request, as the `authorization`
+      header. Use `{:basic, "user:password"}` for Druid's basic security
+      extension, or `{:bearer, token}`, `:netrc`, `{:netrc, path}`, a raw
+      header value, or a 0-arity function returning one of these (see
+      `Req.Steps.auth/1`). A `{module, function, args}` tuple is called on
+      each request and must return one of these, which keeps rotating
+      credentials out of compile-time config. Basic credentials are only
+      encoded, not encrypted, so use `scheme: "https"` with them.
+    * `:redirect_trusted` - Send `:auth` on redirects to another host.
+      Druid's Coordinator and Overlord redirect to their leader, which is
+      usually another host, and by default the credentials are dropped
+      there. Not needed when going through the Router.
+    * `:plug`, `:adapter`, `:finch` - Passed to `Req`.
   """
 
   @default_scheme "http"
@@ -62,6 +82,8 @@ defmodule Druid.Client do
       |> put_present(:plug, Keyword.get(opts, :plug))
       |> put_present(:adapter, Keyword.get(opts, :adapter))
       |> put_present(:finch, Keyword.get(opts, :finch))
+      |> put_present(:auth, opts |> Keyword.get(:auth) |> auth())
+      |> put_present(:redirect_trusted, Keyword.get(opts, :redirect_trusted))
 
     response = Req.request!(request, [decode_body: false] ++ request_opts)
     body = decode_body(response)
@@ -98,6 +120,13 @@ defmodule Druid.Client do
   end
 
   defp decode_body(response), do: response.body
+
+  # An MFA can sit in config where a function can't, and is called on every
+  # request so a rotating token is read fresh each time.
+  defp auth({module, fun, args}) when is_atom(module) and is_atom(fun) and is_list(args),
+    do: fn -> apply(module, fun, args) end
+
+  defp auth(auth), do: auth
 
   defp base_url(opts) do
     scheme = Keyword.get(opts, :scheme, @default_scheme)

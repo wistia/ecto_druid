@@ -36,11 +36,45 @@ defmodule Ecto.Adapters.Druid do
   * `:host` - The host of the Druid server.
   * `:port` - The port of the Druid server.
   * `:scheme` - The scheme of the Druid server (http or https).
+  * `:auth` - Credentials for every request, for example
+    `{:basic, "user:password"}`. See "Authentication" below.
+  * `:redirect_trusted` - Keep sending `:auth` when Druid redirects to
+    another host. See "Authentication" below.
   * `:finch_opts` - [Options](https://hexdocs.pm/finch/Finch.html#start_link/1-options) to pass to Finch when making requests to Druid.
   * `:context` - A map of default [SQL query context parameters](https://druid.apache.org/docs/latest/querying/sql-query-context)
     sent with every query, for example `%{sqlTimeZone: "America/New_York"}`.
   * `:deep_storage` - Send every query from this repo through Druid's query
     from deep storage API. See below.
+
+  ## Authentication
+
+  For a cluster with Druid's [basic security](https://druid.apache.org/docs/latest/development/extensions-core/druid-basic-security)
+  extension, set `:auth` in `config/runtime.exs` so the credentials come from
+  the environment at boot rather than being compiled in:
+
+      config :my_app, MyApp.Repo,
+        host: "druid.example.com",
+        port: 8888,
+        scheme: "https",
+        auth: {:basic, System.fetch_env!("DRUID_USER") <> ":" <> System.fetch_env!("DRUID_PASSWORD")}
+
+  `:auth` takes anything `Req`'s `:auth` option does: `{:basic, userinfo}`,
+  `{:bearer, token}`, `:netrc`, `{:netrc, path}`, a raw `authorization`
+  header value, or a 0-arity function returning one of these. It also takes
+  `{module, function, args}`, which is called on every request, for a token
+  that expires:
+
+      auth: {MyApp.DruidToken, :fetch, []}
+
+  Repo config `:auth` is used by queries, `insert_all`, `native_query/2`,
+  and `Druid.Tasks`, `Druid.Supervisors`, `Druid.Retention`, `Druid.Lookups`
+  and `Druid.Compaction` (and their Mix tasks). Each of those modules' config
+  sections, such as `tasks: [auth: ...]`, can override it, and so can an
+  `:auth` option on any call.
+
+  Point the repo at the Router where you can. The Coordinator and Overlord
+  redirect requests to their leader, and the credentials are dropped on a
+  redirect to another host unless you set `redirect_trusted: true`.
 
   ## Querying from deep storage
 

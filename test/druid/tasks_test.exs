@@ -6,6 +6,14 @@ defmodule Druid.TasksTest do
 
   @moduletag :tmp_dir
 
+  defmodule AuthRepo do
+    def config, do: [host: "localhost", port: 8888, auth: {:bearer, "repo"}]
+  end
+
+  defmodule TasksAuthRepo do
+    def config, do: AuthRepo.config() ++ [tasks: [auth: {:bearer, "tasks"}]]
+  end
+
   @index """
   {
     "type": "index_parallel",
@@ -178,6 +186,28 @@ defmodule Druid.TasksTest do
 
       Tasks.submit(TestRepo, %{"type" => "noop"}, plug: plug, port: 8888)
       assert_received {:host, "localhost", 8888}
+    end
+
+    test "sends the repo's auth, overridden by the tasks config and then the call" do
+      test_pid = self()
+
+      plug = fn conn ->
+        send(test_pid, {:auth, Plug.Conn.get_req_header(conn, "authorization")})
+        druid([]).(conn)
+      end
+
+      Tasks.submit(__MODULE__.AuthRepo, %{"type" => "noop"}, plug: plug)
+      assert_received {:auth, ["Bearer repo"]}
+
+      Tasks.submit(__MODULE__.TasksAuthRepo, %{"type" => "noop"}, plug: plug)
+      assert_received {:auth, ["Bearer tasks"]}
+
+      Tasks.submit(__MODULE__.TasksAuthRepo, %{"type" => "noop"},
+        plug: plug,
+        auth: {:bearer, "call"}
+      )
+
+      assert_received {:auth, ["Bearer call"]}
     end
   end
 
