@@ -19,9 +19,9 @@ It shows how to:
 * Read Druid's system tables with the bundled `sys.*` and
   `INFORMATION_SCHEMA` schemas ([`Cluster`](lib/wiki_explorer/cluster.ex))
 * Run a native `topN` query with `native_query/1`
-* Generate an ingestion task's `dataSchema` from that schema, submit it and
-  poll its status with `Druid.Client`
-  ([`mix wiki_explorer.ingest`](lib/mix/tasks/wiki_explorer.ingest.ex))
+* Keep a batch ingestion task as an EEx template whose `dataSchema` is
+  generated from that schema, then run it and wait for it with
+  `mix druid.tasks.run` ([template](priv/druid/tasks/wiki_edits.json.eex))
 
 ## Running it
 
@@ -51,11 +51,13 @@ always runs against the code in this repository. Your own app would use
    mix druid.setup
    ```
 
-   This runs `mix druid.lookups.sync`, then `mix wiki_explorer.ingest`, which
-   submits a batch ingestion task for the `wiki_edits` data source and waits
-   until it can be queried. The task's `dataSchema` is generated from
-   [`Wiki.Edit`](lib/wiki_explorer/wiki/edit.ex). Druid downloads
-   the data from druid.apache.org, so the container needs internet access.
+   This runs `mix druid.lookups.sync`, then
+   `mix druid.tasks.run wiki_edits --wait-for-segments`, which submits a batch
+   ingestion task for the `wiki_edits` data source and waits until it can be
+   queried. The task's `dataSchema` is generated from
+   [`Wiki.Edit`](lib/wiki_explorer/wiki/edit.ex). Druid downloads about 24,000
+   edits from 2016-06-27 from druid.apache.org, so the container needs
+   internet access. Running it again replaces the data.
 
    Druid pushes lookups to its services every couple of minutes. Until it
    does, queries that use the lookup fail with `Lookup [channel_languages] not

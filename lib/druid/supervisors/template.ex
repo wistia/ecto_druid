@@ -136,6 +136,18 @@ defmodule Druid.Supervisors.Template do
       do: json(Ecto.Druid.Schema.Spec.data_schema(schema, opts))
 
     @doc """
+    Lists the time-partitioned storage prefixes an interval covers, as a JSON
+    array. Mainly for backfill task templates, where `@interval` is set. See
+    `Druid.Tasks.partition_prefixes/4`.
+
+        "prefixes": <%= partition_prefixes "s3://my-bucket/events", @interval,
+                          "year=%Y/month=%m/day=%d/" %>
+    """
+    @spec partition_prefixes(String.t(), term(), String.t(), Keyword.t()) :: String.t()
+    def partition_prefixes(base, interval, format, opts \\ []),
+      do: json(Druid.Tasks.partition_prefixes(base, interval, format, opts))
+
+    @doc """
     Generates a `timestampSpec`. See `Ecto.Druid.Schema.Spec.timestamp_spec/1`.
     """
     @spec timestamp_spec(module()) :: String.t()

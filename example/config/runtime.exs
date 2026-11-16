@@ -33,6 +33,14 @@ config :wiki_explorer, WikiExplorer.DruidRepo,
   host: druid_host,
   port: druid_port,
   context: %{sqlTimeZone: "Etc/UTC"},
+  # Rendered into priv/druid/tasks/wiki_edits.json.eex. Task requests go to
+  # the repo's host and port, the Router.
+  tasks: [
+    assigns: %{
+      wiki_edits_uri:
+        System.get_env("WIKI_EDITS_URI", "https://druid.apache.org/data/wikipedia.json.gz")
+    }
+  ],
   lookups: [
     host: druid_host,
     port: druid_port,

@@ -43,6 +43,68 @@ defmodule Mix.Druid do
   end
 
   @doc """
+  Turns `--assign key=value` options into an `assigns:` option. Values are
+  strings.
+  """
+  def assigns(opts) do
+    case Keyword.get_values(opts, :assign) do
+      [] ->
+        []
+
+      values ->
+        assigns =
+          Map.new(values, fn value ->
+            case String.split(value, "=", parts: 2) do
+              [key, value] when key != "" -> {String.to_atom(key), value}
+              _ -> Mix.raise("Expected --assign key=value, got: #{value}")
+            end
+          end)
+
+        [assigns: assigns]
+    end
+  end
+
+  @doc "Turns `--wait-for-segments` and `--timeout SECONDS` into task options."
+  def wait_opts(opts) do
+    [wait_for_segments: Keyword.get(opts, :wait_for_segments, false)] ++
+      case opts[:timeout] do
+        nil -> []
+        seconds -> [timeout: seconds * 1000]
+      end
+  end
+
+  @doc "Prints a `Druid.Tasks.progress/1` map as one line."
+  def print_progress(progress) do
+    parts =
+      [succeeded: "succeeded", failed: "failed", running: "running", pending: "waiting to submit"]
+      |> Enum.filter(fn {key, _} -> progress[key] > 0 end)
+      |> Enum.map_join(", ", fn {key, label} -> "#{progress[key]} #{label}" end)
+
+    Mix.shell().info("#{progress.total} task(s): #{parts}")
+  end
+
+  @doc "Describes a `Druid.Tasks.Run` by its interval and task ID."
+  def run_label(run) do
+    [run.interval && to_string(run.interval), run.task_id]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("  ")
+  end
+
+  @doc "Prints failed runs and raises if there were any."
+  def report_runs!(runs) do
+    failed = Enum.filter(runs, & &1.error)
+
+    Enum.each(failed, fn run ->
+      Mix.shell().error("failed    #{run_label(run)}\n  #{Exception.message(run.error)}")
+    end)
+
+    case failed do
+      [] -> Mix.shell().info("All #{length(runs)} task(s) succeeded")
+      _ -> Mix.raise("#{length(failed)} of #{length(runs)} task(s) failed")
+    end
+  end
+
+  @doc """
   Prints rendered templates, or writes each to `<out>/<name>.json`.
   `header` returns the comment line printed above each one.
   """

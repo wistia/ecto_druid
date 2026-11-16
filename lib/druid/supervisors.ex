@@ -141,9 +141,9 @@ defmodule Druid.Supervisors do
   Druid compares each submitted spec with the running one and only restarts a
   supervisor when its spec changed, so syncing unchanged specs is safe.
 
-  Compaction configs, retention rules and lookups are managed the same way,
-  from their own template directories. See `Druid.Compaction`,
-  `Druid.Retention` and `Druid.Lookups`.
+  Compaction configs, retention rules, lookups and batch ingestion tasks are
+  managed the same way, from their own template directories. See
+  `Druid.Compaction`, `Druid.Retention`, `Druid.Lookups` and `Druid.Tasks`.
   """
 
   alias Druid.SpecTemplates

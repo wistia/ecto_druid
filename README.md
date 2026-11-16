@@ -11,8 +11,9 @@ via Ecto. It features:
 * Types for Druid's complex types
 * Schemas for Druid's system tables (`sys.*` and `INFORMATION_SCHEMA.*`)
 * A Druid API client
-* Supervisor specs (Kafka ingestion), compaction configs, retention rules and
-  lookups managed as EEx templates, with per-environment values from config
+* Supervisor specs (Kafka ingestion), batch ingestion tasks, compaction
+  configs, retention rules and lookups managed as EEx templates, with
+  per-environment values from config
 
 The library targets and is tested against Apache Druid 38.0.0.
 

@@ -81,7 +81,7 @@ defmodule WikiExplorer.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "assets.setup", "assets.build"],
-      "druid.setup": ["druid.lookups.sync", "wiki_explorer.ingest"],
+      "druid.setup": ["druid.lookups.sync", "druid.tasks.run wiki_edits --wait-for-segments"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind wiki_explorer", "esbuild wiki_explorer"],
       "assets.deploy": [

@@ -1,0 +1,15 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {"type": "http", "uris": [<%= json @wiki_edits_uri %>]},
+      "inputFormat": {"type": "json"}
+    },
+    "tuningConfig": {
+      "type": "index_parallel",
+      "partitionsSpec": {"type": "dynamic"}
+    },
+    "dataSchema": <%= data_schema WikiExplorer.Wiki.Edit, segment_granularity: "DAY", rollup: false %>
+  }
+}

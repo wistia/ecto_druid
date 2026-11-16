@@ -172,6 +172,19 @@ defmodule Ecto.Druid.SchemaTest do
       assert length(data_schema["dimensionsSpec"]["dimensions"]) == 8
     end
 
+    test "takes batch ingestion intervals" do
+      interval = Ecto.Druid.Interval.new(~U[2026-11-01 00:00:00Z], ~U[2026-11-02 00:00:00Z])
+
+      assert Spec.data_schema(PageViews, intervals: "2026-11-01/P1D")["granularitySpec"][
+               "intervals"
+             ] == ["2026-11-01/P1D"]
+
+      assert [iso] =
+               Spec.data_schema(PageViews, intervals: [interval])["granularitySpec"]["intervals"]
+
+      assert iso == Ecto.Druid.Interval.to_iso8601(interval)
+    end
+
     test "raises when a transform clashes with a generated one" do
       transform = %{type: "expression", name: "visitor_key", expression: "lower(user_key)"}
 
