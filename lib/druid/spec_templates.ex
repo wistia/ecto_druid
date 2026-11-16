@@ -6,7 +6,8 @@ defmodule Druid.SpecTemplates do
 
   alias Druid.Supervisors.Template
 
-  @connection_keys [:host, :port, :scheme, :plug, :adapter, :finch]
+  @repo_keys [:host, :port, :scheme, :auth, :redirect_trusted]
+  @connection_keys @repo_keys ++ [:plug, :adapter, :finch]
 
   @doc "Reads `key` from the repo's config, with `opts` taking precedence."
   def config(repo, key, opts) do
@@ -120,7 +121,7 @@ defmodule Druid.SpecTemplates do
   """
   def request_opts(repo, config) do
     repo.config()
-    |> Keyword.take([:host, :port, :scheme])
+    |> Keyword.take(@repo_keys)
     |> Keyword.merge(Keyword.take(config, @connection_keys))
   end
 
