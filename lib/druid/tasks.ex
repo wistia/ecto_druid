@@ -57,6 +57,51 @@ defmodule Druid.Tasks do
   replaces it, depending on the task's `appendToExisting`. There is no
   `sync`.
 
+  ## Backfills
+
+  To reprocess a range of time, run a template once per day (or hour, week
+  or month) with `backfill/5`. Splitting a backfill up keeps each task small
+  and lets a failed day be retried on its own:
+
+      Druid.Tasks.backfill(MyApp.DruidRepo, "page_views", ~D[2026-10-01], ~D[2026-11-01],
+        step: :day,
+        concurrency: 4
+      )
+
+  Each task is rendered with these assigns, on top of the usual ones:
+
+    * `@interval` - The `Ecto.Druid.Interval` the task covers. Pass it to
+      `data_schema`'s `:intervals` so a task that doesn't append replaces
+      exactly that interval.
+    * `@start` and `@stop` - Its bounds, as UTC `DateTime`s.
+
+  When the input is stored in time-partitioned paths, `partition_prefixes`
+  lists the ones an interval covers:
+
+      "inputSource": {
+        "type": "s3",
+        "prefixes": <%= partition_prefixes "s3://my-bucket/page_views", @interval,
+                          "year=%Y/month=%m/day=%d/" %>
+      },
+      ...
+      "dataSchema": <%= data_schema MyApp.PageViews, intervals: [@interval] %>,
+      "ioConfig": {"appendToExisting": false, ...}
+
+  Druid replaces whole segments, so make sure each task's input holds all of
+  the data for its interval, not just the part being fixed. For the same
+  reason, don't use a `:step` shorter than the data source's segment
+  granularity: Druid widens each task's intervals to whole segments, so a
+  6-hour task on a data source with `DAY` segments would replace the whole
+  day with 6 hours of data.
+
+  Rows outside a task's `intervals` are skipped, so tasks can share input
+  that overlaps their interval, such as the two UTC days a local day spans.
+
+  Days start at midnight UTC unless you pass `:time_zone`. Zones other than
+  UTC need a time zone database, such as `:tz` or `:tzdata`, configured with
+  `config :elixir, :time_zone_database, ...`. A day in a zone can span two UTC
+  days, which `partition_prefixes` accounts for.
+
   ## Configuration
 
   Configure tasks under the `:tasks` key of your Druid repo's config:
@@ -92,18 +137,18 @@ defmodule Druid.Tasks do
 
       mix druid.tasks.render backfill_page_views --assign interval=2026-11-01/P1D
       mix druid.tasks.run backfill_page_views --assign interval=2026-11-01/P1D
+      mix druid.tasks.backfill page_views --from 2026-10-01 --to 2026-11-01 --concurrency 4
+      mix druid.tasks.status tmp/druid/backfills/page_views-20261115T120000Z.jsonl
 
   In a release, call `run/3` from your release module:
 
       defmodule MyApp.Release do
-        def backfill_page_views(interval) do
+        def backfill_page_views(from, to) do
           Application.load(:my_app)
           {:ok, _} = Application.ensure_all_started(:req)
 
-          Druid.Tasks.run(MyApp.DruidRepo, "backfill_page_views",
-            assigns: %{interval: interval},
-            wait_for_segments: true
-          )
+          runs = Druid.Tasks.backfill(MyApp.DruidRepo, "page_views", from, to, concurrency: 4)
+          Enum.all?(runs, &Druid.Tasks.Run.succeeded?/1) || raise "backfill failed"
         end
       end
   """
@@ -120,14 +165,82 @@ defmodule Druid.Tasks do
       * `:data_source` - The data source the task writes to, if the spec
         names one.
       * `:spec` - The rendered spec, decoded from JSON.
+      * `:interval` - For a backfill, the `Ecto.Druid.Interval` it was
+        rendered for.
     """
     @type t :: %__MODULE__{
             name: String.t(),
             path: Path.t(),
             data_source: String.t() | nil,
-            spec: map()
+            spec: map(),
+            interval: Ecto.Druid.Interval.t() | nil
           }
-    defstruct [:name, :path, :data_source, :spec]
+    defstruct [:name, :path, :data_source, :spec, :interval]
+  end
+
+  defmodule Run do
+    @moduledoc """
+    One task of a backfill, or one task passed to `Druid.Tasks.await_all/3`.
+
+      * `:name` - The template name, if it came from one.
+      * `:interval` - The `Ecto.Druid.Interval` it covers, for a backfill.
+      * `:data_source` - The data source it writes to, if known.
+      * `:spec` - The rendered task spec, until it's submitted.
+      * `:task_id` - The task's ID once submitted.
+      * `:status` - The task's last status from Druid.
+      * `:error` - Why the task didn't succeed: a `Druid.Tasks.Error` when
+        it failed or timed out, or a request exception. `nil` otherwise.
+
+    `to_map/1` and `from_map/1` convert runs to and from the JSON that
+    `mix druid.tasks.backfill` records, so they can be checked on later.
+    """
+    @type t :: %__MODULE__{
+            name: String.t() | nil,
+            interval: Ecto.Druid.Interval.t() | nil,
+            data_source: String.t() | nil,
+            spec: map() | nil,
+            task_id: String.t() | nil,
+            status: map() | nil,
+            error: Exception.t() | nil
+          }
+    defstruct [:name, :interval, :data_source, :spec, :task_id, :status, :error]
+
+    @doc "Returns `true` if the task succeeded."
+    @spec succeeded?(t()) :: boolean()
+    def succeeded?(%__MODULE__{error: nil, status: %{"status" => "SUCCESS"}}), do: true
+    def succeeded?(%__MODULE__{}), do: false
+
+    @doc "Encodes the run's name, interval, data source and task ID as a map."
+    @spec to_map(t()) :: map()
+    def to_map(%__MODULE__{} = run) do
+      %{
+        "name" => run.name,
+        "interval" => run.interval && Ecto.Druid.Interval.to_iso8601(run.interval),
+        "dataSource" => run.data_source,
+        "task" => run.task_id
+      }
+    end
+
+    @doc "Builds a run from a map made by `to_map/1`."
+    @spec from_map(map()) :: t()
+    def from_map(%{"task" => task_id} = map) when is_binary(task_id) do
+      interval =
+        case map["interval"] do
+          nil ->
+            nil
+
+          string ->
+            [start, stop] = String.split(string, "/", parts: 2)
+            Ecto.Druid.Interval.new(start, stop)
+        end
+
+      %__MODULE__{
+        name: map["name"],
+        interval: interval,
+        data_source: map["dataSource"],
+        task_id: task_id
+      }
+    end
   end
 
   defmodule Error do
@@ -229,11 +342,7 @@ defmodule Druid.Tasks do
     request_opts = request_opts(repo, opts)
     poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
 
-    deadline =
-      case Keyword.get(opts, :timeout, :infinity) do
-        :infinity -> :infinity
-        timeout -> System.monotonic_time(:millisecond) + timeout
-      end
+    deadline = deadline(Keyword.get(opts, :timeout, :infinity))
 
     with {:ok, status} <-
            poll(deadline, poll_interval, fn -> check_task(task_id, request_opts) end) ||
@@ -258,6 +367,151 @@ defmodule Druid.Tasks do
       await(repo, task_id, opts)
     end
   end
+
+  @doc """
+  Renders a template once per interval from `from` to `to`, submits the
+  tasks, and waits for them. See "Backfills" in the module docs.
+
+  Templates are all rendered before anything is submitted, so a template
+  error raises `Druid.Tasks.Error` without starting any tasks. Returns one
+  `Druid.Tasks.Run` per interval, in order. A run whose `:error` is set
+  failed, timed out or couldn't be submitted; the others still ran.
+
+  ## Options
+
+    * `:step` - The length of each task's interval: `:hour`, `:day`,
+      `:week`, `:month`, or a `{count, unit}` tuple such as `{6, :hour}`.
+      Defaults to `:day`. The last interval stops at `to`.
+    * `:time_zone` - The time zone `from`, `to` and step boundaries are in.
+      Defaults to `"Etc/UTC"`.
+    * `:concurrency` - Run at most this many of the backfill's tasks at once,
+      submitting the next as each finishes, so a backfill doesn't take every
+      worker slot from streaming ingestion. Defaults to submitting them all
+      and letting Druid queue them.
+    * `:await` - Wait for the tasks to finish. Defaults to `true`. With
+      `false`, this still waits as long as `:concurrency` needs to submit
+      every task.
+    * `:dry_run` - Render the tasks without submitting them. The runs' `:spec`
+      holds each one.
+    * `:on_submit` - Called with each `Druid.Tasks.Run` once it has a task
+      ID, for example to record it.
+    * `:on_progress` - Called with a map of `:total`, `:succeeded`, `:failed`,
+      `:running` and `:pending` (not yet submitted) counts whenever they
+      change.
+    * `:wait_for_segments` - After every task succeeds, also wait until the
+      backfilled segments are loaded.
+    * `:timeout`, `:poll_interval` - As in `await/3`, for the whole backfill.
+    * `:assigns` and the other options of `render/2`.
+
+  `from` and `to` are `Date`s, `DateTime`s, `NaiveDateTime`s or ISO 8601
+  strings. `to` is exclusive.
+  """
+  @spec backfill(Ecto.Repo.t(), String.t(), term(), term(), Keyword.t()) :: [Run.t()]
+  def backfill(repo, name, from, to, opts \\ []) do
+    runs =
+      from
+      |> intervals(to, Keyword.take(opts, [:step, :time_zone]))
+      |> Enum.map(fn interval ->
+        spec = render_interval(repo, name, interval, opts)
+
+        %Run{
+          name: name,
+          interval: interval,
+          data_source: spec.data_source,
+          spec: spec.spec
+        }
+      end)
+
+    if Keyword.get(opts, :dry_run, false) do
+      runs
+    else
+      request_opts = request_opts(repo, opts)
+
+      runs
+      |> Druid.Tasks.Batch.run(request_opts, batch_opts(opts))
+      |> maybe_await_segments(request_opts, opts)
+    end
+  end
+
+  @doc """
+  Waits for several tasks at once, checking them all in one request each
+  poll.
+
+  `runs` are `Druid.Tasks.Run`s (for example from `backfill/5` with
+  `await: false`, or read back with `Druid.Tasks.Run.from_map/1`) or task
+  IDs. Returns the runs with their final `:status`, and `:error` set on any
+  that failed or timed out.
+
+  ## Options
+
+    * `:on_progress`, `:wait_for_segments` - As in `backfill/5`. Waiting for
+      segments needs each run's `:data_source`, or a `:data_source` option.
+    * `:timeout`, `:poll_interval`, `:segments_interval`, `:data_source` -
+      As in `await/3`.
+  """
+  @spec await_all(Ecto.Repo.t(), [Run.t() | String.t()], Keyword.t()) :: [Run.t()]
+  def await_all(repo, runs, opts \\ []) do
+    request_opts = request_opts(repo, opts)
+
+    runs
+    |> Enum.map(&to_run/1)
+    |> Druid.Tasks.Batch.run(request_opts, batch_opts(opts))
+    |> maybe_await_segments(request_opts, opts)
+  end
+
+  @doc """
+  Fetches the current status of several tasks in one request, without
+  waiting. Takes and returns `Druid.Tasks.Run`s or task IDs, like
+  `await_all/3`.
+  """
+  @spec statuses(Ecto.Repo.t(), [Run.t() | String.t()], Keyword.t()) :: [Run.t()]
+  def statuses(repo, runs, opts \\ []) do
+    runs |> Enum.map(&to_run/1) |> Druid.Tasks.Batch.refresh(request_opts(repo, opts))
+  end
+
+  @doc """
+  Counts runs by state. Returns a map of `:total`, `:succeeded`, `:failed`,
+  `:running` and `:pending` (not yet submitted).
+  """
+  @spec progress([Run.t()]) :: %{atom() => non_neg_integer()}
+  def progress(runs), do: Druid.Tasks.Batch.progress(runs)
+
+  @doc """
+  Splits the time from `from` to `to` into consecutive intervals, as
+  `backfill/5` does. Takes its `:step` and `:time_zone` options.
+
+      iex> Druid.Tasks.intervals(~D[2026-11-01], ~D[2026-11-03]) |> Enum.map(&to_string/1)
+      ["2026-11-01T00:00:00Z/2026-11-02T00:00:00Z", "2026-11-02T00:00:00Z/2026-11-03T00:00:00Z"]
+  """
+  @spec intervals(term(), term(), Keyword.t()) :: [Ecto.Druid.Interval.t()]
+  def intervals(from, to, opts \\ []), do: Druid.Tasks.Intervals.split(from, to, opts)
+
+  @doc """
+  Lists the time-partitioned storage prefixes that hold `interval`'s data,
+  one per UTC hour or day the interval touches. `format` is a
+  `Calendar.strftime/2` format appended to `base`.
+
+      iex> Druid.Tasks.partition_prefixes(
+      ...>   "s3://bucket/events",
+      ...>   "2026-11-01T05:00:00Z/2026-11-02T05:00:00Z",
+      ...>   "year=%Y/month=%m/day=%d/"
+      ...> )
+      ["s3://bucket/events/year=2026/month=11/day=01/", "s3://bucket/events/year=2026/month=11/day=02/"]
+
+  ## Options
+
+    * `:step` - `:hour` or `:day`. Defaults to `:hour` when `format` contains
+      `%H`, and `:day` otherwise.
+  """
+  @spec partition_prefixes(
+          String.t(),
+          Ecto.Druid.Interval.t() | String.t(),
+          String.t(),
+          Keyword.t()
+        ) ::
+          [String.t()]
+  def partition_prefixes(base, interval, format, opts \\ []),
+    do: Druid.Tasks.Intervals.partition_prefixes(base, interval, format, opts)
 
   @doc """
   Returns the data source a task spec writes to, or `nil`.
@@ -301,6 +555,86 @@ defmodule Druid.Tasks do
       _ -> raise Error, "#{name} must render a JSON object"
     end
   end
+
+  defp render_interval(repo, name, interval, opts) do
+    interval_assigns = %{interval: interval, start: interval.start, stop: interval.stop}
+
+    assigns =
+      opts
+      |> Keyword.get(:assigns, %{})
+      |> SpecTemplates.to_map()
+      |> Map.merge(interval_assigns)
+
+    [spec] = render(repo, Keyword.merge(opts, only: [name], assigns: assigns))
+    %{spec | interval: interval}
+  end
+
+  defp batch_opts(opts) do
+    opts
+    |> Keyword.take([:concurrency, :await, :timeout, :on_submit, :on_progress])
+    |> Keyword.put(:poll_interval, Keyword.get(opts, :poll_interval, @default_poll_interval))
+  end
+
+  defp to_run(%Run{} = run), do: run
+  defp to_run(task_id) when is_binary(task_id), do: %Run{task_id: task_id}
+
+  defp maybe_await_segments(runs, request_opts, opts) do
+    waiting? = Keyword.get(opts, :wait_for_segments, false) and Keyword.get(opts, :await, true)
+
+    if waiting? and Enum.all?(runs, &Run.succeeded?/1) do
+      poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
+      deadline = deadline(Keyword.get(opts, :timeout, :infinity))
+
+      runs
+      |> Enum.group_by(&(Keyword.get(opts, :data_source) || &1.data_source))
+      |> Enum.reduce(runs, fn {data_source, group}, runs ->
+        case await_group_segments(data_source, group, deadline, poll_interval, request_opts, opts) do
+          :ok ->
+            runs
+
+          {:error, error} ->
+            ids = MapSet.new(group, & &1.task_id)
+            Enum.map(runs, &if(&1.task_id in ids, do: %{&1 | error: error}, else: &1))
+        end
+      end)
+    else
+      runs
+    end
+  end
+
+  defp await_group_segments(nil, _group, _deadline, _poll_interval, _request_opts, _opts) do
+    {:error, %Error{message: "can't wait for segments of tasks with no data source"}}
+  end
+
+  defp await_group_segments(data_source, group, deadline, poll_interval, request_opts, opts) do
+    interval = Keyword.get_lazy(opts, :segments_interval, fn -> covering_interval(group) end)
+    check = fn -> check_segments(data_source, interval, request_opts) end
+
+    case poll(deadline, poll_interval, check) do
+      {:ok, _} -> :ok
+      {:error, error} -> {:error, error}
+      nil -> {:error, timeout_error(nil, nil, "segments of #{data_source} to load")}
+    end
+  end
+
+  # From the earliest start to the latest stop, when every run has an
+  # interval with DateTime bounds.
+  defp covering_interval(runs) do
+    bounds =
+      for %Run{interval: %{start: %DateTime{} = a, stop: %DateTime{} = b}} <- runs, do: {a, b}
+
+    if bounds != [] and length(bounds) == length(runs) do
+      {starts, stops} = Enum.unzip(bounds)
+
+      Ecto.Druid.Interval.new(Enum.min(starts, DateTime), Enum.max(stops, DateTime))
+      |> Ecto.Druid.Interval.to_iso8601()
+    else
+      @all_time
+    end
+  end
+
+  defp deadline(:infinity), do: :infinity
+  defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
 
   defp check_task(task_id, request_opts) do
     case Druid.Client.Task.status(task_id) |> Druid.Client.request(request_opts) do

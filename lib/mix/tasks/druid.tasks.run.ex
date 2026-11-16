@@ -69,14 +69,7 @@ defmodule Mix.Tasks.Druid.Tasks.Run do
   end
 
   defp await(repo, task_id, opts) do
-    await_opts =
-      [wait_for_segments: Keyword.get(opts, :wait_for_segments, false)] ++
-        case opts[:timeout] do
-          nil -> []
-          seconds -> [timeout: seconds * 1000]
-        end
-
-    case Druid.Tasks.await(repo, task_id, await_opts) do
+    case Druid.Tasks.await(repo, task_id, Mix.Druid.wait_opts(opts)) do
       {:ok, status} ->
         Mix.shell().info("Task #{task_id} succeeded#{duration(status)}")
 

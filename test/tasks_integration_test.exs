@@ -78,4 +78,46 @@ defmodule TasksIntegrationTest do
              Druid.Client.SQL.query(~s[SELECT COUNT(*) FROM "#{@data_source}"])
              |> Druid.Client.request!(@druid)
   end
+
+  defp count_by_day do
+    ~s[SELECT TIME_FLOOR(__time, 'P1D') AS d, COUNT(*) FROM "#{@data_source}" GROUP BY 1 ORDER BY 1]
+    |> Druid.Client.SQL.query()
+    |> Druid.Client.request!(@druid)
+    |> Enum.map(fn [day, count] -> {String.slice(day, 0, 10), count} end)
+  end
+
+  test "backfills one task per day, replacing only each task's interval" do
+    day = fn date, n ->
+      row(%{
+        "ts" => DateTime.to_unix(DateTime.new!(date, ~T[12:00:00]), :millisecond),
+        "user_key" => "u#{n}"
+      })
+    end
+
+    rows = [day.(~D[2026-11-01], 1), day.(~D[2026-11-01], 2), day.(~D[2026-11-02], 3)]
+
+    runs =
+      Druid.Tasks.backfill(TestRepo, @task, ~D[2026-11-01], ~D[2026-11-03],
+        assigns: %{rows: rows},
+        concurrency: 1,
+        wait_for_segments: true,
+        timeout: 240_000
+      )
+
+    assert [%{error: nil}, %{error: nil}] = runs
+    assert count_by_day() == [{"2026-11-01", 2}, {"2026-11-02", 1}]
+
+    # Each task only ingests its own interval of the input, so rerunning one
+    # day replaces that day and leaves the other alone
+    rows = [day.(~D[2026-11-01], 9), day.(~D[2026-11-02], 4), day.(~D[2026-11-02], 5)]
+
+    assert [%{error: nil}] =
+             Druid.Tasks.backfill(TestRepo, @task, ~D[2026-11-02], ~D[2026-11-03],
+               assigns: %{rows: rows},
+               wait_for_segments: true,
+               timeout: 240_000
+             )
+
+    assert count_by_day() == [{"2026-11-01", 2}, {"2026-11-02", 2}]
+  end
 end

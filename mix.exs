@@ -136,6 +136,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Supervisors.Template.Helpers,
           Druid.Tasks,
           Druid.Tasks.Spec,
+          Druid.Tasks.Run,
           Druid.Tasks.Error,
           Druid.Compaction,
           Druid.Compaction.Config,

@@ -3,7 +3,8 @@
 Druid supervisor specs (Kafka ingestion) and batch ingestion tasks can live in
 your project as EEx templates, with per-environment values from config. Mix
 tasks render them and send them to Druid. Supervisors are kept in sync;
-[batch tasks](#batch-ingestion-tasks) run once each time you submit them.
+[batch tasks](#batch-ingestion-tasks) run once each time you submit them, or
+once per day over a range for [backfills](#backfills).
 
 ## Templates
 
@@ -152,6 +153,75 @@ In a release, or from your own code, use `Druid.Tasks`:
     wait_for_segments: true
   )
 ```
+
+### Backfills
+
+To reprocess a range of time, run a template once per day (or `hour`, `week`,
+`month`) with `mix druid.tasks.backfill`. Each task is rendered with
+`@interval`, `@start` and `@stop` for its part of the range:
+
+```eex
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "s3",
+        "prefixes": <%= partition_prefixes "s3://my-bucket/page_views", @interval,
+                          "year=%Y/month=%m/day=%d/" %>
+      },
+      "inputFormat": {"type": "parquet"},
+      "appendToExisting": false
+    },
+    "tuningConfig": {"type": "index_parallel", "maxNumConcurrentSubTasks": 8},
+    "dataSchema": <%= data_schema MyApp.PageViewsHourly,
+                        segment_granularity: "DAY",
+                        intervals: [@interval] %>
+  }
+}
+```
+
+`partition_prefixes` lists the time-partitioned input paths the interval
+covers. `intervals: [@interval]` makes each task replace exactly its interval
+and skip input rows outside it.
+
+Check what will run, then run it:
+
+```sh
+mix druid.tasks.backfill page_views --from 2026-10-01 --to 2026-11-01 --dry-run --out tmp/backfill
+mix druid.tasks.backfill page_views --from 2026-10-01 --to 2026-11-01 --concurrency 4
+```
+
+`--to` is exclusive. `--concurrency` caps how many of the backfill's tasks run
+at once, so it doesn't take every worker slot from streaming ingestion; the
+next task is submitted as each one finishes. Progress prints as tasks finish,
+and failed days are listed at the end, so you can rerun just those.
+
+The submitted task IDs are recorded in `tmp/druid/backfills/` (or
+`--tasks-file`). If you stop waiting, or pass `--no-wait`, check on them
+later:
+
+```sh
+mix druid.tasks.status tmp/druid/backfills/page_views-20261115T120000Z.jsonl
+mix druid.tasks.status tmp/druid/backfills/page_views-20261115T120000Z.jsonl --wait
+```
+
+Days start at midnight UTC. For days in another zone, pass
+`--time-zone America/New_York`, which needs a time zone database such as
+`:tz` or `:tzdata` configured in your app.
+
+Druid replaces whole segments, so:
+
+* Make sure each task's input holds all of the interval's data, not just the
+  part being fixed, for example when several pipelines write to one data
+  source.
+* Don't use a step shorter than the segment granularity. Druid widens a
+  task's intervals to whole segments, so 6-hour tasks on `DAY` segments would
+  each replace the whole day.
+
+From code or a release, use `Druid.Tasks.backfill/5`, which takes the same
+options and returns a `Druid.Tasks.Run` per interval.
 
 `Druid.Tasks.run/3` also takes a task spec as a map, and `Druid.Tasks.await/3`
 waits for any task ID, including SQL-based ingestion queries submitted with
