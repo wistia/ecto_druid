@@ -72,6 +72,14 @@ defmodule IntegrationTest do
 
     assert TestRepo.native_query(query) == [
              %{
+               "__time" => "2016-06-27T00:00:00.000Z",
+               "added" => 11_774_265,
+               "deleted" => 278_288
+             }
+           ]
+
+    assert TestRepo.native_query(query, raw: true) == [
+             %{
                "result" => %{"added" => 11_774_265, "deleted" => 278_288},
                "timestamp" => "2016-06-27T00:00:00.000Z"
              }
@@ -86,7 +94,7 @@ defmodule IntegrationTest do
     refute Map.has_key?(native["context"], "sqlQueryId")
 
     # The planned query runs as is
-    assert [%{"result" => %{"a0" => 3}}] = TestRepo.native_query(native)
+    assert [%{"a0" => 3}] = TestRepo.native_query(native)
   end
 
   test "native query rows" do
@@ -102,7 +110,7 @@ defmodule IntegrationTest do
     }
 
     assert [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => _, "edits" => _} | _] =
-             query |> TestRepo.native_query() |> Ecto.Druid.Native.rows(query)
+             query |> TestRepo.native_query(raw: true) |> Ecto.Druid.Native.rows(query)
   end
 
   test "queries with hll sketch aggregations" do

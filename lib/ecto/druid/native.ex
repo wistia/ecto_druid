@@ -16,13 +16,14 @@ defmodule Ecto.Druid.Native do
         aggregations: [%{type: "count", name: "edits"}]
       }
 
-      query
-      |> MyApp.DruidRepo.native_query()
+      MyApp.DruidRepo.native_query(query, raw: true)
       |> Ecto.Druid.Native.rows(query)
       #=> [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#en.wikipedia", "edits" => 6650},
       #    %{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#sh.wikipedia", "edits" => 3969}]
 
-  See the [Native Queries guide](native_queries.md).
+  `native_query/2` on the repo already does this for the query types `rows/3`
+  supports, unless it's passed `raw: true`. See the
+  [Native Queries guide](native_queries.md).
   """
 
   @supported ~w(timeseries topN groupBy scan windowOperator)
@@ -110,6 +111,11 @@ defmodule Ecto.Druid.Native do
   end
 
   @doc false
+  # Whether rows/3 flattens the results of this query's type.
+  @spec flattens?(map()) :: boolean()
+  def flattens?(query), do: stringify_keys(query)["queryType"] in @supported
+
+  @doc false
   # The columns each row of a native query has, in the order Druid returns
   # them as arrays, or nil when the query alone doesn't say.
   @spec columns(map()) :: [String.t()] | nil
@@ -159,7 +165,8 @@ defmodule Ecto.Druid.Native do
   defp zip!(nil, _row, query) do
     raise ArgumentError,
           "#{query["queryType"]} results are arrays, and their column names can't be " <>
-            "worked out from the query. Pass them as the :columns option"
+            "worked out from the query. Pass them as the :columns option, or pass " <>
+            "raw: true to native_query/2 to skip flattening"
   end
 
   defp zip!(columns, row, _query) when length(columns) == length(row) do

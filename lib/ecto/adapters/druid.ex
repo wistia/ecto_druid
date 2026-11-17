@@ -127,10 +127,10 @@ defmodule Ecto.Adapters.Druid do
   ## Native queries
 
   `native_query/2` sends a [native JSON query](https://druid.apache.org/docs/latest/querying/)
-  and returns Druid's decoded response, which `Ecto.Druid.Native.rows/3`
-  flattens into one map per row. To see the native query Druid runs for an
-  Ecto query, for debugging, use `to_native/2`. See the
-  [Native Queries guide](native_queries.md).
+  and returns its results flattened into one map per row by
+  `Ecto.Druid.Native.rows/3`. Pass `raw: true` to get Druid's decoded response
+  as is. To see the native query Druid runs for an Ecto query, for debugging,
+  use `to_native/2`. See the [Native Queries guide](native_queries.md).
   """
 
   @behaviour Ecto.Adapter
@@ -307,10 +307,17 @@ defmodule Ecto.Adapters.Druid do
 
   @doc false
   def native_query(repo, query, opts) do
+    {raw?, opts} = Keyword.pop(opts, :raw, false)
+    {rows_opts, opts} = Keyword.split(opts, [:columns])
     request_opts = repo.config() |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
 
-    Druid.Client.Native.query(query)
-    |> Druid.Client.request!(request_opts)
+    results =
+      Druid.Client.Native.query(query)
+      |> Druid.Client.request!(request_opts)
+
+    if raw? or not Ecto.Druid.Native.flattens?(query),
+      do: results,
+      else: Ecto.Druid.Native.rows(results, query, rows_opts)
   end
 
   # Druid's EXPLAIN PLAN FOR returns the native query a SQL statement plans

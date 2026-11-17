@@ -220,22 +220,19 @@ defmodule WikiExplorer.Wiki do
   ranking is fine.
   """
   def top_channels_native(limit \\ 5) do
-    [%{"result" => rows}] =
-      DruidRepo.native_query(%{
-        queryType: "topN",
-        dataSource: "wiki_edits",
-        intervals: [interval()],
-        granularity: "all",
-        dimension: "channel",
-        metric: "edits",
-        threshold: limit,
-        aggregations: [
-          %{type: "count", name: "edits"},
-          %{type: "longSum", name: "added", fieldName: "added"}
-        ]
-      })
-
-    rows
+    DruidRepo.native_query(%{
+      queryType: "topN",
+      dataSource: "wiki_edits",
+      intervals: [interval()],
+      granularity: "all",
+      dimension: "channel",
+      metric: "edits",
+      threshold: limit,
+      aggregations: [
+        %{type: "count", name: "edits"},
+        %{type: "longSum", name: "added", fieldName: "added"}
+      ]
+    })
   end
 
   @doc "The SQL and parameters a query sends to Druid."
