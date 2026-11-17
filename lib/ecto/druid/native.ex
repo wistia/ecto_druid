@@ -110,6 +110,51 @@ defmodule Ecto.Druid.Native do
     end
   end
 
+  @doc """
+  Builds an expression [virtual column](https://druid.apache.org/docs/latest/querying/virtual-columns),
+  which the rest of the query can read like any other column.
+
+      iex> import Ecto.Druid.Native.Expression
+      iex> Ecto.Druid.Native.virtual_column("net", expr(added - deleted), "LONG")
+      %{type: "expression", name: "net", expression: expr(added - deleted), outputType: "LONG"}
+  """
+  @spec virtual_column(
+          String.t() | atom(),
+          Ecto.Druid.Native.Expression.t() | String.t(),
+          String.t() | nil
+        ) :: map()
+  def virtual_column(name, expression, output_type \\ nil) do
+    Ecto.Druid.Native.Filter.put_present(
+      %{type: "expression", name: name, expression: expression},
+      :outputType,
+      output_type
+    )
+  end
+
+  @doc """
+  Builds a [dimension spec](https://druid.apache.org/docs/latest/querying/dimensionspecs),
+  for when a dimension needs a different output name or type than the column.
+  A bare column name works as a dimension otherwise.
+
+  ## Options
+
+    * `:name` - The output name. Defaults to the column.
+    * `:type` - The output type, such as `"LONG"`. Defaults to `"STRING"`.
+
+  ## Examples
+
+      iex> Ecto.Druid.Native.dimension("namespace", name: "ns")
+      %{type: "default", dimension: "namespace", outputName: "ns"}
+  """
+  @spec dimension(String.t() | atom(), Keyword.t()) :: map()
+  def dimension(column, opts \\ []) do
+    Ecto.Druid.Native.Filter.put_present(
+      %{type: "default", dimension: column, outputName: Keyword.get(opts, :name, column)},
+      :outputType,
+      opts[:type]
+    )
+  end
+
   @doc false
   # Whether rows/3 flattens the results of this query's type.
   @spec flattens?(map()) :: boolean()

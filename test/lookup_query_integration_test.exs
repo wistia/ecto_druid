@@ -30,7 +30,7 @@ defmodule LookupQueryIntegrationTest do
       Druid.Client.Lookup.delete("__default", @lookup) |> Druid.Client.request(@druid)
     end)
 
-    {:ok, _} = TestRepo.start_link()
+    start_supervised!(TestRepo)
     wait_until_loaded(@load_timeout_s)
     :ok
   end

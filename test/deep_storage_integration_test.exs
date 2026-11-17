@@ -36,7 +36,7 @@ defmodule DeepStorageIntegrationTest do
     Druid.Client.Retention.set(@data_source, @rules) |> Druid.Client.request!(@druid)
     ingest!()
 
-    {:ok, _} = TestRepo.start_link()
+    start_supervised!(TestRepo)
     # The Broker reports the data source as not found until the Coordinator
     # loads the hot day
     wait_until(&loaded?/0, 120)

@@ -64,6 +64,30 @@ defmodule Ecto.Adapters.Druid.IngestTest do
     [plug: plug, poll_interval: 1]
   end
 
+  # Pairs each row of an INSERT ... VALUES statement with its column names,
+  # taking a parameter for each ? and nil for each NULL
+  defp sent_rows(sql, params) do
+    [_, values, columns] = Regex.run(~r/\(VALUES (.+)\) AS "input"\((.+?)\)/, sql)
+    columns = columns |> String.split(",") |> Enum.map(&String.trim(&1, ~s(")))
+
+    {rows, []} =
+      ~r/\(([^()]+)\)/
+      |> Regex.scan(values, capture: :all_but_first)
+      |> Enum.map_reduce(params, fn [row], params ->
+        {values, params} =
+          row
+          |> String.split(", ")
+          |> Enum.map_reduce(params, fn
+            "?", [param | params] -> {param, params}
+            "NULL", params -> {nil, params}
+          end)
+
+        {columns |> Enum.zip(values) |> Map.new(), params}
+      end)
+
+    rows
+  end
+
   defp submitted do
     assert_received {:request, "POST", "/druid/v2/sql/task", body}
     body
@@ -80,17 +104,22 @@ defmodule Ecto.Adapters.Druid.IngestTest do
 
       %{"query" => sql, "parameters" => params} = submitted()
 
-      assert sql ==
-               ~s{INSERT INTO "events" SELECT * FROM (VALUES (?, ?, ?), (?, ?, NULL)) } <>
-                 ~s{AS "input"("count","__time","channel") PARTITIONED BY 'DAY'}
+      assert sql =~
+               ~r{^INSERT INTO "events" SELECT \* FROM \(VALUES \(.+\), \(.+\)\) AS "input"\(.+\) PARTITIONED BY 'DAY'$}
 
-      # Columns are in Ecto's header order
-      assert params == [
-               %{"type" => "BIGINT", "value" => 1},
-               %{"type" => "TIMESTAMP", "value" => "2026-01-01T00:00:00Z"},
-               %{"type" => "VARCHAR", "value" => "#en"},
-               %{"type" => "BIGINT", "value" => 2},
-               %{"type" => "TIMESTAMP", "value" => "2026-01-01T01:00:00Z"}
+      # Columns are in Ecto's header order, which follows map key order, so
+      # check each row's values by column
+      assert sent_rows(sql, params) == [
+               %{
+                 "__time" => %{"type" => "TIMESTAMP", "value" => "2026-01-01T00:00:00Z"},
+                 "channel" => %{"type" => "VARCHAR", "value" => "#en"},
+                 "count" => %{"type" => "BIGINT", "value" => 1}
+               },
+               %{
+                 "__time" => %{"type" => "TIMESTAMP", "value" => "2026-01-01T01:00:00Z"},
+                 "channel" => nil,
+                 "count" => %{"type" => "BIGINT", "value" => 2}
+               }
              ]
     end
 
@@ -103,10 +132,13 @@ defmodule Ecto.Adapters.Druid.IngestTest do
       opts = [partitioned_by: :hour, placeholders: %{time: ~U[2026-01-01 00:00:00Z]}]
       TestRepo.insert_all(Event, rows, opts ++ druid())
 
-      %{"parameters" => params} = submitted()
+      %{"query" => sql, "parameters" => params} = submitted()
 
-      assert Enum.map(params, & &1["value"]) ==
-               ["2026-01-01T00:00:00Z", "#en"] ++ ["2026-01-01T00:00:00Z", "#fr"]
+      assert sql |> sent_rows(params) |> Enum.map(&Map.new(&1, fn {k, v} -> {k, v["value"]} end)) ==
+               [
+                 %{"__time" => "2026-01-01T00:00:00Z", "channel" => "#en"},
+                 %{"__time" => "2026-01-01T00:00:00Z", "channel" => "#fr"}
+               ]
     end
 
     test "adds CLUSTERED BY and the query context" do

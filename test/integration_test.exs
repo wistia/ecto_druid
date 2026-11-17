@@ -113,6 +113,87 @@ defmodule IntegrationTest do
              query |> TestRepo.native_query(raw: true) |> Ecto.Druid.Native.rows(query)
   end
 
+  test "native query builders" do
+    import Ecto.Druid.Native.Expression
+    import Ecto.Druid.Native.Filter
+    import Ecto.Druid.Native.Aggregator
+    import Ecto.Druid.Native.PostAggregator, only: [arithmetic: 3]
+    alias Ecto.Druid.Native
+
+    page = "Black Dahlia"
+
+    query = %{
+      queryType: "groupBy",
+      dataSource: "wikipedia",
+      intervals: [Ecto.Druid.Interval.new(~D[2016-06-27], day: 1)],
+      granularity: "all",
+      virtualColumns: [Native.virtual_column("net", expr(added - deleted), "LONG")],
+      dimensions: [Native.dimension("page", name: "title")],
+      filter:
+        and_([
+          equals("page", page),
+          range("__time", lower: ~U[2016-06-27 00:00:00Z]),
+          null("user") |> not_(),
+          expression(expr(page == ^page and added >= 0)),
+          nil
+        ]),
+      aggregations: [
+        count("edits"),
+        long_sum("net"),
+        long_sum(expr(added * 2), name: "doubled"),
+        count("robot_edits") |> filtered(equals("isRobot", "true")),
+        string_any("channel", max_string_bytes: 64),
+        theta_sketch("user", name: "users")
+      ],
+      postAggregations: [arithmetic("net_per_edit", :/, ["net", "edits"])]
+    }
+
+    assert [
+             %{
+               "title" => "Black Dahlia",
+               "edits" => 1,
+               "net" => 3,
+               "doubled" => 6,
+               "robot_edits" => 0,
+               "channel" => "#en.wikipedia",
+               "users" => 1.0,
+               "net_per_edit" => 3.0
+             }
+           ] = TestRepo.native_query(query)
+  end
+
+  test "legacy native filters match the newer ones" do
+    import Ecto.Druid.Native.Filter
+    import Ecto.Druid.Native.Aggregator, only: [count: 1]
+
+    count = fn filter ->
+      [%{"edits" => edits}] =
+        TestRepo.native_query(%{
+          queryType: "timeseries",
+          dataSource: "wikipedia",
+          intervals: ["2016-06-27/2016-06-28"],
+          granularity: "all",
+          filter: filter,
+          aggregations: [count("edits")]
+        })
+
+      edits
+    end
+
+    assert count.(selector("channel", "#en.wikipedia")) ==
+             count.(equals("channel", "#en.wikipedia"))
+
+    assert count.(selector("channel", "#en.wikipedia")) == 6650
+
+    assert count.(bound("added", lower: 10, lower_strict: true)) ==
+             count.(range("added", lower: 10, lower_open: true))
+
+    assert count.(bound("added", lower: 10, upper: 100)) ==
+             count.(range("added", lower: 10, upper: 100))
+
+    assert count.(selector("cityName", nil)) == count.(null("cityName"))
+  end
+
   test "queries with hll sketch aggregations" do
     assert %{unique_users: 1, hll: hll} = TestRepo.one(Wikipedia.hll_by_page("Black Dahlia"))
     assert is_binary(hll)
