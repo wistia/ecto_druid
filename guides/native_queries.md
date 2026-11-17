@@ -7,7 +7,7 @@ doesn't expose.
 ## Sending a native query
 
 `native_query/2` on the repo sends a query map to the same host and returns
-the decoded JSON response, with string keys:
+its results, one map per row with string keys:
 
 ```elixir
 MyApp.DruidRepo.native_query(%{
@@ -21,8 +21,7 @@ MyApp.DruidRepo.native_query(%{
   aggregations: [%{type: "count", name: "edits"}],
   context: %{timeout: 30_000}
 })
-#=> [%{"timestamp" => "2016-06-27T00:00:00.000Z",
-#      "result" => [%{"channel" => "#en.wikipedia", "edits" => 6650}, ...]}]
+#=> [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#en.wikipedia", "edits" => 6650}, ...]
 ```
 
 An `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
@@ -31,22 +30,33 @@ An `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
 A native query carries its context in the query map, so the repo's
 `:context` config doesn't apply.
 
-## Flattening results
+## Flattened results
 
-Each query type nests its results differently. `Ecto.Druid.Native.rows/3`
-flattens `timeseries`, `topN`, `groupBy` and `scan` results into one map per
-row, given the query that produced them:
+Each query type nests its results differently, so `native_query/2` flattens
+`timeseries`, `topN`, `groupBy`, `scan` and `windowOperator` results into one
+map per row with `Ecto.Druid.Native.rows/3`. `"__time"` holds each row's time
+bucket. This also names the values of `groupBy` results with the
+`resultAsArray` context flag and of `scan` results in the `compactedList`
+format. `windowOperator` results are bare arrays, so pass their column names
+as `:columns`:
 
 ```elixir
-query
-|> MyApp.DruidRepo.native_query()
-|> Ecto.Druid.Native.rows(query)
-#=> [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#en.wikipedia", "edits" => 6650}, ...]
+MyApp.DruidRepo.native_query(window_query, columns: ["channel", "rank"])
 ```
 
-`"__time"` holds each row's time bucket. This also names the values of
-`groupBy` results with the `resultAsArray` context flag and of `scan` results
-in the `compactedList` format.
+Other query types, such as `timeBoundary`, `segmentMetadata` and `search`,
+come back as Druid sends them.
+
+To skip flattening and get Druid's decoded response as is, pass `raw: true`:
+
+```elixir
+MyApp.DruidRepo.native_query(query, raw: true)
+#=> [%{"timestamp" => "2016-06-27T00:00:00.000Z",
+#      "result" => [%{"channel" => "#en.wikipedia", "edits" => 6650}, ...]}]
+```
+
+`Ecto.Druid.Native.rows/3` flattens a raw response later, given the query that
+produced it.
 
 ## Seeing the native query for an Ecto query
 
