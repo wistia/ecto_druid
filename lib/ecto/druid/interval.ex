@@ -31,7 +31,7 @@ defmodule Ecto.Druid.Interval do
   Intervals encode to JSON as their ISO 8601 string, so they can go straight
   into a native query's `intervals`:
 
-      MyApp.DruidRepo.native_query(%{
+      MyApp.DruidRepo.native_query!(%{
         queryType: "timeseries",
         dataSource: "page_views",
         intervals: [Ecto.Druid.Interval.last(day: 7)],

@@ -44,7 +44,7 @@ defmodule WikiExplorerWeb.DruidLive do
         <:subtitle>
           Read with the <code>Ecto.Druid.Sys</code>
           and <code>Ecto.Druid.InformationSchema</code>
-          schemas, a lookup schema, and <code>native_query/1</code>.
+          schemas, a lookup schema, and <code>native_query!/2</code>.
         </:subtitle>
       </.header>
 
@@ -85,7 +85,7 @@ defmodule WikiExplorerWeb.DruidLive do
           <section>
             <h2 class="mb-2 font-semibold">Native topN query</h2>
             <p class="mb-2 text-sm opacity-60">
-              <code>DruidRepo.native_query/1</code> with <code>queryType: "topN"</code>.
+              <code>DruidRepo.native_query!/2</code> with <code>queryType: "topN"</code>.
             </p>
             <.table id="top-n" rows={@top_n}>
               <:col :let={row} label="Channel">{row["channel"]}</:col>
