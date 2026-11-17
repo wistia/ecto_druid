@@ -30,6 +30,64 @@ An `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
 A native query carries its context in the query map, so the repo's
 `:context` config doesn't apply.
 
+## Building the parts of a query
+
+Filters, aggregators and expressions make up most of a native query. These
+modules build them as plain maps, so they mix freely with ones you write by
+hand:
+
+  * `Ecto.Druid.Native.Filter`: `equals/3`, `range/2`, `in_/2`, `null/1`,
+    `like/3`, `interval/2`, `expression/1`, `and_/1`, `or_/1` and `not_/1`
+  * `Ecto.Druid.Native.Aggregator`: `count/2`, the `long_`, `double_`,
+    `float_` and `string_` aggregators, `filtered/2` and the sketches
+  * `Ecto.Druid.Native.PostAggregator`: `arithmetic/4`, `expression/3`,
+    `field_access/2` and `constant/2`
+  * `Ecto.Druid.Native.Expression`: `expr/1`, which writes a Druid expression
+    in Elixir syntax
+  * `Ecto.Druid.Native.virtual_column/3` and `Ecto.Druid.Native.dimension/2`
+
+```elixir
+import Ecto.Druid.Native.{Aggregator, Expression, Filter}
+alias Ecto.Druid.Native
+
+%{
+  queryType: "groupBy",
+  dataSource: "wikipedia",
+  intervals: [Ecto.Druid.Interval.new(~D[2016-06-27], day: 1)],
+  granularity: "all",
+  virtualColumns: [Native.virtual_column("net", expr(added - deleted), "LONG")],
+  dimensions: ["page"],
+  filter:
+    and_([
+      equals("channel", "#en.wikipedia"),
+      range("added", lower: 10),
+      null("user") |> not_(),
+      if(robots_only?, do: equals("isRobot", "true"))
+    ]),
+  aggregations: [
+    count("edits"),
+    long_sum("net"),
+    count("robot_edits") |> filtered(equals("isRobot", "true"))
+  ]
+}
+```
+
+`equals/3` and `range/2` work out the match value type from the value.
+`and_/1` and `or_/1` leave out `nil` filters, so optional filters can be
+written inline, as `robots_only?` is above.
+
+In `expr/1`, variables are columns and `^` interpolates Elixir values, which
+are quoted as literals, so a value can't break out of its place in the
+expression:
+
+```elixir
+expr(if(deleted > 0, cast(added, "DOUBLE") / deleted, 0.0))
+expr(user |> nvl(^default_user) |> lower() == ^user)
+```
+
+The builders cover the common parts of the spec. For anything else, write the
+map yourself.
+
 ## Flattened results
 
 Each query type nests its results differently, so `native_query/2` flattens
