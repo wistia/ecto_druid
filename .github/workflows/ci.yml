@@ -13,18 +13,24 @@ concurrency:
 env:
   MIX_ENV: test
 
+# ubuntu-latest (26.04) fails TLS verification of builds.hex.pm under OTP
+# 27.2 with key_usage_mismatch, so the runners are pinned to 24.04.
+
 jobs:
   format:
     name: Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: erlef/setup-beam@v1
         id: beam
         with:
           version-file: .tool-versions
           version-type: strict
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
 
       - uses: actions/cache@v4
         with:
@@ -39,10 +45,10 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Start Druid
         run: docker compose up -d --build druid
@@ -52,6 +58,9 @@ jobs:
         with:
           version-file: .tool-versions
           version-type: strict
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
 
       - uses: actions/cache@v4
         with:
@@ -109,18 +118,21 @@ jobs:
 
   example:
     name: Example app
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: example
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: erlef/setup-beam@v1
         id: beam
         with:
           version-file: .tool-versions
           version-type: strict
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
 
       - uses: actions/cache@v4
         with:
