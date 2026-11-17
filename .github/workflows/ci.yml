@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
+
+# ubuntu-latest (26.04) fails TLS verification of builds.hex.pm under OTP
+# 27.2 with key_usage_mismatch, so the runners are pinned to 24.04.
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          version-file: .tool-versions
+          version-type: strict
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+
+      - run: mix deps.get
+      - run: mix format --check-formatted
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Start Druid
+        run: docker compose up -d --build druid
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          version-file: .tool-versions
+          version-type: strict
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+
+      - run: mix deps.get
+      - run: mix compile
+
+      - name: Wait for Druid
+        timeout-minutes: 10
+        run: |
+          until curl -sf localhost:9888/status/health && curl -sf localhost:9082/status/health; do
+            echo "Waiting for Druid..."
+            sleep 5
+          done
+
+      - name: Load the wikipedia sample data
+        timeout-minutes: 10
+        run: |
+          task_id=$(curl -sf localhost:9888/druid/indexer/v1/task \
+            --header 'Content-Type: application/json' \
+            -d @ingestion_spec.json | jq -r .task)
+          echo "Ingestion task: $task_id"
+
+          while true; do
+            status=$(curl -sf "localhost:9888/druid/indexer/v1/task/$task_id/status" | jq -r .status.status)
+            echo "Ingestion task status: $status"
+            case "$status" in
+              SUCCESS) break ;;
+              FAILED) exit 1 ;;
+            esac
+            sleep 5
+          done
+
+          # The task succeeds before its segments are loaded and queryable
+          while true; do
+            rows=$(curl -sf localhost:9082/druid/v2/sql \
+              --header 'Content-Type: application/json' \
+              -d '{"query": "SELECT COUNT(*) AS c FROM wikipedia"}' | jq -r '.[0].c // 0' || true)
+            [ "${rows:-0}" -gt 0 ] && break
+            echo "Waiting for wikipedia segments to load..."
+            sleep 5
+          done
+          echo "wikipedia has $rows rows"
+
+      - run: mix test
+
+      - name: Druid logs
+        if: failure()
+        run: docker compose logs druid | tail -n 500
+
+  example:
+    name: Example app
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: example
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          version-file: .tool-versions
+          version-type: strict
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            example/deps
+            example/_build
+          key: ${{ runner.os }}-example-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('example/mix.lock') }}
+          restore-keys: ${{ runner.os }}-example-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+
+      - run: mix deps.get
+      # The HEEx formatter plugin has to be compiled before it can format
+      - run: mix compile
+      - run: mix format --check-formatted
+      # Tests tagged :druid need a running Druid and are excluded by default
+      - run: mix test
