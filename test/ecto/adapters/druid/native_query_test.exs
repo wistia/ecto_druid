@@ -39,7 +39,7 @@ defmodule Ecto.Adapters.Druid.NativeQueryTest do
                %{"__time" => "2016-06-27T00:00:00.000Z", "page" => "a", "rows" => 2}
              ]
 
-      assert_received {"/druid/v2", body}
+      assert_received {"/druid/v2/", body}
       assert body["queryType"] == "topN"
     end
 
