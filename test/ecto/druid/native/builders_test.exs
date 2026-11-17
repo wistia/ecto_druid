@@ -46,6 +46,23 @@ defmodule Ecto.Druid.Native.BuildersTest do
                Filter.interval(interval, column: "ts")
     end
 
+    test "selector takes an extraction function" do
+      fun = %{type: "upper"}
+
+      assert Filter.selector("page", "A", extraction_fn: fun) ==
+               %{type: "selector", dimension: "page", value: "A", extractionFn: fun}
+    end
+
+    test "bound needs a bound and takes an ordering" do
+      assert_raise ArgumentError, ~r/needs a :lower or :upper/, fn ->
+        Filter.bound("added", [])
+      end
+
+      assert Filter.bound("v", upper: "1.2", ordering: "version").ordering == "version"
+      assert Filter.bound("added", upper: 1.5).ordering == "numeric"
+      refute Map.has_key?(Filter.bound("added", lower: 1, upper: "b"), :ordering)
+    end
+
     test "and_ and or_ leave out nils" do
       a = Filter.null("a")
       b = Filter.null("b")

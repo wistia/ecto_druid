@@ -20,6 +20,21 @@ defmodule Ecto.Druid.Native.Filter do
 
   The functions whose names clash with Elixir's operators end in an
   underscore: `and_/1`, `or_/1`, `not_/1` and `in_/2`.
+
+  ## Legacy filters
+
+  `equals/3`, `null/1` and `range/2` build the filters Druid 27 added, which
+  its SQL planner uses. For Druid before 27, or queries written for it, use
+  `selector/3` and `bound/2`. Druid still supports both. They differ from
+  the newer filters in how they treat nulls:
+
+    * `selector/3` with a `nil` value matches nulls. `equals/3` never matches
+      nulls, so use `null/1` for that.
+    * `bound/2` without a lower bound matches nulls. `range/2` never does.
+
+  `bound/2` also compares with an ordering (`"lexicographic"`,
+  `"alphanumeric"`, `"numeric"`, `"strlen"` or `"version"`) instead of a
+  match value type.
   """
 
   alias Ecto.Druid.Native.Expression
@@ -112,6 +127,83 @@ defmodule Ecto.Druid.Native.Filter do
     |> put_present(:upper, match_value(opts[:upper]))
     |> put_present(:lowerOpen, opts[:lower_open])
     |> put_present(:upperOpen, opts[:upper_open])
+  end
+
+  @doc """
+  Builds a legacy `selector` filter, which matches rows where `dimension`
+  equals `value`, or is null when `value` is `nil`. Druid compares the value
+  as a string, coercing it for numeric columns. See
+  [Legacy filters](#module-legacy-filters).
+
+  ## Options
+
+    * `:extraction_fn` - An extraction function to apply to the dimension
+      before matching.
+
+  ## Examples
+
+      iex> Ecto.Druid.Native.Filter.selector("channel", "#en.wikipedia")
+      %{type: "selector", dimension: "channel", value: "#en.wikipedia"}
+
+      iex> Ecto.Druid.Native.Filter.selector("user", nil)
+      %{type: "selector", dimension: "user", value: nil}
+  """
+  @spec selector(column(), term(), Keyword.t()) :: t()
+  def selector(dimension, value, opts \\ []) do
+    put_present(
+      %{type: "selector", dimension: dimension, value: value},
+      :extractionFn,
+      opts[:extraction_fn]
+    )
+  end
+
+  @doc """
+  Builds a legacy `bound` filter, which matches rows where `dimension` is in
+  a range. Both bounds are inclusive unless marked strict, and either can be
+  left out. Without a lower bound, it also matches nulls. See
+  [Legacy filters](#module-legacy-filters).
+
+  ## Options
+
+    * `:lower` - The lower bound.
+    * `:upper` - The upper bound.
+    * `:lower_strict` - Whether to leave out rows equal to `:lower`.
+    * `:upper_strict` - Whether to leave out rows equal to `:upper`.
+    * `:ordering` - How to compare values: `"lexicographic"`,
+      `"alphanumeric"`, `"numeric"`, `"strlen"` or `"version"`. Defaults to
+      `"numeric"` when the bounds are numbers, and to Druid's
+      `"lexicographic"` otherwise.
+    * `:extraction_fn` - An extraction function to apply to the dimension
+      before comparing.
+
+  ## Examples
+
+      iex> Ecto.Druid.Native.Filter.bound("added", lower: 10, lower_strict: true)
+      %{type: "bound", dimension: "added", lower: 10, lowerStrict: true, ordering: "numeric"}
+
+      iex> Ecto.Druid.Native.Filter.bound("page", lower: "A", upper: "B", upper_strict: true)
+      %{type: "bound", dimension: "page", lower: "A", upper: "B", upperStrict: true}
+  """
+  @spec bound(column(), Keyword.t()) :: t()
+  def bound(dimension, opts) do
+    bounds = opts |> Keyword.take([:lower, :upper]) |> Keyword.values()
+
+    if bounds == [] do
+      raise ArgumentError, "bound/2 needs a :lower or :upper bound"
+    end
+
+    ordering =
+      Keyword.get_lazy(opts, :ordering, fn ->
+        if Enum.all?(bounds, &is_number/1), do: "numeric"
+      end)
+
+    %{type: "bound", dimension: dimension}
+    |> put_present(:lower, opts[:lower])
+    |> put_present(:upper, opts[:upper])
+    |> put_present(:lowerStrict, opts[:lower_strict])
+    |> put_present(:upperStrict, opts[:upper_strict])
+    |> put_present(:ordering, ordering)
+    |> put_present(:extractionFn, opts[:extraction_fn])
   end
 
   @doc """

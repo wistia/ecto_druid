@@ -162,6 +162,38 @@ defmodule IntegrationTest do
            ] = TestRepo.native_query(query)
   end
 
+  test "legacy native filters match the newer ones" do
+    import Ecto.Druid.Native.Filter
+    import Ecto.Druid.Native.Aggregator, only: [count: 1]
+
+    count = fn filter ->
+      [%{"edits" => edits}] =
+        TestRepo.native_query(%{
+          queryType: "timeseries",
+          dataSource: "wikipedia",
+          intervals: ["2016-06-27/2016-06-28"],
+          granularity: "all",
+          filter: filter,
+          aggregations: [count("edits")]
+        })
+
+      edits
+    end
+
+    assert count.(selector("channel", "#en.wikipedia")) ==
+             count.(equals("channel", "#en.wikipedia"))
+
+    assert count.(selector("channel", "#en.wikipedia")) == 6650
+
+    assert count.(bound("added", lower: 10, lower_strict: true)) ==
+             count.(range("added", lower: 10, lower_open: true))
+
+    assert count.(bound("added", lower: 10, upper: 100)) ==
+             count.(range("added", lower: 10, upper: 100))
+
+    assert count.(selector("cityName", nil)) == count.(null("cityName"))
+  end
+
   test "queries with hll sketch aggregations" do
     assert %{unique_users: 1, hll: hll} = TestRepo.one(Wikipedia.hll_by_page("Black Dahlia"))
     assert is_binary(hll)

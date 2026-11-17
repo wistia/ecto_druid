@@ -37,7 +37,9 @@ modules build them as plain maps, so they mix freely with ones you write by
 hand:
 
   * `Ecto.Druid.Native.Filter`: `equals/3`, `range/2`, `in_/2`, `null/1`,
-    `like/3`, `interval/2`, `expression/1`, `and_/1`, `or_/1` and `not_/1`
+    `like/3`, `interval/2`, `expression/1`, `and_/1`, `or_/1` and `not_/1`,
+    plus the legacy `selector/3` and `bound/2` for queries written for Druid
+    before 27
   * `Ecto.Druid.Native.Aggregator`: `count/2`, the `long_`, `double_`,
     `float_` and `string_` aggregators, `filtered/2` and the sketches
   * `Ecto.Druid.Native.PostAggregator`: `arithmetic/4`, `expression/3`,
