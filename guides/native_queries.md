@@ -7,7 +7,8 @@ doesn't expose.
 ## Sending a native query
 
 `native_query/2` on the repo sends a query map to the same host and returns
-its results, one map per row with string keys:
+`{:ok, rows}`, one map per row with string keys, or `{:error, error}`.
+`native_query!/2` returns the rows or raises:
 
 ```elixir
 MyApp.DruidRepo.native_query(%{
@@ -21,14 +22,39 @@ MyApp.DruidRepo.native_query(%{
   aggregations: [%{type: "count", name: "edits"}],
   context: %{timeout: 30_000}
 })
-#=> [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#en.wikipedia", "edits" => 6650}, ...]
+#=> {:ok, [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#en.wikipedia", "edits" => 6650}, ...]}
 ```
 
 An `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
 `intervals: [Ecto.Druid.Interval.last(day: 1)]`.
 
+### Schemas as data sources
+
+`dataSource` can be a schema module, which is replaced with its source name.
+Pass `check_columns: true` to check, before the query is sent, that every
+column it reads (dimensions, filter columns, aggregator fields and scan
+columns) is a field of the schema, a virtual column or an output the query
+names. Druid expressions aren't parsed, so columns read only in an
+expression aren't checked.
+
+```elixir
+MyApp.DruidRepo.native_query!(
+  %{
+    queryType: "topN",
+    dataSource: MyApp.PageView,
+    dimension: "page",
+    ...
+  },
+  check_columns: true
+)
+```
+
+### Query context
+
 A native query carries its context in the query map, so the repo's
-`:context` config doesn't apply.
+`:context` config doesn't apply unless you pass `merge_context: true`. The
+query's own context wins where the two overlap. Druid ignores context keys
+it doesn't use, such as the SQL-only `sqlTimeZone`.
 
 ## Building the parts of a query
 
@@ -101,7 +127,7 @@ format. `windowOperator` results are bare arrays, so pass their column names
 as `:columns`:
 
 ```elixir
-MyApp.DruidRepo.native_query(window_query, columns: ["channel", "rank"])
+MyApp.DruidRepo.native_query!(window_query, columns: ["channel", "rank"])
 ```
 
 Other query types, such as `timeBoundary`, `segmentMetadata` and `search`,
@@ -110,7 +136,7 @@ come back as Druid sends them.
 To skip flattening and get Druid's decoded response as is, pass `raw: true`:
 
 ```elixir
-MyApp.DruidRepo.native_query(query, raw: true)
+MyApp.DruidRepo.native_query!(query, raw: true)
 #=> [%{"timestamp" => "2016-06-27T00:00:00.000Z",
 #      "result" => [%{"channel" => "#en.wikipedia", "edits" => 6650}, ...]}]
 ```
@@ -150,8 +176,29 @@ for Druid's SQL layer, with an eternity interval and planner context keys such
 as `timestampResultField`, so treat it as a reference for writing your own
 native query rather than one to send as is.
 
-## Inspecting and canceling queries
+## Timeouts and canceling queries
 
-`Druid.Client.Native` also builds requests to list the segments a native query
-would read (`candidates/1`) and to cancel a running query by its `queryId`
-(`cancel/1`).
+Every native query gets a `queryId` in its context, unless it has one, and an
+`Ecto.Adapters.Druid.NativeQueryError` carries it as `:query_id`. Druid stops
+a query that runs past its own context `timeout`. When the request runs past
+`:receive_timeout` (15 seconds by default) instead, the Broker would keep
+running the query, so `native_query/2` cancels it and sets `:canceled` on the
+error:
+
+```elixir
+case MyApp.DruidRepo.native_query(query, receive_timeout: 60_000) do
+  {:ok, rows} -> rows
+  {:error, %Ecto.Adapters.Druid.NativeQueryError{query_id: id, canceled: true}} -> ...
+end
+```
+
+To cancel a query yourself, such as one running in another process, set its
+`queryId` and pass it to `Druid.Client.Native.cancel/1`:
+
+```elixir
+Druid.Client.Native.cancel(query_id)
+|> Druid.Client.request!(MyApp.DruidRepo.config())
+```
+
+`Druid.Client.Native.candidates/1` builds a request to list the segments a
+native query would read, without running it.
