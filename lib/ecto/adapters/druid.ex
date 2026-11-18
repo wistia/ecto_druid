@@ -49,6 +49,8 @@ defmodule Ecto.Adapters.Druid do
     sent with every query, for example `%{sqlTimeZone: "America/New_York"}`.
   * `:deep_storage` - Send every query from this repo through Druid's query
     from deep storage API. See below.
+  * `:log` - The level queries are logged at, or `false` to not log them.
+    Defaults to `:debug`. See "Telemetry" below.
 
   ## Authentication
 
@@ -152,11 +154,22 @@ defmodule Ecto.Adapters.Druid do
   `Druid.Client.Native.cancel/1` takes. To see the native query Druid runs for
   an Ecto query, for debugging, use `to_native/2`. See the
   [Native Queries guide](native_queries.md).
+
+  ## Telemetry
+
+  Every query the repo sends to Druid emits the repo's
+  `[..., :query]` event, such as `[:my_app, :repo, :query]`, with the
+  measurements and metadata Ecto's SQL adapters use, plus the Druid
+  `:query_id`. Each query is also logged at the repo's `:log` level. Repo
+  calls take `:log`, `:telemetry_event`, `:telemetry_options` and
+  `:stacktrace`. See the [Telemetry guide](telemetry.md).
   """
 
   @behaviour Ecto.Adapter
   @behaviour Ecto.Adapter.Queryable
   @behaviour Ecto.Adapter.Schema
+
+  alias __MODULE__.Telemetry
 
   @impl Ecto.Adapter
   defmacro __before_compile__(_env) do
@@ -234,41 +247,73 @@ defmodule Ecto.Adapters.Druid do
   end
 
   @impl Ecto.Adapter.Queryable
-  def execute(adapter_meta, _query_meta, query, params, opts) do
-    {sql, params, request_opts} = request(adapter_meta, query, params, opts)
+  def execute(adapter_meta, query_meta, query, params, opts) do
+    {info, request_opts} = request(adapter_meta, query_meta, query, params, opts)
+    %{query: sql, params: params} = info
 
-    values =
-      case __MODULE__.Statement.options(request_opts) do
-        nil -> broker_query(sql, params, request_opts)
-        deep_storage -> __MODULE__.Statement.all(sql, params, deep_storage, request_opts)
-      end
+    Telemetry.query(info, opts, fn ->
+      values =
+        case info.deep_storage do
+          nil -> broker_query(sql, params, request_opts)
+          deep_storage -> __MODULE__.Statement.all(sql, params, deep_storage, request_opts)
+        end
 
-    {Enum.count(values), values}
+      num_rows = Enum.count(values)
+      {{num_rows, values}, {:ok, %{num_rows: num_rows, rows: values}}}
+    end)
   end
 
   @impl Ecto.Adapter.Queryable
-  def stream(adapter_meta, _query_meta, query, params, opts) do
-    {sql, params, request_opts} = request(adapter_meta, query, params, opts)
+  def stream(adapter_meta, query_meta, query, params, opts) do
+    {info, request_opts} = request(adapter_meta, query_meta, query, params, opts)
+    %{query: sql, params: params} = info
 
-    case __MODULE__.Statement.options(request_opts) do
+    case info.deep_storage do
       nil ->
         # The Broker sends every row in one response, so this is one chunk,
         # but it is still not sent until the stream is enumerated
         Stream.flat_map([nil], fn nil ->
-          values = broker_query(sql, params, request_opts)
-          [{Enum.count(values), values}]
+          Telemetry.query(info, opts, fn ->
+            values = broker_query(sql, params, request_opts)
+            num_rows = Enum.count(values)
+            {[{num_rows, values}], {:ok, %{num_rows: num_rows, rows: values}}}
+          end)
         end)
 
+      # The event covers running the statement, not reading its result
+      # pages, which happens as the stream is enumerated
       deep_storage ->
-        __MODULE__.Statement.stream(sql, params, deep_storage, request_opts)
+        await = fn await ->
+          Telemetry.query(info, opts, fn ->
+            status = await.()
+            {status, {:ok, %{num_rows: __MODULE__.Statement.num_rows(status), rows: nil}}}
+          end)
+        end
+
+        __MODULE__.Statement.stream(sql, params, deep_storage, request_opts, await)
     end
   end
 
-  defp request(%{config: config, finch: finch}, query, params, opts) do
+  defp request(%{config: config, repo: repo, finch: finch}, query_meta, query, params, opts) do
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
     opts = merge_context(config, opts)
+    {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
+    opts = Keyword.put(opts, :context, context)
     request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
-    {prepared_sql(query), params, request_opts}
+
+    info = %{
+      type: :druid_sql_query,
+      repo: repo,
+      config: config,
+      query: prepared_sql(query),
+      params: params,
+      source: Telemetry.source(query_meta),
+      query_id: query_id,
+      context: context,
+      deep_storage: __MODULE__.Statement.options(request_opts)
+    }
+
+    {info, request_opts}
   end
 
   defp prepared_sql({:cache, _update, {_id, sql}}), do: sql
@@ -277,7 +322,7 @@ defmodule Ecto.Adapters.Druid do
 
   defp broker_query(sql, params, request_opts) do
     Druid.Client.SQL.query(sql, params, request_opts)
-    |> Druid.Client.request!(request_opts)
+    |> Telemetry.request!(request_opts)
   end
 
   @doc false
@@ -354,11 +399,40 @@ defmodule Ecto.Adapters.Druid do
 
     request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
 
-    case Druid.Client.Native.query(query) |> Druid.Client.request(request_opts) do
+    info = %{
+      type: :druid_native_query,
+      repo: repo,
+      config: config,
+      query: Jason.encode!(query),
+      native_query: query,
+      params: nil,
+      source: native_source(query["dataSource"]),
+      query_id: query_id,
+      context: query["context"],
+      deep_storage: nil
+    }
+
+    Telemetry.query(info, opts, fn ->
+      case send_native_query(query, query_id, request_opts) do
+        {:ok, results} ->
+          results =
+            if raw? or not Ecto.Druid.Native.flattens?(query),
+              do: results,
+              else: Telemetry.decode(fn -> Ecto.Druid.Native.rows(results, query, rows_opts) end)
+
+          num_rows = if is_list(results), do: length(results)
+          {{:ok, results}, {:ok, %{num_rows: num_rows, rows: results}}}
+
+        {:error, error} ->
+          {{:error, error}, {:error, error}}
+      end
+    end)
+  end
+
+  defp send_native_query(query, query_id, request_opts) do
+    case Druid.Client.Native.query(query) |> Telemetry.request(request_opts) do
       {:ok, results} ->
-        if raw? or not Ecto.Druid.Native.flattens?(query),
-          do: {:ok, results},
-          else: {:ok, Ecto.Druid.Native.rows(results, query, rows_opts)}
+        {:ok, results}
 
       # The Broker keeps running a query after the client gives up on it
       {:error, %Req.TransportError{reason: :timeout} = reason} ->
@@ -382,6 +456,11 @@ defmodule Ecto.Adapters.Druid do
         {:error, __MODULE__.NativeQueryError.exception(query_id: query_id, reason: reason)}
     end
   end
+
+  # The table a native query reads, when it reads one table
+  defp native_source(data_source) when is_binary(data_source), do: data_source
+  defp native_source(%{"type" => "table", "name" => name}), do: name
+  defp native_source(_data_source), do: nil
 
   @doc false
   def native_query!(repo, query, opts) do
@@ -409,19 +488,34 @@ defmodule Ecto.Adapters.Druid do
   @doc false
   def to_native(repo, queryable, opts) do
     {sql, params} = Ecto.Adapters.SQL.to_sql(:all, repo, queryable)
+    sql = "EXPLAIN PLAN FOR " <> sql
     config = repo.config()
     %{finch: finch} = Ecto.Adapter.lookup_meta(repo)
-
-    request_opts =
-      config
-      |> Keyword.put(:finch, finch)
-      |> Keyword.merge(merge_context(config, opts))
-
+    opts = merge_context(config, opts)
+    {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
+    opts = Keyword.put(opts, :context, context)
+    request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
 
+    info = %{
+      type: :druid_sql_query,
+      repo: repo,
+      config: config,
+      query: sql,
+      params: params,
+      source: nil,
+      query_id: query_id,
+      context: context,
+      deep_storage: nil
+    }
+
     [[plan | _] | _] =
-      Druid.Client.SQL.query("EXPLAIN PLAN FOR " <> sql, params, request_opts)
-      |> Druid.Client.request!(request_opts)
+      Telemetry.query(info, opts, fn ->
+        rows =
+          Druid.Client.SQL.query(sql, params, request_opts) |> Telemetry.request!(request_opts)
+
+        {rows, {:ok, %{num_rows: length(rows), rows: rows}}}
+      end)
 
     case Jason.decode!(plan) do
       [%{"query" => query}] ->

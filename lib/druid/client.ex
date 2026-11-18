@@ -79,6 +79,15 @@ defmodule Druid.Client do
   """
   @spec request!(Req.Request.t(), Keyword.t()) :: term
   def request!(request, opts) do
+    {body, _decode_time} = timed_request!(request, opts)
+    body
+  end
+
+  # Like request!/2, but also returns how long decoding the response body
+  # took, in native time units, for the adapter's query telemetry.
+  @doc false
+  @spec timed_request!(Req.Request.t(), Keyword.t()) :: {term, integer}
+  def timed_request!(request, opts) do
     request_opts =
       [base_url: base_url(opts)]
       |> put_present(:plug, Keyword.get(opts, :plug))
@@ -89,11 +98,13 @@ defmodule Druid.Client do
       |> put_present(:receive_timeout, Keyword.get(opts, :receive_timeout))
 
     response = Req.request!(request, [decode_body: false] ++ request_opts)
+    decode_start = System.monotonic_time()
     body = decode_body(response)
+    decode_time = System.monotonic_time() - decode_start
 
     case response.status do
       code when code in 200..299 ->
-        body
+        {body, decode_time}
 
       code when code in 400..599 ->
         raise RequestError,

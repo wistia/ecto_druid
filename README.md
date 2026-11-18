@@ -61,6 +61,7 @@ MyApp.DruidRepo.all(
 * [Lookups](guides/lookups.md)
 * [System Tables](guides/system_tables.md)
 * [Druid API Client](guides/druid_client.md)
+* [Telemetry](guides/telemetry.md)
 * [Upgrading](guides/upgrading.md)
 
 ## Example app
