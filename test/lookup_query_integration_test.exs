@@ -9,29 +9,27 @@ defmodule LookupQueryIntegrationTest do
 
   require Countries
 
-  @druid [host: "localhost", port: 9888]
   @lookup Countries.__lookup__(:name)
 
-  # Druid pushes new lookups to Brokers on a timer (two minutes by default,
-  # five seconds in docker/druid.properties), so wait for the Broker to see it
-  # rather than for the Coordinator's status.
-  @load_timeout_s 180
-
   setup_all do
-    # Create the lookup from a template that generates it from the schema
+    # Create the lookup from a template that generates it from the schema,
+    # and wait until the Broker has it
     assert [{status, _}] =
              Druid.Lookups.sync(IntegrationRepo,
                path: Path.expand("fixtures/lookup_schemas", __DIR__),
-               assigns: %{countries: %{"US" => "United States", "IT" => "Italy"}}
+               assigns: %{countries: %{"US" => "United States", "IT" => "Italy"}},
+               wait: true,
+               timeout: 180_000
              )
 
     assert status in [:created, :updated, :unchanged]
 
+    router = [host: "localhost", port: IntegrationRepo.config()[:lookups][:port]]
+
     on_exit(fn ->
-      Druid.Client.Lookup.delete("__default", @lookup) |> Druid.Client.request(@druid)
+      Druid.Client.Lookup.delete("__default", @lookup) |> Druid.Client.request(router)
     end)
 
-    wait_until_loaded(@load_timeout_s)
     :ok
   end
 
@@ -63,22 +61,5 @@ defmodule LookupQueryIntegrationTest do
              {"RU", nil, "Unknown", "Unknown"},
              {"US", "United States", "United States", "United States"}
            ]
-  end
-
-  defp wait_until_loaded(0), do: flunk("lookup #{@lookup} never reached the Broker")
-
-  defp wait_until_loaded(tries) do
-    if loaded?() do
-      :ok
-    else
-      Process.sleep(1000)
-      wait_until_loaded(tries - 1)
-    end
-  end
-
-  defp loaded? do
-    IntegrationRepo.all(from c in Countries, select: count()) == [2]
-  rescue
-    _ -> false
   end
 end

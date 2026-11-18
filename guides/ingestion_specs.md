@@ -97,6 +97,48 @@ partials and all options.
 [Compaction configs](compaction.md), [retention rules](retention.md) and
 [lookups](lookups.md) are managed the same way.
 
+## Testing streaming ingestion
+
+A test that checks what a supervisor spec makes of real messages has to
+wait on Druid twice: before writing to the stream, and before reading what
+was stored. `Druid.Supervisors` has a function for each:
+
+```elixir
+test "page views are rolled up by country" do
+  [{status, _}] = Druid.Supervisors.sync(MyApp.DruidRepo, only: ["page_views_hourly"])
+  assert status in [:created, :updated, :unchanged]
+
+  # A spec with "useEarliestOffset": false starts from the end of the topic,
+  # so anything written before its tasks are reading is never ingested.
+  {:ok, _} =
+    Druid.Supervisors.await_running(MyApp.DruidRepo, "page_views_hourly", timeout: 120_000)
+
+  produce_page_views()
+
+  # The rows can be queried as soon as the tasks have read them, while
+  # the tasks still hold them in memory.
+  # ...
+
+  # Publish the segments now instead of at the end of the taskDuration,
+  # and wait until Historicals serve them.
+  {:ok, _} =
+    Druid.Supervisors.handoff(MyApp.DruidRepo, "page_views_hourly",
+      wait_for_segments: true,
+      timeout: 300_000
+    )
+
+  # The rows now come from the published segments, which is what
+  # compaction and retention rules act on.
+  # ...
+end
+```
+
+`await_running/3` returns an error rather than waiting out its timeout when
+the supervisor is suspended or Druid reports it unhealthy, with the
+supervisor's recent errors in the message. `handoff/3` returns the status of
+each task it stopped. If queries use lookups, wait for those to load too
+(see [Lookups](lookups.md#waiting-for-lookups-to-load)).
+
 ## Batch ingestion tasks
 
 Batch tasks such as `index_parallel` go in `priv/druid/tasks/*.json.eex`.

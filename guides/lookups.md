@@ -128,3 +128,39 @@ mix druid.lookups.sync
 ```
 
 Sync only submits lookups that changed. See `Druid.Lookups` for all options.
+
+## Waiting for lookups to load
+
+Druid loads a new or changed lookup onto its nodes in the background, so
+for a while after a sync, queries can miss it or fail with "Lookup not
+found". To wait until every node in the lookup's tier has the current
+version, pass `wait: true`:
+
+```elixir
+Druid.Lookups.sync(MyApp.DruidRepo, wait: true, timeout: 60_000)
+```
+
+```sh
+mix druid.lookups.sync --wait --timeout 60
+```
+
+A lookup that doesn't load in time is returned as
+`{:error, lookup, %Druid.Lookups.Error{reason: :timeout}}`, with the nodes that
+hadn't loaded it. To wait for lookups you didn't just sync, use
+`Druid.Lookups.await/3`:
+
+```elixir
+:ok = Druid.Lookups.await(MyApp.DruidRepo, ["countries", "realtime/channels"], timeout: 60_000)
+```
+
+The nodes include Brokers, Historicals, and streaming ingestion tasks, unless
+a task's spec sets `"lookupLoadingMode": "NONE"`. Queries that use a lookup
+fail on rows such a task still holds.
+
+The Coordinator only checks what the nodes have loaded every
+`druid.manager.lookups.period`, which is two minutes by default, so waiting
+can take up to four. On clusters used for tests, set it lower:
+
+```properties
+druid.manager.lookups.period=5000
+```

@@ -166,7 +166,7 @@ defmodule Druid.Tasks do
       end
   """
 
-  alias Druid.SpecTemplates
+  alias Druid.{Poll, SpecTemplates}
 
   defmodule Spec do
     @moduledoc """
@@ -394,17 +394,22 @@ defmodule Druid.Tasks do
     request_opts = request_opts(repo, opts)
     poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
 
-    deadline = deadline(Keyword.get(opts, :timeout, :infinity))
+    deadline = Poll.deadline(Keyword.get(opts, :timeout, :infinity))
 
-    with {:ok, status} <-
-           poll(deadline, poll_interval, fn -> check_task(task_id, request_opts) end) ||
-             {:error, timeout_error(task_id, nil, "task #{task_id}")},
+    with {:ok, status} <- await_task(task_id, deadline, poll_interval, request_opts),
          {:ok, status} <- check_failed(task_id, status) do
       if Keyword.get(opts, :wait_for_segments, false) do
         await_segments(task_id, status, deadline, poll_interval, request_opts, opts)
       else
         {:ok, status}
       end
+    end
+  end
+
+  defp await_task(task_id, deadline, poll_interval, request_opts) do
+    case Poll.poll(deadline, poll_interval, fn -> check_task(task_id, request_opts) end) do
+      {:timeout, _} -> {:error, timeout_error(task_id, nil, "task #{task_id}")}
+      result -> result
     end
   end
 
@@ -660,7 +665,7 @@ defmodule Druid.Tasks do
 
     if waiting? and Enum.all?(runs, &Run.succeeded?/1) do
       poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
-      deadline = deadline(Keyword.get(opts, :timeout, :infinity))
+      deadline = Poll.deadline(Keyword.get(opts, :timeout, :infinity))
 
       runs
       |> Enum.group_by(&(Keyword.get(opts, :data_source) || &1.data_source))
@@ -687,10 +692,10 @@ defmodule Druid.Tasks do
     interval = Keyword.get_lazy(opts, :segments_interval, fn -> covering_interval(group) end)
     check = fn -> check_segments(data_source, interval, request_opts) end
 
-    case poll(deadline, poll_interval, check) do
+    case Poll.poll(deadline, poll_interval, check) do
       {:ok, _} -> :ok
       {:error, error} -> {:error, error}
-      nil -> {:error, timeout_error(nil, nil, "segments of #{data_source} to load")}
+      {:timeout, _} -> {:error, timeout_error(nil, nil, "segments of #{data_source} to load")}
     end
   end
 
@@ -709,9 +714,6 @@ defmodule Druid.Tasks do
       @all_time
     end
   end
-
-  defp deadline(:infinity), do: :infinity
-  defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
 
   defp check_task(task_id, request_opts) do
     case Druid.Client.Task.status(task_id) |> Druid.Client.request(request_opts) do
@@ -753,14 +755,14 @@ defmodule Druid.Tasks do
 
         check = fn -> check_segments(data_source, interval, request_opts) end
 
-        case poll(deadline, poll_interval, check) do
+        case Poll.poll(deadline, poll_interval, check) do
           {:ok, _} ->
             {:ok, status}
 
           {:error, error} ->
             {:error, error}
 
-          nil ->
+          {:timeout, _} ->
             {:error, timeout_error(task_id, status, "segments of #{data_source} to load")}
         end
     end
@@ -790,29 +792,4 @@ defmodule Druid.Tasks do
       status: status
     }
   end
-
-  # Calls `check` until it returns `{:done, value}` or `{:error, error}`.
-  # Returns `{:ok, value}`, `{:error, error}`, or `nil` past the deadline.
-  defp poll(deadline, interval, check) do
-    case check.() do
-      {:done, value} ->
-        {:ok, value}
-
-      {:error, error} ->
-        {:error, error}
-
-      :wait ->
-        case remaining(deadline) do
-          0 ->
-            nil
-
-          remaining ->
-            Process.sleep(min(interval, remaining))
-            poll(deadline, interval, check)
-        end
-    end
-  end
-
-  defp remaining(:infinity), do: :infinity
-  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 end
