@@ -212,20 +212,42 @@ defmodule IntegrationTest do
     assert %Druid.Client.RequestError{} = reason
   end
 
+  # The queries below take several seconds: they pair every edit with every
+  # other edit by a robot, or by a human. Their requests give up after two
+  # seconds, long enough for the Broker to have started the query, so it is
+  # still running when it is canceled. With a shorter timeout, a busy Broker
+  # may not have started the query before the client hangs up, and then never
+  # runs it, leaving nothing to cancel.
+  @slow_timeout 2_000
+
   test "native queries that time out are canceled" do
-    query = %{
-      queryType: "groupBy",
+    robots = %{
+      queryType: "scan",
       dataSource: "wikipedia",
       intervals: ["2016-06-27/2016-06-28"],
-      granularity: "all",
-      dimensions: ["page", "user", "comment"],
-      aggregations: [%{type: "count", name: "edits"}]
+      columns: ["isRobot"],
+      resultFormat: "compactedList"
     }
 
-    assert {:error, %Ecto.Adapters.Druid.NativeQueryError{canceled: true, reason: reason}} =
-             TestRepo.native_query(query, receive_timeout: 1)
+    query = %{
+      queryType: "timeseries",
+      dataSource: %{
+        type: "join",
+        left: "wikipedia",
+        right: %{type: "query", query: robots},
+        rightPrefix: "r.",
+        condition: ~s(isRobot == "r.isRobot"),
+        joinType: "INNER"
+      },
+      intervals: ["2016-06-27/2016-06-28"],
+      granularity: "all",
+      aggregations: [%{type: "count", name: "pairs"}]
+    }
 
-    assert %Req.TransportError{reason: :timeout} = reason
+    assert {:error, %Ecto.Adapters.Druid.NativeQueryError{canceled: true} = error} =
+             TestRepo.native_query(query, receive_timeout: @slow_timeout)
+
+    assert %Req.TransportError{reason: :timeout} = error.reason
   end
 
   def send_request(_event, _measurements, metadata, test) do
@@ -242,14 +264,17 @@ defmodule IntegrationTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
+    robots = from(w in "wikipedia", select: %{is_robot: field(w, :isRobot)})
+
     query =
-      from(w in Wikipedia,
-        group_by: [w.page, w.user, w.added, w.deleted],
-        select: {w.page, w.user, w.added, w.deleted, count()}
+      from(w in "wikipedia",
+        join: r in subquery(robots),
+        on: field(w, :isRobot) == r.is_robot,
+        select: count()
       )
 
     assert_raise Req.TransportError, ~r/timeout/, fn ->
-      TestRepo.all(query, receive_timeout: 1)
+      TestRepo.all(query, receive_timeout: @slow_timeout)
     end
 
     assert_received {:request, :delete, 202}

@@ -100,8 +100,53 @@ defmodule Ecto.Adapters.Druid.NativeQueryTest do
                TestRepo.native_query(query, adapter: adapter)
 
       assert %Req.TransportError{reason: :timeout} = error.reason
+      assert error.cancel_error == nil
       assert_received {:post, "/druid/v2/"}
       assert_received {:delete, "/druid/v2/slow"}
+    end
+
+    test "retries a cancel that fails without a response" do
+      test = self()
+      {:ok, cancels} = Agent.start_link(fn -> [:closed, :econnrefused] end)
+
+      adapter = fn request ->
+        case request.method do
+          :post ->
+            {request, %Req.TransportError{reason: :timeout}}
+
+          :delete ->
+            send(test, :delete)
+
+            case Agent.get_and_update(cancels, &Enum.split(&1, 1)) do
+              [reason] -> {request, %Req.TransportError{reason: reason}}
+              [] -> {request, Req.Response.new(status: 202)}
+            end
+        end
+      end
+
+      assert {:error, %NativeQueryError{canceled: true, cancel_error: nil}} =
+               TestRepo.native_query(@topn, adapter: adapter)
+
+      assert_received :delete
+      assert_received :delete
+      assert_received :delete
+    end
+
+    test "keeps the error from a cancel that fails" do
+      adapter = fn request ->
+        case request.method do
+          :post -> {request, %Req.TransportError{reason: :timeout}}
+          :delete -> {request, Req.Response.new(status: 500, body: "boom")}
+        end
+      end
+
+      query = Map.put(@topn, :context, %{queryId: "slow"})
+
+      assert {:error, %NativeQueryError{canceled: false} = error} =
+               TestRepo.native_query(query, adapter: adapter)
+
+      assert %Druid.Client.RequestError{status: 500} = error.cancel_error
+      assert Exception.message(error) =~ "native query slow failed: timeout (canceling it failed:"
     end
 
     test "merges the repo's context with merge_context: true" do
