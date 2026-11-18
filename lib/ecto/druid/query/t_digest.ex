@@ -2,7 +2,7 @@ defmodule Ecto.Druid.Query.TDigest do
   @moduledoc """
   Druid [T-Digest sketch aggregations](https://druid.apache.org/docs/latest/development/extensions-contrib/tdigestsketch-quantiles).
   """
-  import Ecto.Druid.Util, only: [sql_function: 1]
+  import Ecto.Druid.Util, only: [sql_function: 1, sql_function: 2]
 
   @doc "Builds a T-Digest sketch on values produced by expr and returns the value for the quantile. Compression parameter (default value 100) determines the accuracy and size of the sketch. Higher compression means higher accuracy but more space to store sketches."
   sql_function tdigest_quantile(expr, quantile_fraction)
@@ -11,8 +11,8 @@ defmodule Ecto.Druid.Query.TDigest do
   sql_function tdigest_quantile(expr, quantile_fraction, compression)
 
   @doc "Builds a T-Digest sketch on values produced by expr. Compression parameter (default value 100) determines the accuracy and size of the sketch Higher compression means higher accuracy but more space to store sketches."
-  sql_function tdigest_generate_sketch(expr)
+  sql_function tdigest_generate_sketch(expr), type: Ecto.Druid.TDigestSketch
 
   @doc "Builds a T-Digest sketch on values produced by expr. Compression parameter (default value 100) determines the accuracy and size of the sketch Higher compression means higher accuracy but more space to store sketches."
-  sql_function tdigest_generate_sketch(expr, compression)
+  sql_function tdigest_generate_sketch(expr, compression), type: Ecto.Druid.TDigestSketch
 end
