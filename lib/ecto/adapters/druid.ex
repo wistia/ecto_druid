@@ -341,8 +341,31 @@ defmodule Ecto.Adapters.Druid do
     |> Telemetry.request!(request_opts)
   rescue
     error in Req.TransportError ->
-      if error.reason == :timeout, do: cancel(Druid.Client.SQL.cancel(query_id), request_opts)
+      if error.reason == :timeout, do: cancel_sql(query_id, request_opts)
       reraise error, __STACKTRACE__
+  end
+
+  @cancel_attempts 5
+  @cancel_retry_delay 20
+
+  # The Broker only knows a SQL query's id once it has started planning it,
+  # so a cancel sent right after a short timeout can get a 404 for a query
+  # that is about to run. Retry for a moment before giving up.
+  defp cancel_sql(query_id, request_opts, attempt \\ 1) do
+    case Druid.Client.request(
+           Druid.Client.SQL.cancel(query_id),
+           Keyword.delete(request_opts, :receive_timeout)
+         ) do
+      {:ok, _} ->
+        true
+
+      {:error, %Druid.Client.RequestError{status: 404}} when attempt < @cancel_attempts ->
+        Process.sleep(@cancel_retry_delay)
+        cancel_sql(query_id, request_opts, attempt + 1)
+
+      {:error, _} ->
+        false
+    end
   end
 
   # Returns whether Druid accepted the cancel. It gets the default timeout,

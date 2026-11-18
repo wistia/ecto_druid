@@ -1,10 +1,10 @@
 defmodule LookupQueryIntegrationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   import Ecto.Query
   import Ecto.Druid.Query.String, only: [lookup: 3]
 
-  alias Ecto.Adapters.Druid.TestRepo
+  alias Ecto.Adapters.Druid.IntegrationRepo
   alias Ecto.Druid.TestLookups.IntegrationCountries, as: Countries
 
   require Countries
@@ -15,7 +15,7 @@ defmodule LookupQueryIntegrationTest do
     # Create the lookup from a template that generates it from the schema,
     # and wait until the Broker has it
     assert [{status, _}] =
-             Druid.Lookups.sync(TestRepo,
+             Druid.Lookups.sync(IntegrationRepo,
                path: Path.expand("fixtures/lookup_schemas", __DIR__),
                assigns: %{countries: %{"US" => "United States", "IT" => "Italy"}},
                wait: true,
@@ -24,22 +24,21 @@ defmodule LookupQueryIntegrationTest do
 
     assert status in [:created, :updated, :unchanged]
 
-    router = [host: "localhost", port: TestRepo.config()[:lookups][:port]]
+    router = [host: "localhost", port: IntegrationRepo.config()[:lookups][:port]]
 
     on_exit(fn ->
       Druid.Client.Lookup.delete("__default", @lookup) |> Druid.Client.request(router)
     end)
 
-    start_supervised!(TestRepo)
     :ok
   end
 
   test "reads the lookup as a schema" do
-    assert %Countries{code: "US", name: "United States"} = TestRepo.get(Countries, "US")
-    assert TestRepo.get(Countries, "XX") == nil
+    assert %Countries{code: "US", name: "United States"} = IntegrationRepo.get(Countries, "US")
+    assert IntegrationRepo.get(Countries, "XX") == nil
 
     # Druid can't ORDER BY a non-time column on a plain scan
-    assert TestRepo.all(from c in Countries, select: {c.code, c.name}) |> Enum.sort() ==
+    assert IntegrationRepo.all(from c in Countries, select: {c.code, c.name}) |> Enum.sort() ==
              [{"IT", "Italy"}, {"US", "United States"}]
   end
 
@@ -58,7 +57,7 @@ defmodule LookupQueryIntegrationTest do
           lookup(w.countryIsoCode, Countries, "Unknown")
         }
 
-    assert TestRepo.all(query) == [
+    assert IntegrationRepo.all(query) == [
              {"RU", nil, "Unknown", "Unknown"},
              {"US", "United States", "United States", "United States"}
            ]

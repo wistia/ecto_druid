@@ -7,7 +7,8 @@ defmodule Ecto.Druid.Query.Theta do
   sql_function theta_sketch_estimate(expr)
 
   @doc "Returns the distinct count estimate and error bounds from a theta sketch. expr must return a theta sketch."
-  sql_function theta_sketch_estimate_with_error_bounds(expr, error_bounds_std_dev)
+  sql_function theta_sketch_estimate_with_error_bounds(expr, error_bounds_std_dev),
+    type: Ecto.Druid.Estimate
 
   @doc "Returns a union of theta sketches, where each input expression must return a theta sketch. The size can be optionally specified as the first parameter."
   sql_function theta_sketch_union(exprs), type: Ecto.Druid.ThetaSketch

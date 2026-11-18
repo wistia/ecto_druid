@@ -1,11 +1,11 @@
 defmodule StreamingIntegrationTest do
   # Writes to the compose file's Kafka with `docker compose exec`, so it needs
   # the stack from docker-compose.yml, not only a Druid.
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   import Ecto.Query
 
-  alias Ecto.Adapters.Druid.TestRepo
+  alias Ecto.Adapters.Druid.IntegrationRepo
 
   @moduletag timeout: 600_000
 
@@ -13,7 +13,7 @@ defmodule StreamingIntegrationTest do
   @topic "ecto_druid_streaming_test"
 
   setup do
-    router = [host: "localhost", port: TestRepo.config()[:supervisors][:port]]
+    router = [host: "localhost", port: IntegrationRepo.config()[:supervisors][:port]]
 
     kafka!([
       "/opt/kafka/bin/kafka-topics.sh",
@@ -38,7 +38,6 @@ defmodule StreamingIntegrationTest do
           do: Druid.Client.request(request, router)
     end)
 
-    start_supervised!(TestRepo)
     %{router: router}
   end
 
@@ -46,7 +45,7 @@ defmodule StreamingIntegrationTest do
     Druid.Client.Supervisor.submit(spec()) |> Druid.Client.request!(router)
 
     assert {:ok, %{"state" => "RUNNING", "activeTasks" => [_]}} =
-             Druid.Supervisors.await_running(TestRepo, @id,
+             Druid.Supervisors.await_running(IntegrationRepo, @id,
                timeout: 180_000,
                poll_interval: 1_000
              )
@@ -64,7 +63,7 @@ defmodule StreamingIntegrationTest do
     assert eventually(fn -> rows(run) end, 60_000) == [{"#en", 1}, {"#fr", 1}]
 
     assert {:ok, [%{"status" => "SUCCESS", "dataSource" => @id}]} =
-             Druid.Supervisors.handoff(TestRepo, @id,
+             Druid.Supervisors.handoff(IntegrationRepo, @id,
                wait_for_segments: true,
                timeout: 300_000,
                poll_interval: 1_000
@@ -110,7 +109,7 @@ defmodule StreamingIntegrationTest do
   end
 
   defp rows(run) do
-    TestRepo.all(
+    IntegrationRepo.all(
       from e in @id,
         where: e.run == ^run,
         group_by: e.channel,

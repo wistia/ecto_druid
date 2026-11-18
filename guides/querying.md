@@ -95,8 +95,35 @@ Ecto's built-in query expressions become Druid SQL:
 
 Complex columns such as `unique_visitors` hold sketches. Merge them with the
 matching aggregation (`ds_hll`, `ds_theta`, `ds_quantiles_sketch`, and so on)
-and turn the result into a number with an estimate function. A sketch selected
-as is loads as its Base64 string.
+and turn the result into a number with an estimate function. The sketch
+functions' results load as Elixir values:
+
+* Estimates with error bounds, from `hll_sketch_estimate_with_error_bounds`
+  and `theta_sketch_estimate_with_error_bounds`, load as an
+  `Ecto.Druid.Estimate` struct with `value`, `lower_bound` and `upper_bound`.
+* `ds_get_quantiles`, `ds_histogram` and `ds_cdf` load as lists of floats.
+* A sketch itself, selected from a column or built by an aggregation such as
+  `ds_hll` or `tdigest_generate_sketch`, loads as its Base64 string.
+
+```elixir
+from p in MyApp.PageViewsHourly,
+  select: %{
+    visitors: hll_sketch_estimate_with_error_bounds(ds_hll(p.unique_visitors)),
+    load_times: ds_histogram(ds_quantiles_sketch(p.load_times), [100, 500, 1000])
+  }
+#=> %{
+#=>   visitors: %Ecto.Druid.Estimate{value: 1204.6, lower_bound: 1180.2, upper_bound: 1229.8},
+#=>   load_times: [312.0, 840.0, 95.0, 12.0]
+#=> }
+```
+
+To use a sketch you've loaded in another query, pin it and decode it with
+`decode_base64_complex/2`:
+
+```elixir
+from p in MyApp.PageViewsHourly,
+  select: theta_sketch_estimate(decode_base64_complex("thetaSketch", ^sessions))
+```
 
 ## Joins, subqueries and table functions
 

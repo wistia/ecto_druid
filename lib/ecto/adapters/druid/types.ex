@@ -13,12 +13,12 @@ defmodule Ecto.Adapters.Druid.Types do
   # (whose primitive type is passed as the first argument) must dump through
   # their own module rather than through the primitive type.
   def dumpers(:binary_id, value), do: [Ecto.UUID, value]
-  def dumpers(:complex, value), do: [:string, value]
+  def dumpers(:complex, value), do: [value]
   def dumpers(_type, ecto_type), do: [ecto_type]
 
   # Map database type to elixir type
   def loaders(:binary_id, value), do: [Ecto.UUID, value]
-  def loaders(:complex, value), do: [:string, value]
+  def loaders(:complex, value), do: [value]
 
   def loaders(type, value) when type in @datetime_types,
     do: [&load_datetime(&1, type), value]

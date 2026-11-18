@@ -1,9 +1,9 @@
 defmodule DeepStorageIntegrationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   import Ecto.Query
 
-  alias Ecto.Adapters.Druid.TestRepo
+  alias Ecto.Adapters.Druid.IntegrationRepo
 
   @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_deep_storage_test"
@@ -36,7 +36,6 @@ defmodule DeepStorageIntegrationTest do
     Druid.Client.Retention.set(@data_source, @rules) |> Druid.Client.request!(@druid)
     ingest!()
 
-    start_supervised!(TestRepo)
     # The Broker reports the data source as not found until the Coordinator
     # loads the hot day
     wait_until(&loaded?/0, 120)
@@ -44,26 +43,26 @@ defmodule DeepStorageIntegrationTest do
   end
 
   test "the Broker reads only the loaded day" do
-    assert TestRepo.all(totals()) == [%{page: "a", views: 3}]
+    assert IntegrationRepo.all(totals()) == [%{page: "a", views: 3}]
   end
 
   test "deep storage reads every day" do
-    assert TestRepo.all(totals(), deep_storage: @deep_storage) ==
+    assert IntegrationRepo.all(totals(), deep_storage: @deep_storage) ==
              [%{page: "a", views: 4}, %{page: "b", views: 2}]
   end
 
   test "deep storage queries take parameters" do
     query = from(d in @data_source, where: d.page == ^"b", select: d.views)
-    assert TestRepo.all(query, deep_storage: @deep_storage) == [2]
+    assert IntegrationRepo.all(query, deep_storage: @deep_storage) == [2]
   end
 
   test "streams deep storage results" do
-    assert totals() |> TestRepo.stream(deep_storage: @deep_storage) |> Enum.to_list() ==
+    assert totals() |> IntegrationRepo.stream(deep_storage: @deep_storage) |> Enum.to_list() ==
              [%{page: "a", views: 4}, %{page: "b", views: 2}]
   end
 
   test "streams Broker results" do
-    assert totals() |> TestRepo.stream() |> Enum.to_list() == [%{page: "a", views: 3}]
+    assert totals() |> IntegrationRepo.stream() |> Enum.to_list() == [%{page: "a", views: 3}]
   end
 
   defp totals do
@@ -111,7 +110,7 @@ defmodule DeepStorageIntegrationTest do
   end
 
   defp loaded? do
-    TestRepo.all(totals()) != []
+    IntegrationRepo.all(totals()) != []
   rescue
     Druid.Client.RequestError -> false
   end
