@@ -41,6 +41,10 @@ defmodule Ecto.Adapters.Druid do
   * `:redirect_trusted` - Keep sending `:auth` when Druid redirects to
     another host. See "Authentication" below.
   * `:finch_opts` - [Options](https://hexdocs.pm/finch/Finch.html#start_link/1-options) to pass to Finch when making requests to Druid.
+  * `:finch` - The name of the Finch pool the repo starts. Defaults to the
+    repo's module name with `.Finch` appended, such as `MyApp.Repo.Finch`, so
+    each repo has its own pool. Set it to give each instance of a dynamic repo
+    its own pool.
   * `:context` - A map of default [SQL query context parameters](https://druid.apache.org/docs/latest/querying/sql-query-context)
     sent with every query, for example `%{sqlTimeZone: "America/New_York"}`.
   * `:deep_storage` - Send every query from this repo through Druid's query
@@ -182,11 +186,17 @@ defmodule Ecto.Adapters.Druid do
 
   @impl Ecto.Adapter
   def init(config) do
-    finch_opts =
-      Keyword.get(config, :finch_opts, [])
-      |> Keyword.put(:name, __MODULE__.Finch)
+    finch = finch_name(Keyword.fetch!(config, :repo), config)
+    finch_opts = config |> Keyword.get(:finch_opts, []) |> Keyword.put(:name, finch)
 
-    {:ok, Supervisor.child_spec({Finch, finch_opts}, []), %{config: config}}
+    {:ok, Supervisor.child_spec({Finch, finch_opts}, []), %{config: config, finch: finch}}
+  end
+
+  # Each repo runs its own Finch pool, named after the repo unless the config
+  # names it with :finch
+  @doc false
+  def finch_name(repo, config) do
+    Keyword.get_lazy(config, :finch, fn -> Module.concat(repo, Finch) end)
   end
 
   @impl Ecto.Adapter
@@ -254,10 +264,10 @@ defmodule Ecto.Adapters.Druid do
     end
   end
 
-  defp request(%{config: config}, query, params, opts) do
+  defp request(%{config: config, finch: finch}, query, params, opts) do
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
     opts = merge_context(config, opts)
-    request_opts = config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+    request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
     {prepared_sql(query), params, request_opts}
   end
 
@@ -333,6 +343,7 @@ defmodule Ecto.Adapters.Druid do
     {rows_opts, opts} = Keyword.split(opts, [:columns])
     {prepare_opts, opts} = Keyword.split(opts, [:check_columns])
     config = repo.config()
+    %{finch: finch} = Ecto.Adapter.lookup_meta(repo)
 
     query =
       query
@@ -340,7 +351,8 @@ defmodule Ecto.Adapters.Druid do
       |> put_native_context(if(merge_context?, do: Keyword.get(config, :context, %{}), else: %{}))
 
     query_id = query["context"]["queryId"]
-    request_opts = config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+
+    request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
 
     case Druid.Client.Native.query(query) |> Druid.Client.request(request_opts) do
       {:ok, results} ->
@@ -398,11 +410,12 @@ defmodule Ecto.Adapters.Druid do
   def to_native(repo, queryable, opts) do
     {sql, params} = Ecto.Adapters.SQL.to_sql(:all, repo, queryable)
     config = repo.config()
+    %{finch: finch} = Ecto.Adapter.lookup_meta(repo)
 
     request_opts =
       config
+      |> Keyword.put(:finch, finch)
       |> Keyword.merge(merge_context(config, opts))
-      |> Keyword.put(:finch, __MODULE__.Finch)
 
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
 
