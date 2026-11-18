@@ -88,11 +88,25 @@ defmodule Ecto.Adapters.Druid.Statement do
   def await(sql, params, deep_storage, request_opts) do
     timeout = Keyword.get(deep_storage, :timeout, @default_timeout)
     poll_interval = Keyword.get(deep_storage, :poll_interval, @default_poll_interval)
-    deadline = deadline(timeout)
+    {query_id, context} = Telemetry.put_sql_query_id(Keyword.get(request_opts, :context, %{}))
 
-    Statement.submit(sql, params, context: Keyword.get(request_opts, :context, %{}))
-    |> Telemetry.request!(request_opts)
-    |> poll(deadline, poll_interval, timeout, request_opts)
+    metadata =
+      request_opts
+      |> Keyword.get(:telemetry_metadata, %{})
+      |> Map.merge(%{query_id: query_id, timeout: timeout})
+
+    # A statement that fails, is canceled or times out raises, which ends the
+    # span with :exception
+    :telemetry.span([:druid, :statement, :await], metadata, fn ->
+      deadline = deadline(timeout)
+
+      status =
+        Statement.submit(sql, params, context: context)
+        |> Telemetry.request!(request_opts)
+        |> poll(deadline, poll_interval, timeout, request_opts)
+
+      {status, Map.merge(metadata, %{state: status["state"], num_rows: num_rows(status)})}
+    end)
   end
 
   defp poll(%{"state" => "SUCCESS"} = status, _deadline, _interval, _timeout, _opts), do: status

@@ -114,6 +114,36 @@ pooling, connecting, sending and receiving. Each repo's Finch pool is named
 after the repo, such as `MyApp.DruidRepo.Finch`, which is the `:name` in
 their metadata.
 
+## Waiting for tasks and statements
+
+Ingestion tasks and queries from deep storage can run for minutes. Two spans
+cover the whole wait, around the `[:druid, :request]` spans of each poll.
+Both measure `:duration` in `:native` units.
+
+### `[:druid, :task, :await]`
+
+`Druid.Tasks.await/3`, and so `Druid.Tasks.run/3` and `insert_all/3`, wait
+for a task in this span.
+
+* `:start` metadata: `:repo`, `:task_id`, `:wait_for_segments`.
+* `:stop` adds `:result` (`{:ok, status}` or `{:error, exception}`), the
+  task's final `:state` (`"SUCCESS"` or `"FAILED"`, or `nil` when the wait
+  timed out or a request failed) and its `:data_source` when known.
+
+A failed or timed-out task ends with `:stop`, since `await/3` returns the
+error rather than raising it.
+
+### `[:druid, :statement, :await]`
+
+A repo query from deep storage submits a statement and waits for it in this
+span. The result pages are read afterward.
+
+* `:start` metadata: `:repo`, `:query_id` and the `:timeout` in milliseconds.
+* `:stop` adds the final `:state` and the `:num_rows` the results hold.
+* `:exception` adds `:kind`, `:reason` and `:stacktrace`. A statement that
+  fails, is canceled or runs past its timeout raises
+  `Ecto.Adapters.Druid.StatementError`, so it ends here.
+
 ## Logging
 
 Each query is logged at `:debug` by default, with its result, source,
