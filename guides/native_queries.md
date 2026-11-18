@@ -31,23 +31,23 @@ An `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
 ### Schemas as data sources
 
 `dataSource` can be a schema module, which is replaced with its source name.
-Pass `check_columns: true` to check, before the query is sent, that every
-column it reads (dimensions, filter columns, aggregator fields and scan
-columns) is a field of the schema, a virtual column or an output the query
-names. Druid expressions aren't parsed, so columns read only in an
+Before the query is sent, every column it reads (dimensions, filter columns,
+aggregator fields and scan columns) is checked to be a field of the schema, a
+virtual column or an output the query names, and an `ArgumentError` names any
+that aren't. Druid expressions aren't parsed, so columns read only in an
 expression aren't checked.
 
 ```elixir
-MyApp.DruidRepo.native_query!(
-  %{
-    queryType: "topN",
-    dataSource: MyApp.PageView,
-    dimension: "page",
-    ...
-  },
-  check_columns: true
-)
+MyApp.DruidRepo.native_query!(%{
+  queryType: "topN",
+  dataSource: MyApp.PageView,
+  dimension: "page",
+  ...
+})
 ```
+
+Pass `check_columns: false` to skip the check, such as for a column Druid has
+that the schema doesn't map.
 
 ### Query context
 

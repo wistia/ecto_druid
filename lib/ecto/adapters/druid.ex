@@ -138,6 +138,7 @@ defmodule Ecto.Adapters.Druid do
       `context`, which wins where they overlap.
     * `:check_columns` - When `dataSource` is a schema module, raise before
       sending the query if it reads a column the schema doesn't define.
+      Defaults to `true` for a schema. Pass `false` to skip the check.
     * `:receive_timeout` - How long to wait for Druid's response, in
       milliseconds. Defaults to `15_000`. On timeout, the query is canceled.
 

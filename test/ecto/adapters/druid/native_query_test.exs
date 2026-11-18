@@ -126,7 +126,7 @@ defmodule Ecto.Adapters.Druid.NativeQueryTest do
 
     test "takes a schema as the dataSource" do
       query = %{@topn | dataSource: Wikipedia, dimension: "page"}
-      TestRepo.native_query(query, plug: druid(@topn_results), check_columns: true)
+      TestRepo.native_query(query, plug: druid(@topn_results))
       assert_received {_, %{"dataSource" => "wikipedia"}}
 
       query = %{@topn | dataSource: %{type: "table", name: Wikipedia}}
@@ -134,7 +134,7 @@ defmodule Ecto.Adapters.Druid.NativeQueryTest do
       assert_received {_, %{"dataSource" => %{"type" => "table", "name" => "wikipedia"}}}
     end
 
-    test "checks the columns a query reads against its schema with check_columns: true" do
+    test "checks the columns a query reads against its schema" do
       query = %{
         queryType: "groupBy",
         dataSource: Wikipedia,
@@ -149,19 +149,25 @@ defmodule Ecto.Adapters.Druid.NativeQueryTest do
         postAggregations: [%{type: "fieldAccess", name: "a", fieldName: "added"}]
       }
 
-      assert {:ok, _} = TestRepo.native_query(query, plug: druid([]), check_columns: true)
+      assert {:ok, _} = TestRepo.native_query(query, plug: druid([]))
       assert_received {"/druid/v2/", _}
 
       query = %{query | dimensions: ["page", "nope", %{type: "default", dimension: "missing"}]}
 
       assert_raise ArgumentError, ~r/doesn't define: \["missing", "nope"\]/, fn ->
-        TestRepo.native_query(query, plug: druid([]), check_columns: true)
+        TestRepo.native_query(query, plug: druid([]))
       end
 
       refute_received {_, _}
+
+      assert {:ok, _} = TestRepo.native_query(query, plug: druid([]), check_columns: false)
+      assert_received {"/druid/v2/", _}
     end
 
-    test "check_columns needs a schema dataSource" do
+    test "doesn't check a dataSource given by name, and raises when asked to" do
+      assert {:ok, _} =
+               TestRepo.native_query(%{@topn | dimension: "nope"}, plug: druid(@topn_results))
+
       assert_raise ArgumentError, ~r/needs the query's dataSource to be a schema/, fn ->
         TestRepo.native_query(@topn, plug: druid([]), check_columns: true)
       end
