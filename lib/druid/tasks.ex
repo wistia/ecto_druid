@@ -17,7 +17,9 @@ defmodule Druid.Tasks do
       {:ok, %{"status" => "SUCCESS"}} = Druid.Tasks.await(MyApp.DruidRepo, task_id)
 
   A task's segments can be queried once Historicals have loaded them, shortly
-  after the task succeeds. Pass `wait_for_segments: true` to wait for that too.
+  after the task succeeds, and, for a new data source, once the Broker has
+  added it to its SQL schema. Pass `wait_for_segments: true` to wait for that
+  too.
 
   ## Templates
 
@@ -345,7 +347,9 @@ defmodule Druid.Tasks do
     * `:poll_interval` - How often to check, in milliseconds. Defaults to
       `#{@default_poll_interval}`.
     * `:wait_for_segments` - When `true`, also wait until Historicals have
-      loaded the data source's segments, so the new data can be queried.
+      loaded the data source's segments and the Broker lists the data source
+      in `INFORMATION_SCHEMA.TABLES`, so the new data can be queried. The
+      Coordinator is asked on the `:tasks` host and the Broker on the repo's.
       Defaults to `false`.
     * `:data_source` - The data source to wait for segments of. Defaults to
       the one in the task's status.
@@ -399,7 +403,7 @@ defmodule Druid.Tasks do
     with {:ok, status} <- await_task(task_id, deadline, poll_interval, request_opts),
          {:ok, status} <- check_failed(task_id, status) do
       if Keyword.get(opts, :wait_for_segments, false) do
-        await_segments(task_id, status, deadline, poll_interval, request_opts, opts)
+        await_segments(repo, task_id, status, deadline, poll_interval, request_opts, opts)
       else
         {:ok, status}
       end
@@ -487,7 +491,7 @@ defmodule Druid.Tasks do
 
       runs
       |> Druid.Tasks.Batch.run(request_opts, batch_opts(opts))
-      |> maybe_await_segments(request_opts, opts)
+      |> maybe_await_segments(repo, request_opts, opts)
     end
   end
 
@@ -514,7 +518,7 @@ defmodule Druid.Tasks do
     runs
     |> Enum.map(&to_run/1)
     |> Druid.Tasks.Batch.run(request_opts, batch_opts(opts))
-    |> maybe_await_segments(request_opts, opts)
+    |> maybe_await_segments(repo, request_opts, opts)
   end
 
   @doc """
@@ -660,17 +664,18 @@ defmodule Druid.Tasks do
   defp to_run(%Run{} = run), do: run
   defp to_run(task_id) when is_binary(task_id), do: %Run{task_id: task_id}
 
-  defp maybe_await_segments(runs, request_opts, opts) do
+  defp maybe_await_segments(runs, repo, request_opts, opts) do
     waiting? = Keyword.get(opts, :wait_for_segments, false) and Keyword.get(opts, :await, true)
 
     if waiting? and Enum.all?(runs, &Run.succeeded?/1) do
       poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
       deadline = Poll.deadline(Keyword.get(opts, :timeout, :infinity))
+      conns = {request_opts, broker_request_opts(repo, opts)}
 
       runs
       |> Enum.group_by(&(Keyword.get(opts, :data_source) || &1.data_source))
       |> Enum.reduce(runs, fn {data_source, group}, runs ->
-        case await_group_segments(data_source, group, deadline, poll_interval, request_opts, opts) do
+        case await_group_segments(data_source, group, deadline, poll_interval, conns, opts) do
           :ok ->
             runs
 
@@ -684,18 +689,17 @@ defmodule Druid.Tasks do
     end
   end
 
-  defp await_group_segments(nil, _group, _deadline, _poll_interval, _request_opts, _opts) do
+  defp await_group_segments(nil, _group, _deadline, _poll_interval, _conns, _opts) do
     {:error, %Error{message: "can't wait for segments of tasks with no data source"}}
   end
 
-  defp await_group_segments(data_source, group, deadline, poll_interval, request_opts, opts) do
+  defp await_group_segments(data_source, group, deadline, poll_interval, conns, opts) do
     interval = Keyword.get_lazy(opts, :segments_interval, fn -> covering_interval(group) end)
-    check = fn -> check_segments(data_source, interval, request_opts) end
 
-    case Poll.poll(deadline, poll_interval, check) do
-      {:ok, _} -> :ok
+    case await_queryable(data_source, interval, deadline, poll_interval, conns) do
+      :ok -> :ok
       {:error, error} -> {:error, error}
-      {:timeout, _} -> {:error, timeout_error(nil, nil, "segments of #{data_source} to load")}
+      {:timeout, what} -> {:error, timeout_error(nil, nil, what)}
     end
   end
 
@@ -740,7 +744,7 @@ defmodule Druid.Tasks do
 
   defp check_failed(_task_id, status), do: {:ok, status}
 
-  defp await_segments(task_id, status, deadline, poll_interval, request_opts, opts) do
+  defp await_segments(repo, task_id, status, deadline, poll_interval, request_opts, opts) do
     case Keyword.get(opts, :data_source) || status["dataSource"] do
       nil ->
         {:error,
@@ -752,19 +756,33 @@ defmodule Druid.Tasks do
 
       data_source ->
         interval = Keyword.get(opts, :segments_interval, @all_time)
+        conns = {request_opts, broker_request_opts(repo, opts)}
 
-        check = fn -> check_segments(data_source, interval, request_opts) end
-
-        case Poll.poll(deadline, poll_interval, check) do
-          {:ok, _} ->
-            {:ok, status}
-
-          {:error, error} ->
-            {:error, error}
-
-          {:timeout, _} ->
-            {:error, timeout_error(task_id, status, "segments of #{data_source} to load")}
+        case await_queryable(data_source, interval, deadline, poll_interval, conns) do
+          :ok -> {:ok, status}
+          {:error, error} -> {:error, error}
+          {:timeout, what} -> {:error, timeout_error(task_id, status, what)}
         end
+    end
+  end
+
+  # Historicals having loaded a new data source's segments isn't enough to
+  # query it: the Broker only adds it to its SQL schema after its next segment
+  # metadata refresh, and until then rejects queries on it as not found. So
+  # once the Coordinator reports the segments loaded, wait for the Broker to
+  # list the data source too. With no used segments, it never would.
+  defp await_queryable(data_source, interval, deadline, poll_interval, {request_opts, broker}) do
+    loaded = fn -> check_segments(data_source, interval, request_opts) end
+    listed = fn -> check_broker(data_source, broker) end
+
+    with {:loaded, {:ok, :loaded}} <- {:loaded, Poll.poll(deadline, poll_interval, loaded)},
+         {:listed, {:ok, _}} <- {:listed, Poll.poll(deadline, poll_interval, listed)} do
+      :ok
+    else
+      {_, {:ok, :no_segments}} -> :ok
+      {_, {:error, error}} -> {:error, error}
+      {:loaded, {:timeout, _}} -> {:timeout, "segments of #{data_source} to load"}
+      {:listed, {:timeout, _}} -> {:timeout, "the Broker to list #{data_source}"}
     end
   end
 
@@ -778,10 +796,31 @@ defmodule Druid.Tasks do
 
     case Druid.Client.request(request, request_opts) do
       {:ok, %{^data_source => left}} when left > 0 -> :wait
+      {:ok, %{^data_source => _}} -> {:done, :loaded}
       # Druid answers with text (or nothing) when there are no used segments
-      {:ok, _loaded} -> {:done, :loaded}
+      {:ok, _} -> {:done, :no_segments}
       {:error, error} -> {:error, error}
     end
+  end
+
+  @broker_lists_sql """
+  SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'druid' AND TABLE_NAME = ?
+  """
+
+  defp check_broker(data_source, broker_opts) do
+    request = Druid.Client.SQL.query(@broker_lists_sql, [%{type: "VARCHAR", value: data_source}])
+
+    case Druid.Client.request(request, broker_opts) do
+      {:ok, [_ | _]} -> {:done, :listed}
+      {:ok, _} -> :wait
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  # SQL goes to the host the repo queries, not the :tasks one, which can be an
+  # Overlord that doesn't serve SQL
+  defp broker_request_opts(repo, opts) do
+    SpecTemplates.request_opts(repo, Keyword.take(opts, [:plug, :adapter]))
   end
 
   defp timeout_error(task_id, status, what) do

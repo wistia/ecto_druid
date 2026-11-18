@@ -41,6 +41,10 @@ defmodule Druid.SupervisorsAwaitTest do
 
         {"GET", [_, _, _, "datasources", "events", "loadstatus"]} ->
           Req.Test.json(conn, %{"events" => 0})
+
+        # The Broker lists the data source
+        {"POST", ["druid", "v2", "sql"]} ->
+          Req.Test.json(conn, [[1]])
       end
     end
   end
@@ -196,6 +200,7 @@ defmodule Druid.SupervisorsAwaitTest do
                Supervisors.handoff(TestRepo, "events", plug: plug, wait_for_segments: true)
 
       assert_received {:druid, "GET", "/druid/coordinator/v1/datasources/events/loadstatus", _}
+      assert_received {:druid, "POST", "/druid/v2/sql", _}
     end
 
     test "returns the task IDs without waiting" do

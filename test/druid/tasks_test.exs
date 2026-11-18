@@ -38,11 +38,13 @@ defmodule Druid.TasksTest do
     Keyword.merge([path: dir, assigns: assigns, poll_interval: 1], extra)
   end
 
-  # A fake Overlord and Coordinator. `statuses` are the task states to report
-  # on successive status requests, and `load` the segments left to load on
-  # successive load status requests. The last of each repeats.
+  # A fake Overlord, Coordinator and Broker. `statuses` are the task states to
+  # report on successive status requests, `load` the segments left to load on
+  # successive load status requests, and `listed` whether the Broker lists the
+  # data source on successive SQL requests. The last of each repeats.
   defp druid(statuses, opts \\ []) do
     {:ok, agent} = Agent.start_link(fn -> {statuses, Keyword.get(opts, :load, [0])} end)
+    {:ok, listed} = Agent.start_link(fn -> Keyword.get(opts, :listed, [true]) end)
     test_pid = self()
     status_extra = Keyword.get(opts, :status, %{})
 
@@ -72,6 +74,11 @@ defmodule Druid.TasksTest do
         {"GET", ["druid", "coordinator", "v1", "datasources", ds, "loadstatus"]} ->
           left = Agent.get_and_update(agent, fn {s, l} -> {hd(l), {s, tl_or_last(l)}} end)
           Req.Test.json(conn, %{ds => left})
+
+        {"POST", ["druid", "v2", "sql"]} ->
+          if Agent.get_and_update(listed, &{hd(&1), tl_or_last(&1)}),
+            do: Req.Test.json(conn, [[1]]),
+            else: Req.Test.json(conn, [])
       end
     end
   end
@@ -268,7 +275,52 @@ defmodule Druid.TasksTest do
               {:druid, "GET", "/druid/coordinator/v1/datasources/events/" <> _, _, _}
             )
 
+      assert_received {:druid, "POST", "/druid/v2/sql", _, body}
+      assert %{"query" => sql, "parameters" => [param]} = Jason.decode!(body)
+      assert sql =~ "INFORMATION_SCHEMA.TABLES"
+      assert param == %{"type" => "VARCHAR", "value" => "events"}
+
       refute_received {:druid, _, _, _, _}
+    end
+
+    test "waits for the Broker to list a new data source" do
+      plug = druid(["SUCCESS"], listed: [false, false, true])
+
+      assert {:ok, %{"status" => "SUCCESS"}} =
+               Tasks.await(TestRepo, "t", plug: plug, poll_interval: 1, wait_for_segments: true)
+
+      for _ <- 1..3, do: assert_received({:druid, "POST", "/druid/v2/sql", _, _})
+      refute_received {:druid, "POST", "/druid/v2/sql", _, _}
+    end
+
+    test "asks the Broker on the repo's host, not the :tasks one" do
+      test_pid = self()
+      fake = druid(["SUCCESS"])
+
+      plug = fn conn ->
+        send(test_pid, {:port, conn.request_path, conn.port})
+        fake.(conn)
+      end
+
+      assert {:ok, _} =
+               Tasks.await(TestRepo, "t", plug: plug, poll_interval: 1, wait_for_segments: true)
+
+      assert_received {:port, "/druid/indexer/v1/task/t/status", 9888}
+      assert_received {:port, "/druid/v2/sql", 9082}
+    end
+
+    test "times out waiting for the Broker to list the data source" do
+      plug = druid(["SUCCESS"], listed: [false])
+
+      assert {:error, %Tasks.Error{reason: :timeout, status: %{"status" => "SUCCESS"}} = error} =
+               Tasks.await(TestRepo, "t",
+                 plug: plug,
+                 wait_for_segments: true,
+                 poll_interval: 5,
+                 timeout: 20
+               )
+
+      assert Exception.message(error) == "timed out waiting for the Broker to list events"
     end
 
     test "waits for segments of another data source or interval" do
@@ -297,6 +349,9 @@ defmodule Druid.TasksTest do
       end
 
       assert {:ok, _} = Tasks.await(TestRepo, "t", plug: plug, wait_for_segments: true)
+
+      # The Broker would never list it
+      refute_received {:druid, "POST", "/druid/v2/sql", _, _}
     end
 
     test "times out waiting for segments" do
