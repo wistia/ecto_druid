@@ -75,6 +75,22 @@ interval = Ecto.Druid.Interval.last(day: 7)                  # the 7 days up to 
 from p in MyApp.PageViewsHourly, where: time_in_interval(p.time, ^interval)
 ```
 
+### Ecto's own expressions
+
+Ecto's built-in query expressions become Druid SQL:
+
+* `type(expr, type)` is a `CAST` to `BIGINT`, `DOUBLE`, `DECIMAL`, `BOOLEAN`,
+  `VARCHAR`, `DATE` or `TIMESTAMP`. Druid has no map, binary or time type to
+  cast to; use `parse_json/1` to make a JSON value.
+* `datetime_add/3`, `date_add/3`, `ago/2` and `from_now/2` add a multiple of
+  an `INTERVAL`, so the count can be fractional or an expression. Druid keeps
+  timestamps to the millisecond, so adding microseconds rounds down to it.
+* A JSON path such as `p.attributes["device"]["os"]` reads a scalar with
+  `JSON_VALUE`, which returns a string, so it compares with strings. Use
+  `json_query/2` for an object or array, or `json_value/3` with a `RETURNING`
+  type. Druid can't address a key that contains a single quote.
+* `value in p.tags`, for an `ARRAY` column, is `SCALAR_IN_ARRAY`.
+
 ### Sketches
 
 Complex columns such as `unique_visitors` hold sketches. Merge them with the

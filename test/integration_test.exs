@@ -393,5 +393,109 @@ defmodule IntegrationTest do
       assert count.(~U[2016-06-27 00:00:00.001Z]) == 24433
       assert count.(~U[2016-06-27 00:00:00Z]) == 0
     end
+
+    test "Dates, Decimals and nil" do
+      count = fn query -> TestRepo.one(from(w in query, select: count())) end
+
+      assert count.(from(w in "wikipedia", where: w.__time >= ^~D[2016-06-27])) == 24433
+      assert count.(from(w in "wikipedia", where: w.__time > ^~D[2016-06-27])) == 0
+      assert count.(from(w in "wikipedia", where: w.added > ^Decimal.new("1.5"))) == 12705
+
+      default = nil
+
+      assert TestRepo.all(
+               from(w in Wikipedia,
+                 where: w.page == "Black Dahlia",
+                 select: coalesce(w.page, ^default)
+               )
+             ) == ["Black Dahlia"]
+    end
+  end
+
+  describe "Ecto expressions" do
+    import Ecto.Query
+    use Ecto.Druid.Query
+
+    test "type/2" do
+      assert TestRepo.one(
+               from(w in Wikipedia,
+                 where: w.page == "Black Dahlia",
+                 select: {
+                   type(w.added, :float) / 2,
+                   type(w.added, :decimal) * 2,
+                   type(w.added, :boolean),
+                   type(w.delta * 100_000, :string),
+                   type(w.time, :date),
+                   type(^~U[2026-01-01 00:00:00Z], :utc_datetime)
+                 }
+               )
+             ) == {1.5, 6.0, true, "300000", ~D[2016-06-27], ~U[2026-01-01 00:00:00Z]}
+    end
+
+    test "string literals with backslashes and quotes" do
+      count = fn query -> TestRepo.one(from(w in query, select: count())) end
+
+      assert count.(from(w in Wikipedia, where: regexp_like(w.page, "^\\d+$"))) == 28
+      assert count.(from(w in Wikipedia, where: regexp_like(w.page, ^"^\\d+$"))) == 28
+      assert count.(from(w in Wikipedia, where: w.page == "'t Suydevelt")) == 2
+    end
+
+    test "datetime_add/3, date_add/3, ago/2 and from_now/2" do
+      assert TestRepo.one(
+               from(w in Wikipedia,
+                 where: w.page == "Black Dahlia",
+                 select: {
+                   datetime_add(w.time, 1, "day"),
+                   datetime_add(w.time, -2, "week"),
+                   datetime_add(w.time, ^1, "month"),
+                   datetime_add(w.time, 1.5, "day"),
+                   datetime_add(w.time, 5, "millisecond"),
+                   datetime_add(w.time, 5000, "microsecond"),
+                   datetime_add(^~N[2026-01-01 00:00:00], ^(-3), "day"),
+                   date_add(type(w.time, :date), 1, "month")
+                 }
+               )
+             ) ==
+               {~U[2016-06-28 00:00:00.000Z], ~U[2016-06-13 00:00:00.000Z],
+                ~U[2016-07-27 00:00:00.000Z], ~U[2016-06-28 12:00:00.000Z],
+                ~U[2016-06-27 00:00:00.005Z], ~U[2016-06-27 00:00:00.005Z],
+                ~N[2025-12-29 00:00:00], ~D[2016-07-27]}
+
+      count = fn query -> TestRepo.one(from(w in query, select: count())) end
+
+      assert count.(from(w in Wikipedia, where: w.time > ago(^20, "year"))) == 24433
+      assert count.(from(w in Wikipedia, where: w.time > ago(1, "day"))) == 0
+      assert count.(from(w in Wikipedia, where: w.time < from_now(1, "day"))) == 24433
+
+      assert count.(from(w in Wikipedia, where: w.time <= date_add(^~D[2016-05-27], 1, "month"))) ==
+               24433
+    end
+
+    test "JSON paths and a value in an array" do
+      data =
+        from(w in "wikipedia",
+          where: w.page == "Black Dahlia",
+          select: %{
+            data: parse_json(~s({"a":{"b":1,"c d":[5,6],"x.y":"z"}})),
+            tags: fragment("ARRAY['a','b']")
+          }
+        )
+
+      assert TestRepo.one(
+               from(d in subquery(data),
+                 where: d.data["a"]["x.y"] == "z",
+                 select: {d.data["a"]["b"], d.data["a"]["c d"][1], "a" in d.tags, "q" in d.tags}
+               )
+             ) == {"1", "6", true, false}
+    end
+
+    test "values/2" do
+      rows = [%{n: 1, t: ~U[2026-01-01 00:00:00Z], s: "x"}]
+      types = %{n: :integer, t: :utc_datetime, s: :string}
+
+      assert TestRepo.all(from(v in values(rows, types), select: v)) == [
+               %{n: 1, t: ~U[2026-01-01 00:00:00Z], s: "x"}
+             ]
+    end
   end
 end
