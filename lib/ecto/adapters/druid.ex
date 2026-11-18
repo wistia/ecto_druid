@@ -299,7 +299,7 @@ defmodule Ecto.Adapters.Druid do
     opts = merge_context(config, opts)
     {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
     opts = Keyword.put(opts, :context, context)
-    request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
+    request_opts = request_opts(config, repo, finch, opts)
 
     info = %{
       type: :druid_sql_query,
@@ -314,6 +314,15 @@ defmodule Ecto.Adapters.Druid do
     }
 
     {info, request_opts}
+  end
+
+  # A :finch option on the call wins over the repo's pool
+  @doc false
+  def request_opts(config, repo, finch, opts) do
+    config
+    |> Keyword.put(:finch, finch)
+    |> Keyword.merge(opts)
+    |> Keyword.put(:telemetry_metadata, %{repo: repo})
   end
 
   defp prepared_sql({:cache, _update, {_id, sql}}), do: sql
@@ -397,7 +406,7 @@ defmodule Ecto.Adapters.Druid do
 
     query_id = query["context"]["queryId"]
 
-    request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
+    request_opts = request_opts(config, repo, finch, opts)
 
     info = %{
       type: :druid_native_query,
@@ -494,7 +503,7 @@ defmodule Ecto.Adapters.Druid do
     opts = merge_context(config, opts)
     {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
     opts = Keyword.put(opts, :context, context)
-    request_opts = config |> Keyword.put(:finch, finch) |> Keyword.merge(opts)
+    request_opts = request_opts(config, repo, finch, opts)
     params = Enum.map(params, &__MODULE__.Types.to_db/1)
 
     info = %{

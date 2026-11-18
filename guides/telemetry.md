@@ -79,6 +79,41 @@ Every repo call that queries Druid takes:
   `:options` metadata, for example to tag a query in metrics.
 * `:stacktrace` - Include the caller's stacktrace in the event and log line.
 
+## Request events
+
+Every HTTP request `Druid.Client` sends runs in a `[:druid, :request]` span.
+This covers repo queries, `Druid.Tasks`, `Druid.Supervisors`,
+`Druid.Lookups`, `Druid.Retention`, `Druid.Compaction` and their Mix
+tasks, and any request you send with `Druid.Client.request/2` yourself. A
+repo query that polls, like one from deep storage, sends several requests,
+and each gets its own span.
+
+* `[:druid, :request, :start]` - Before the request is sent. Measures
+  `:system_time` and `:monotonic_time`.
+* `[:druid, :request, :stop]` - When Druid responds, whatever the status.
+  Measures the `:duration` and the `:decode_time` spent decoding the
+  response body.
+* `[:druid, :request, :exception]` - When no response comes back, for
+  example on a timeout or refused connection. Measures the `:duration`.
+
+Times are in `:native` units. Every event's metadata has:
+
+* `:method` - The HTTP method, such as `:get`.
+* `:scheme`, `:host`, `:port` - Where the request went.
+* `:path` - The request path, such as `"/druid/v2/sql"`.
+* `:repo` - The repo, for requests sent for one.
+* Anything in the call's `:telemetry_metadata` option.
+
+`:stop` adds the response `:status`, and `:exception` adds `:kind`,
+`:reason` and `:stacktrace`. Credentials and request bodies are never in
+the metadata.
+
+Req doesn't emit telemetry. Finch, which sends the requests, emits its own
+[events](https://hexdocs.pm/finch/Finch.Telemetry.html) for connection
+pooling, connecting, sending and receiving. Each repo's Finch pool is named
+after the repo, such as `MyApp.DruidRepo.Finch`, which is the `:name` in
+their metadata.
+
 ## Logging
 
 Each query is logged at `:debug` by default, with its result, source,
