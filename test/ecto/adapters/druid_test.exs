@@ -51,6 +51,43 @@ defmodule Ecto.Adapters.DruidTest do
       assert Types.to_db(~N[2016-06-27 00:00:00]) ==
                %{type: "TIMESTAMP", value: "2016-06-27T00:00:00"}
     end
+
+    test "sends dates, nil and lists" do
+      assert Types.to_db(~D[2016-06-27]) == %{type: "DATE", value: "2016-06-27"}
+      assert Types.to_db(nil) == %{type: "NULL", value: nil}
+      assert Types.to_db(["a", "b"]) == %{type: "ARRAY", value: ["a", "b"]}
+    end
+
+    # Druid rejects a DECIMAL parameter sent as a JSON string
+    test "sends decimals as JSON numbers" do
+      assert %{type: "DECIMAL", value: value} = Types.to_db(Decimal.new("-1.50"))
+      assert Jason.encode!(value) == "-1.50"
+    end
+  end
+
+  describe "loading Druid's ISO 8601 strings" do
+    defp load(type, value) do
+      Ecto.Type.adapter_load(Druid, type, value)
+    end
+
+    test "into dates and datetimes" do
+      assert load(:date, "2016-06-27T00:00:00.000Z") == {:ok, ~D[2016-06-27]}
+      assert load(:utc_datetime, "2016-06-27T01:02:03.000Z") == {:ok, ~U[2016-06-27 01:02:03Z]}
+
+      assert load(:utc_datetime_usec, "2016-06-27T01:02:03.004Z") ==
+               {:ok, ~U[2016-06-27 01:02:03.004000Z]}
+
+      assert load(:naive_datetime, "2016-06-27T01:02:03.000Z") ==
+               {:ok, ~N[2016-06-27 01:02:03]}
+
+      assert load(:naive_datetime_usec, "2016-06-27T01:02:03.004Z") ==
+               {:ok, ~N[2016-06-27 01:02:03.004000]}
+    end
+
+    test "passes nil through and rejects other strings" do
+      assert load(:date, nil) == {:ok, nil}
+      assert load(:utc_datetime, "yesterday") == :error
+    end
   end
 
   describe "prepare/2" do
