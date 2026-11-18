@@ -118,10 +118,18 @@ defmodule Druid.SpecTemplates do
   @doc """
   Builds `Druid.Client.request!/2` options: the repo's connection settings,
   overridden by the ones in `config`.
+
+  Requests go through the repo's Finch pool while the repo is running. Mix
+  tasks and release scripts call these without starting the repo, so they
+  fall back to Req's default pool.
   """
   def request_opts(repo, config) do
-    repo.config()
+    repo_config = repo.config()
+    finch = Ecto.Adapters.Druid.finch_name(repo, repo_config)
+
+    repo_config
     |> Keyword.take(@repo_keys)
+    |> then(&if Process.whereis(finch), do: Keyword.put(&1, :finch, finch), else: &1)
     |> Keyword.merge(Keyword.take(config, @connection_keys))
   end
 

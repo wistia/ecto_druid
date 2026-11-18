@@ -51,8 +51,8 @@ defmodule Ecto.Adapters.Druid.Ingest do
 
     request_opts =
       adapter_meta.config
+      |> Keyword.put(:finch, adapter_meta.finch)
       |> Keyword.merge(opts)
-      |> Keyword.put(:finch, Ecto.Adapters.Druid.Finch)
 
     %{"taskId" => task_id} =
       Druid.Client.SQL.insert(sql, params, opts)
