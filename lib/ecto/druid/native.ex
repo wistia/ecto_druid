@@ -242,7 +242,9 @@ defmodule Ecto.Druid.Native do
       |> stringify_keys()
       |> put_data_source(data_source)
 
-    if opts[:check_columns] do
+    # On by default for a schema. Asking for it without one raises, rather
+    # than quietly checking nothing.
+    if Keyword.get(opts, :check_columns, schema != nil) do
       check_columns!(query, schema)
     end
 

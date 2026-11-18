@@ -178,12 +178,10 @@ defmodule IntegrationTest do
     }
 
     assert {:ok, [%{"added" => 3}]} =
-             TestRepo.native_query(query, check_columns: true, merge_context: true)
+             TestRepo.native_query(query, merge_context: true)
 
     assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
-      TestRepo.native_query(%{query | filter: Ecto.Druid.Native.Filter.null("nope")},
-        check_columns: true
-      )
+      TestRepo.native_query(%{query | filter: Ecto.Druid.Native.Filter.null("nope")})
     end
   end
 

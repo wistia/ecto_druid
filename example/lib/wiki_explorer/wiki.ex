@@ -217,26 +217,23 @@ defmodule WikiExplorer.Wiki do
   @doc """
   The top channels as a native `topN` query. Druid answers `topN` faster than
   the equivalent `GROUP BY ... ORDER BY ... LIMIT` when an approximate
-  ranking is fine. The `Edit` schema stands in for its data source, and
-  `check_columns: true` checks the columns the query reads against it.
+  ranking is fine. The `Edit` schema stands in for its data source, and the
+  columns the query reads are checked against it before it's sent.
   """
   def top_channels_native(limit \\ 5) do
-    DruidRepo.native_query!(
-      %{
-        queryType: "topN",
-        dataSource: Edit,
-        intervals: [interval()],
-        granularity: "all",
-        dimension: "channel",
-        metric: "edits",
-        threshold: limit,
-        aggregations: [
-          %{type: "count", name: "edits"},
-          %{type: "longSum", name: "added", fieldName: "added"}
-        ]
-      },
-      check_columns: true
-    )
+    DruidRepo.native_query!(%{
+      queryType: "topN",
+      dataSource: Edit,
+      intervals: [interval()],
+      granularity: "all",
+      dimension: "channel",
+      metric: "edits",
+      threshold: limit,
+      aggregations: [
+        %{type: "count", name: "edits"},
+        %{type: "longSum", name: "added", fieldName: "added"}
+      ]
+    })
   end
 
   @doc "The SQL and parameters a query sends to Druid."
