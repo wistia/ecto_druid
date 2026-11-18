@@ -353,9 +353,44 @@ defmodule Druid.Tasks do
       to all of them.
     * `:host`, `:port`, `:scheme` - As in the "Configuration" section of the
       module docs.
+
+  ## Telemetry
+
+  Runs in a `[:druid, :task, :await]` span, whose metadata has the `:repo`,
+  `:task_id` and `:wait_for_segments`. The `:stop` event adds the
+  `:result`, and the task's final `:state` (`"SUCCESS"` or `"FAILED"`, or
+  `nil` on a timeout or request error) and `:data_source` when known. See
+  the [Telemetry guide](telemetry.md).
   """
   @spec await(Ecto.Repo.t(), String.t(), Keyword.t()) :: {:ok, map()} | {:error, Exception.t()}
   def await(repo, task_id, opts \\ []) do
+    metadata = %{
+      repo: repo,
+      task_id: task_id,
+      wait_for_segments: Keyword.get(opts, :wait_for_segments, false)
+    }
+
+    :telemetry.span([:druid, :task, :await], metadata, fn ->
+      result = do_await(repo, task_id, opts)
+      {result, Map.merge(metadata, await_result_metadata(result))}
+    end)
+  end
+
+  defp await_result_metadata({:ok, status}) do
+    %{result: {:ok, status}, state: status["status"], data_source: status["dataSource"]}
+  end
+
+  defp await_result_metadata({:error, error}) do
+    status =
+      case error do
+        %Error{status: %{} = status} -> status
+        _ -> %{}
+      end
+
+    %{result: {:error, error}, state: status["status"], data_source: status["dataSource"]}
+  end
+
+  defp do_await(repo, task_id, opts) do
     request_opts = request_opts(repo, opts)
     poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
 
