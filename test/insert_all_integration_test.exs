@@ -1,7 +1,7 @@
 defmodule InsertAllIntegrationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   import Ecto.Query
-  alias Ecto.Adapters.Druid.TestRepo
+  alias Ecto.Adapters.Druid.IntegrationRepo
 
   @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_insert_all_test"
@@ -21,8 +21,6 @@ defmodule InsertAllIntegrationTest do
   end
 
   setup do
-    start_supervised!(TestRepo)
-
     on_exit(fn ->
       for data_source <- [@data_source, @copy] do
         Druid.Client.DataSource.mark_unused(data_source) |> Druid.Client.request(@druid)
@@ -32,7 +30,7 @@ defmodule InsertAllIntegrationTest do
 
   defp channels(source) do
     # Druid only orders scans by __time
-    TestRepo.all(from e in source, select: {e.__time, e.channel, e.added})
+    IntegrationRepo.all(from e in source, select: {e.__time, e.channel, e.added})
     |> Enum.sort()
   end
 
@@ -44,7 +42,7 @@ defmodule InsertAllIntegrationTest do
     ]
 
     assert {3, nil} =
-             TestRepo.insert_all(Event, rows,
+             IntegrationRepo.insert_all(Event, rows,
                partitioned_by: :day,
                clustered_by: [:channel],
                wait_for_segments: true
@@ -58,7 +56,7 @@ defmodule InsertAllIntegrationTest do
 
     # Replacing Jan 1 drops both of its rows and leaves Jan 2
     assert {1, nil} =
-             TestRepo.insert_all(
+             IntegrationRepo.insert_all(
                Event,
                [%{time: ~U[2026-01-01 12:00:00Z], channel: "#de", added: 4}],
                partitioned_by: :day,
@@ -77,7 +75,7 @@ defmodule InsertAllIntegrationTest do
         select: %{__time: e.__time, channel: e.channel, added: e.added * 10}
 
     assert {1, nil} =
-             TestRepo.insert_all(@copy, query,
+             IntegrationRepo.insert_all(@copy, query,
                partitioned_by: :all,
                overwrite: :all,
                wait_for_segments: true

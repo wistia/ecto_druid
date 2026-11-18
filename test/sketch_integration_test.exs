@@ -1,10 +1,10 @@
 defmodule SketchIntegrationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   import Ecto.Query
   use Ecto.Druid.Query
 
-  alias Ecto.Adapters.Druid.TestRepo
+  alias Ecto.Adapters.Druid.IntegrationRepo
 
   @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_sketch_test"
@@ -25,8 +25,6 @@ defmodule SketchIntegrationTest do
   end
 
   setup_all do
-    start_supervised!(TestRepo)
-
     query =
       from w in "wikipedia",
         where: w.page in ["Black Dahlia", "(1094) Siberia"],
@@ -40,7 +38,7 @@ defmodule SketchIntegrationTest do
         }
 
     {2, nil} =
-      TestRepo.insert_all(@data_source, query,
+      IntegrationRepo.insert_all(@data_source, query,
         partitioned_by: :all,
         overwrite: :all,
         wait_for_segments: true
@@ -54,7 +52,7 @@ defmodule SketchIntegrationTest do
   end
 
   defp black_dahlia do
-    TestRepo.one!(from s in PageSketches, where: s.page == "Black Dahlia", select: s)
+    IntegrationRepo.one!(from s in PageSketches, where: s.page == "Black Dahlia", select: s)
   end
 
   test "sketch columns load as Base64 strings" do
@@ -78,7 +76,7 @@ defmodule SketchIntegrationTest do
           )
         }
 
-    assert TestRepo.one!(query) == {1.0, 1.0}
+    assert IntegrationRepo.one!(query) == {1.0, 1.0}
   end
 
   test "aggregations load as Elixir values" do
@@ -101,7 +99,7 @@ defmodule SketchIntegrationTest do
              histogram: [2.0, 1.0],
              cdf: [cdf, 1.0],
              tdigest: tdigest
-           } = TestRepo.one!(query)
+           } = IntegrationRepo.one!(query)
 
     assert_in_delta hll.value, 3.0, 0.001
     assert hll.upper_bound > hll.value

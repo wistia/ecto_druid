@@ -1,6 +1,6 @@
 defmodule TasksIntegrationTest do
-  use ExUnit.Case
-  alias Ecto.Adapters.Druid.TestRepo
+  use ExUnit.Case, async: true
+  alias Ecto.Adapters.Druid.IntegrationRepo
 
   @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_tasks_test"
@@ -36,7 +36,7 @@ defmodule TasksIntegrationTest do
     rows = [row(%{"country" => "US"}), row(%{"country" => "CA"})]
 
     assert {:ok, %{"status" => "SUCCESS", "dataSource" => @data_source}} =
-             Druid.Tasks.run(TestRepo, @task,
+             Druid.Tasks.run(IntegrationRepo, @task,
                assigns: %{rows: rows},
                wait_for_segments: true,
                timeout: 240_000
@@ -52,7 +52,7 @@ defmodule TasksIntegrationTest do
     rows = [row(%{"ts" => "not a timestamp"})]
 
     assert {:error, %Druid.Tasks.Error{reason: :failed, task_id: task_id}} =
-             Druid.Tasks.run(TestRepo, @task, assigns: %{rows: rows}, timeout: 240_000)
+             Druid.Tasks.run(IntegrationRepo, @task, assigns: %{rows: rows}, timeout: 240_000)
 
     assert is_binary(task_id)
   end
@@ -68,7 +68,7 @@ defmodule TasksIntegrationTest do
     %{"taskId" => task_id} = Druid.Client.SQL.insert(sql) |> Druid.Client.request!(@druid)
 
     assert {:ok, %{"status" => "SUCCESS"}} =
-             Druid.Tasks.await(TestRepo, task_id,
+             Druid.Tasks.await(IntegrationRepo, task_id,
                wait_for_segments: true,
                data_source: @data_source,
                timeout: 240_000
@@ -97,7 +97,7 @@ defmodule TasksIntegrationTest do
     rows = [day.(~D[2026-11-01], 1), day.(~D[2026-11-01], 2), day.(~D[2026-11-02], 3)]
 
     runs =
-      Druid.Tasks.backfill(TestRepo, @task, ~D[2026-11-01], ~D[2026-11-03],
+      Druid.Tasks.backfill(IntegrationRepo, @task, ~D[2026-11-01], ~D[2026-11-03],
         assigns: %{rows: rows},
         concurrency: 1,
         wait_for_segments: true,
@@ -112,7 +112,7 @@ defmodule TasksIntegrationTest do
     rows = [day.(~D[2026-11-01], 9), day.(~D[2026-11-02], 4), day.(~D[2026-11-02], 5)]
 
     assert [%{error: nil}] =
-             Druid.Tasks.backfill(TestRepo, @task, ~D[2026-11-02], ~D[2026-11-03],
+             Druid.Tasks.backfill(IntegrationRepo, @task, ~D[2026-11-02], ~D[2026-11-03],
                assigns: %{rows: rows},
                wait_for_segments: true,
                timeout: 240_000
