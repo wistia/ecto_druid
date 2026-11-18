@@ -131,6 +131,7 @@ defmodule Druid.SpecTemplates do
     |> Keyword.take(@repo_keys)
     |> then(&if Process.whereis(finch), do: Keyword.put(&1, :finch, finch), else: &1)
     |> Keyword.merge(Keyword.take(config, @connection_keys))
+    |> Keyword.put(:telemetry_metadata, %{repo: repo})
   end
 
   defp strip_ext(path) do

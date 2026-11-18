@@ -54,9 +54,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
     opts = Keyword.put(opts, :context, context)
 
     request_opts =
-      config
-      |> Keyword.put(:finch, adapter_meta.finch)
-      |> Keyword.merge(opts)
+      Ecto.Adapters.Druid.request_opts(config, repo, adapter_meta.finch, opts)
 
     info = %{
       type: :druid_sql_query,

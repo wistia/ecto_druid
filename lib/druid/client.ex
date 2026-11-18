@@ -41,6 +41,25 @@ defmodule Druid.Client do
     * `:receive_timeout` - How long to wait for a response, in milliseconds.
       Passed to `Req`, which defaults it to `15_000`.
     * `:plug`, `:adapter`, `:finch` - Passed to `Req`.
+    * `:telemetry_metadata` - A map merged into the metadata of this
+      request's telemetry events.
+
+  ## Telemetry
+
+  Each request runs in a `[:druid, :request]` span, which emits
+  `[:druid, :request, :start]`, then `[:druid, :request, :stop]` when Druid
+  responds, whatever the status, or `[:druid, :request, :exception]` when
+  no response comes back, for example on a timeout.
+
+  The metadata has the request's `:method`, `:scheme`, `:host`, `:port`
+  and `:path`, and anything in `:telemetry_metadata`. Requests sent for a
+  repo add its `:repo`. `:stop` adds the response `:status`, and
+  `:exception` adds `:kind`, `:reason` and `:stacktrace`. Credentials and
+  request bodies are never in the metadata.
+
+  `:stop` and `:exception` measure the `:duration`, and `:stop` the
+  `:decode_time` spent decoding the response body, in `:native` time units.
+  See the [Telemetry guide](telemetry.md).
   """
 
   @default_scheme "http"
@@ -88,8 +107,10 @@ defmodule Druid.Client do
   @doc false
   @spec timed_request!(Req.Request.t(), Keyword.t()) :: {term, integer}
   def timed_request!(request, opts) do
+    base_url = base_url(opts)
+
     request_opts =
-      [base_url: base_url(opts)]
+      [base_url: URI.to_string(base_url)]
       |> put_present(:plug, Keyword.get(opts, :plug))
       |> put_present(:adapter, Keyword.get(opts, :adapter))
       |> put_present(:finch, Keyword.get(opts, :finch))
@@ -97,10 +118,29 @@ defmodule Druid.Client do
       |> put_present(:redirect_trusted, Keyword.get(opts, :redirect_trusted))
       |> put_present(:receive_timeout, Keyword.get(opts, :receive_timeout))
 
-    response = Req.request!(request, [decode_body: false] ++ request_opts)
-    decode_start = System.monotonic_time()
-    body = decode_body(response)
-    decode_time = System.monotonic_time() - decode_start
+    metadata =
+      opts
+      |> Keyword.get(:telemetry_metadata, %{})
+      |> Map.merge(%{
+        method: request.method,
+        scheme: base_url.scheme,
+        host: base_url.host,
+        port: base_url.port,
+        path: request_path(request)
+      })
+
+    # The status is checked after the span, so an error response is a
+    # :stop with its status, and :exception means no response came back
+    {response, body, decode_time} =
+      :telemetry.span([:druid, :request], metadata, fn ->
+        response = Req.request!(request, [decode_body: false] ++ request_opts)
+        decode_start = System.monotonic_time()
+        body = decode_body(response)
+        decode_time = System.monotonic_time() - decode_start
+
+        {{response, body, decode_time}, %{decode_time: decode_time},
+         Map.put(metadata, :status, response.status)}
+      end)
 
     case response.status do
       code when code in 200..299 ->
@@ -117,6 +157,9 @@ defmodule Druid.Client do
               "Unexpected error (#{response.status}) when querying Druid.\n\t#{inspect(response)}"
     end
   end
+
+  defp request_path(%Req.Request{url: %URI{path: path}}) when is_binary(path), do: path
+  defp request_path(_request), do: nil
 
   # Druid sends some plain text answers, such as the leader's address, as
   # application/json, so fall back to the raw body when it is not JSON.
@@ -152,7 +195,6 @@ defmodule Druid.Client do
       host: host,
       port: port
     }
-    |> URI.to_string()
   end
 
   defp put_present(opts, key, value) do
