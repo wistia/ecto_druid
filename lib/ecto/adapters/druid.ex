@@ -368,13 +368,13 @@ defmodule Ecto.Adapters.Druid do
     end
   end
 
-  # Returns whether Druid accepted the cancel. It gets the default timeout,
-  # not the one that just ran out.
+  # Returns :ok when Druid accepted the cancel, or {:error, exception}. It
+  # gets the default timeout, not the one that just ran out.
   defp cancel(request, request_opts) do
-    match?(
-      {:ok, _},
-      Druid.Client.request(request, Keyword.delete(request_opts, :receive_timeout))
-    )
+    case Druid.Client.request(request, Keyword.delete(request_opts, :receive_timeout)) do
+      {:ok, _} -> :ok
+      {:error, error} -> {:error, error}
+    end
   end
 
   @doc false
@@ -488,13 +488,18 @@ defmodule Ecto.Adapters.Druid do
 
       # The Broker keeps running a query after the client gives up on it
       {:error, %Req.TransportError{reason: :timeout} = reason} ->
-        canceled? = cancel(Druid.Client.Native.cancel(query_id), request_opts)
+        cancel_error =
+          case cancel(Druid.Client.Native.cancel(query_id), request_opts) do
+            :ok -> nil
+            {:error, error} -> error
+          end
 
         {:error,
          __MODULE__.NativeQueryError.exception(
            query_id: query_id,
            reason: reason,
-           canceled: canceled?
+           canceled: is_nil(cancel_error),
+           cancel_error: cancel_error
          )}
 
       {:error, reason} ->
