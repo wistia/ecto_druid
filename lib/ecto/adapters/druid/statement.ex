@@ -5,7 +5,7 @@ defmodule Ecto.Adapters.Druid.Statement do
   # statement, poll its status until it finishes, then read its result pages.
 
   alias Druid.Client.SQL.Statement
-  alias Ecto.Adapters.Druid.StatementError
+  alias Ecto.Adapters.Druid.{StatementError, Telemetry}
 
   @default_timeout :timer.minutes(5)
   @default_poll_interval 1_000
@@ -41,19 +41,26 @@ defmodule Ecto.Adapters.Druid.Statement do
     %{"queryId" => query_id} = await(sql, params, deep_storage, request_opts)
 
     Statement.results(query_id, result_format: "array")
-    |> Druid.Client.request!(request_opts)
+    |> Telemetry.request!(request_opts)
     |> rows()
   end
 
   @doc """
   Returns a stream that runs a statement when it is first enumerated, then
   fetches one result page at a time as `{num_rows, rows}`.
+
+  `around_await` is called with a function that runs the statement and
+  returns its status, and must return that status. The adapter wraps it in
+  the query's telemetry.
   """
-  @spec stream(String.t(), list(), Keyword.t(), Keyword.t()) :: Enumerable.t()
-  def stream(sql, params, deep_storage, request_opts) do
+  @spec stream(String.t(), list(), Keyword.t(), Keyword.t(), ((-> map()) -> map())) ::
+          Enumerable.t()
+  def stream(sql, params, deep_storage, request_opts, around_await \\ & &1.()) do
     Stream.resource(
       fn ->
-        %{"queryId" => query_id} = status = await(sql, params, deep_storage, request_opts)
+        %{"queryId" => query_id} =
+          status = around_await.(fn -> await(sql, params, deep_storage, request_opts) end)
+
         {query_id, page_ids(status)}
       end,
       fn
@@ -63,7 +70,7 @@ defmodule Ecto.Adapters.Druid.Statement do
         {query_id, [page | pages]} ->
           rows =
             Statement.results(query_id, page: page, result_format: "array")
-            |> Druid.Client.request!(request_opts)
+            |> Telemetry.request!(request_opts)
             |> rows()
 
           {[{length(rows), rows}], {query_id, pages}}
@@ -84,7 +91,7 @@ defmodule Ecto.Adapters.Druid.Statement do
     deadline = deadline(timeout)
 
     Statement.submit(sql, params, context: Keyword.get(request_opts, :context, %{}))
-    |> Druid.Client.request!(request_opts)
+    |> Telemetry.request!(request_opts)
     |> poll(deadline, poll_interval, timeout, request_opts)
   end
 
@@ -112,8 +119,25 @@ defmodule Ecto.Adapters.Druid.Statement do
         Process.sleep(min(interval, remaining))
 
         Statement.status(query_id)
-        |> Druid.Client.request!(opts)
+        |> Telemetry.request!(opts)
         |> poll(deadline, interval, timeout, opts)
+    end
+  end
+
+  @doc """
+  Returns how many rows a finished statement's results hold.
+  """
+  @spec num_rows(map()) :: non_neg_integer()
+  def num_rows(status) do
+    case get_in(status, ["result", "numTotalRows"]) do
+      rows when is_integer(rows) ->
+        rows
+
+      _ ->
+        status
+        |> get_in(["result", "pages"])
+        |> List.wrap()
+        |> Enum.reduce(0, &(&2 + (&1["numRows"] || 0)))
     end
   end
 

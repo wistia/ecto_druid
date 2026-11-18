@@ -33,6 +33,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
   defp deps do
     [
       {:ecto_sql, "~> 3.7"},
+      {:telemetry, "~> 1.0"},
       {:req, "~> 0.5.8"},
       {:jason, "~> 1.0"},
       {:plug, "~> 1.15", only: :test},
@@ -66,6 +67,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
         "guides/lookups.md",
         "guides/system_tables.md",
         "guides/druid_client.md",
+        "guides/telemetry.md",
         "guides/upgrading.md"
       ],
       groups_for_extras: [

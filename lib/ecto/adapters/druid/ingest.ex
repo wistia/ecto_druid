@@ -4,7 +4,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
   # `Repo.insert_all/3` as Druid SQL-based ingestion. The statement runs as a
   # task, which this waits for before returning the number of rows written.
 
-  alias Ecto.Adapters.Druid.{Query, Types}
+  alias Ecto.Adapters.Druid.{Query, Telemetry, Types}
   alias Druid.SpecTemplates
 
   @await_opts [:timeout, :poll_interval, :wait_for_segments]
@@ -47,23 +47,44 @@ defmodule Ecto.Adapters.Druid.Ingest do
       (overwrite_params(Keyword.get(opts, :overwrite)) ++ params)
       |> Enum.map(&Types.to_db/1)
 
-    opts = Ecto.Adapters.Druid.merge_context(adapter_meta.config, opts)
+    %{config: config, repo: repo} = adapter_meta
+    call_opts = opts
+    opts = Ecto.Adapters.Druid.merge_context(config, opts)
+    {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
+    opts = Keyword.put(opts, :context, context)
 
     request_opts =
-      adapter_meta.config
+      config
       |> Keyword.put(:finch, adapter_meta.finch)
       |> Keyword.merge(opts)
 
-    %{"taskId" => task_id} =
-      Druid.Client.SQL.insert(sql, params, opts)
-      |> Druid.Client.request!(request_opts)
+    info = %{
+      type: :druid_sql_query,
+      repo: repo,
+      config: config,
+      query: sql,
+      params: params,
+      source: source,
+      query_id: query_id,
+      context: context,
+      deep_storage: nil
+    }
 
-    repo = adapter_meta.repo
+    # The event covers submitting the task and waiting for it
+    Telemetry.query(info, call_opts, fn ->
+      %{"taskId" => task_id} =
+        Druid.Client.SQL.insert(sql, params, opts)
+        |> Telemetry.request!(request_opts)
 
-    case Druid.Tasks.await(repo, task_id, Keyword.take(opts, @await_opts ++ @connection_opts)) do
-      {:ok, _status} -> {rows_written(repo, task_id, rows, opts), nil}
-      {:error, error} -> raise error
-    end
+      case Druid.Tasks.await(repo, task_id, Keyword.take(opts, @await_opts ++ @connection_opts)) do
+        {:ok, _status} ->
+          num_rows = rows_written(repo, task_id, rows, opts)
+          {{num_rows, nil}, {:ok, %{num_rows: num_rows, rows: nil}}}
+
+        {:error, error} ->
+          raise error
+      end
+    end)
   end
 
   defp check_on_conflict!({:raise, _, []}), do: :ok
