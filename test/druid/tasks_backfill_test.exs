@@ -74,6 +74,12 @@ defmodule Druid.TasksBackfillTest do
 
           Req.Test.json(conn, Map.reject(statuses, fn {_id, s} -> is_nil(s) end))
 
+        # The Broker lists the data source once its segments are loaded
+        {"POST", ["druid", "v2", "sql"]} ->
+          [%{"value" => ds}] = Jason.decode!(body)["parameters"]
+          send(test_pid, {:broker_lists, ds})
+          Req.Test.json(conn, [[1]])
+
         {"GET", ["druid", "coordinator", "v1", "datasources", ds, "loadstatus"]} ->
           send(test_pid, {:loadstatus, ds, URI.decode_query(conn.query_string)})
 
@@ -353,6 +359,7 @@ defmodule Druid.TasksBackfillTest do
       assert_received {:loadstatus, "events", params}
       assert params["interval"] == "2026-11-01T00:00:00Z/2026-11-03T00:00:00Z"
       assert_received {:loadstatus, "events", _}
+      assert_received {:broker_lists, "events"}
     end
   end
 

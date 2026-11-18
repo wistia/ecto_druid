@@ -96,6 +96,8 @@ days.
 
 The task status and report requests go to the host in the repo's `:tasks`
 config, as for `Druid.Tasks` (see [Ingestion Specs](ingestion_specs.md)).
+With `:wait_for_segments`, the last check (that the Broker lists a new data
+source) goes to the repo's own host.
 
 `insert_all/3` raises `Druid.Tasks.Error` when the task fails or runs past
 its `:timeout`, and `Druid.Client.RequestError` when Druid rejects the
