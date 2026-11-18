@@ -126,6 +126,23 @@ MyApp.DruidRepo.all(query, context: %{sqlTimeZone: "America/New_York", timeout: 
 
 Per-call values override the repo config.
 
+## Timeouts and canceling queries
+
+`:receive_timeout` sets how long a call waits for Druid's response, in
+milliseconds (15 seconds by default). When it runs out, the Broker would
+keep running the query, so the adapter cancels it by its `sqlQueryId` and
+then raises the `Req.TransportError`:
+
+```elixir
+MyApp.DruidRepo.all(query, receive_timeout: 60_000)
+```
+
+Every query gets a `sqlQueryId` in its context unless it has one. To cancel
+a query yourself, such as one running in another process, set its
+`sqlQueryId` and pass it to `Druid.Client.SQL.cancel/1`. Druid's own
+`timeout` context parameter limits how long the query may run in Druid,
+whether or not anyone is still waiting for it.
+
 ## Querying from deep storage
 
 The Broker only reads segments that are loaded on Historicals. Retention
