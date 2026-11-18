@@ -96,9 +96,26 @@ defmodule Druid.Lookups do
 
   In a release, call `sync/2` instead, the same way as
   `Druid.Supervisors.sync/2`.
+
+  ## Waiting for lookups to load
+
+  Druid loads a new or changed lookup onto its nodes in the background, so
+  queries can miss it, or fail with "Lookup not found", for a while after
+  `sync/2` returns. Pass `wait: true` to return only once every synced
+  lookup is loaded, or call `await/3`:
+
+      Druid.Lookups.sync(MyApp.DruidRepo, wait: true, timeout: 60_000)
+      :ok = Druid.Lookups.await(MyApp.DruidRepo, ["countries"], timeout: 60_000)
+
+  A lookup is loaded once every node in its tier has its current version:
+  Brokers, Historicals, and streaming ingestion tasks unless their spec sets
+  `"lookupLoadingMode": "NONE"`. The Coordinator checks the nodes every
+  `druid.manager.lookups.period`, two minutes by default, so waiting can
+  take up to twice that. Lower it, for example to `5000`, on clusters used
+  for tests.
   """
 
-  alias Druid.SpecTemplates
+  alias Druid.{Poll, SpecTemplates}
 
   defmodule Lookup do
     @moduledoc """
@@ -122,11 +139,26 @@ defmodule Druid.Lookups do
   end
 
   defmodule Error do
-    defexception [:message]
+    @moduledoc """
+    Raised when a lookup template can't be rendered, and returned when
+    lookups don't load in time.
+
+      * `:reason` - `:timeout` when waiting timed out, `nil` for a template
+        error.
+      * `:pending` - When waiting timed out, a map of each lookup that
+        wasn't loaded, as `"tier/name"`, to the nodes that hadn't loaded it.
+    """
+    @type t :: %__MODULE__{
+            message: String.t(),
+            reason: :timeout | nil,
+            pending: %{String.t() => [String.t()]} | nil
+          }
+    defexception [:message, :reason, :pending]
   end
 
   @default_path "priv/druid/lookups"
   @default_tier "__default"
+  @default_poll_interval 2_000
 
   @doc """
   Renders every lookup template for `repo`.
@@ -179,6 +211,12 @@ defmodule Druid.Lookups do
       anything.
     * `:prune` - Delete lookups, in any tier, that have no template. Can't be
       combined with `:only`. Defaults to `false`.
+    * `:wait` - When `true`, wait until every created, updated and unchanged
+      lookup is loaded (see "Waiting for lookups to load" in the module
+      docs). A lookup that isn't loaded by the `:timeout` is returned as
+      `{:error, lookup, %Druid.Lookups.Error{reason: :timeout}}`. Defaults to
+      `false`.
+    * `:timeout`, `:poll_interval` - As in `await/3`, when waiting.
     * `:only` and the configuration options accepted by `render/2`.
   """
   @spec sync(Ecto.Repo.t(), Keyword.t()) :: [tuple()]
@@ -219,7 +257,143 @@ defmodule Druid.Lookups do
         []
       end
 
-    submitted ++ pruned
+    results = submitted ++ pruned
+
+    if Keyword.get(opts, :wait, false) and not dry_run? do
+      wait_for_synced(results, request_opts, opts)
+    else
+      results
+    end
+  end
+
+  defp wait_for_synced(results, request_opts, opts) do
+    keys =
+      for {status, %Lookup{} = lookup} <- results,
+          status in [:created, :updated, :unchanged],
+          do: key(lookup)
+
+    case await_keys(keys, request_opts, opts) do
+      :ok ->
+        results
+
+      {:error, %Error{reason: :timeout, pending: pending}} ->
+        Enum.map(results, fn
+          {status, %Lookup{} = lookup} = result when status in [:created, :updated, :unchanged] ->
+            case Map.fetch(pending, key(lookup)) do
+              {:ok, nodes} -> {:error, lookup, timeout_error(%{key(lookup) => nodes})}
+              :error -> result
+            end
+
+          result ->
+            result
+        end)
+
+      {:error, error} ->
+        Enum.map(results, fn
+          {status, %Lookup{} = lookup} when status in [:created, :updated, :unchanged] ->
+            {:error, lookup, error}
+
+          result ->
+            result
+        end)
+    end
+  end
+
+  @doc """
+  Waits until lookups are loaded on every node of their tier.
+
+  Each lookup is a `Druid.Lookups.Lookup` from `render/2`, a `{tier, name}`
+  tuple, a `"tier/name"` string, or a lookup name in the default tier (the
+  `:tier` option, `"__default"` unless configured). A template name works
+  too, since a template in a tier directory is named `"tier/name"`.
+
+  Returns `:ok` once they're all loaded,
+  `{:error, %Druid.Lookups.Error{reason: :timeout}}` when some aren't by the
+  timeout, with the nodes that hadn't loaded them in `:pending`, and
+  `{:error, exception}` when a request fails, including the 404 for a lookup
+  that doesn't exist.
+
+  See "Waiting for lookups to load" in the module docs for how long this
+  can take.
+
+  ## Options
+
+    * `:timeout` - How long to wait in milliseconds. Defaults to `:infinity`.
+    * `:poll_interval` - How often to check, in milliseconds. Defaults to
+      `#{@default_poll_interval}`.
+    * `:tier`, `:host`, `:port`, `:scheme` - As in the "Configuration"
+      section of the module docs.
+  """
+  @spec await(Ecto.Repo.t(), [Lookup.t() | {String.t(), String.t()} | String.t()], Keyword.t()) ::
+          :ok | {:error, Exception.t()}
+  def await(repo, lookups, opts \\ []) when is_list(lookups) do
+    config = SpecTemplates.config(repo, :lookups, opts)
+    default_tier = Keyword.get(config, :tier, @default_tier)
+
+    lookups
+    |> Enum.map(&key(&1, default_tier))
+    |> Enum.uniq()
+    |> await_keys(SpecTemplates.request_opts(repo, config), opts)
+  end
+
+  defp await_keys([], _request_opts, _opts), do: :ok
+
+  defp await_keys(keys, request_opts, opts) do
+    deadline = Poll.deadline(Keyword.get(opts, :timeout, :infinity))
+    poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
+
+    case Poll.poll(deadline, poll_interval, fn -> check_loaded(keys, request_opts) end) do
+      {:ok, :loaded} -> :ok
+      {:error, error} -> {:error, error}
+      {:timeout, pending} -> {:error, timeout_error(pending || Map.new(keys, &{&1, []}))}
+    end
+  end
+
+  # Returns {:wait, pending} with each lookup that isn't loaded yet and the
+  # nodes that haven't loaded it.
+  defp check_loaded(keys, request_opts) do
+    Enum.reduce_while(keys, %{}, fn key, pending ->
+      [tier, name] = String.split(key, "/", parts: 2)
+      request = Druid.Client.Lookup.status(tier, name, detailed: true)
+
+      case Druid.Client.request(request, request_opts) do
+        {:ok, %{"loaded" => true}} -> {:cont, pending}
+        {:ok, status} -> {:cont, Map.put(pending, key, status["pendingNodes"] || [])}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:error, error} -> {:error, error}
+      pending when map_size(pending) == 0 -> {:done, :loaded}
+      pending -> {:wait, pending}
+    end
+  end
+
+  defp timeout_error(pending) do
+    details =
+      pending
+      |> Enum.sort()
+      |> Enum.map_join(", ", fn
+        {key, []} -> key
+        {key, nodes} -> "#{key} (not yet on #{Enum.join(nodes, ", ")})"
+      end)
+
+    %Error{
+      message: "timed out waiting for lookups to load: #{details}",
+      reason: :timeout,
+      pending: pending
+    }
+  end
+
+  defp key(%Lookup{tier: tier, lookup: lookup}), do: "#{tier}/#{lookup}"
+
+  defp key(%Lookup{} = lookup, _default_tier), do: key(lookup)
+
+  defp key({tier, name}, _default_tier) when is_binary(tier) and is_binary(name),
+    do: "#{tier}/#{name}"
+
+  defp key(name, default_tier) when is_binary(name) do
+    if String.contains?(name, "/"), do: name, else: "#{default_tier}/#{name}"
   end
 
   defp current_lookups(request_opts) do

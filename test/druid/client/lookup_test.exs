@@ -42,5 +42,12 @@ defmodule Druid.Client.LookupTest do
   test "status/2" do
     {conn, _} = request!(Lookup.status("__default", "countries"))
     assert {conn.method, conn.request_path} == {"GET", @base <> "/status/__default/countries"}
+    assert conn.query_string == ""
+  end
+
+  test "status/3 with detailed: true" do
+    {conn, _} = request!(Lookup.status("__default", "countries", detailed: true))
+    assert conn.request_path == @base <> "/status/__default/countries"
+    assert conn.query_string == "detailed=true"
   end
 end
