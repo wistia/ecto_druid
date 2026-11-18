@@ -228,6 +228,33 @@ defmodule IntegrationTest do
     assert %Req.TransportError{reason: :timeout} = reason
   end
 
+  def send_request(_event, _measurements, metadata, test) do
+    send(test, {:request, metadata.method, metadata.status})
+  end
+
+  test "SQL queries that time out are canceled" do
+    import Ecto.Query
+
+    test = self()
+    handler = "sql-timeout-#{inspect(test)}"
+
+    :telemetry.attach(handler, [:druid, :request, :stop], &__MODULE__.send_request/4, test)
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    query =
+      from(w in Wikipedia,
+        group_by: [w.page, w.user, w.added, w.deleted],
+        select: {w.page, w.user, w.added, w.deleted, count()}
+      )
+
+    assert_raise Req.TransportError, ~r/timeout/, fn ->
+      TestRepo.all(query, receive_timeout: 1)
+    end
+
+    assert_received {:request, :delete, 202}
+  end
+
   test "legacy native filters match the newer ones" do
     import Ecto.Druid.Native.Filter
     import Ecto.Druid.Native.Aggregator, only: [count: 1]

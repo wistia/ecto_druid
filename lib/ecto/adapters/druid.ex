@@ -131,6 +131,11 @@ defmodule Ecto.Adapters.Druid do
   query map instead, and take the repo's `:context` only with
   `merge_context: true`.
 
+  Repo calls take `:receive_timeout`, how long to wait for Druid's response
+  in milliseconds (`15_000` by default). On timeout, the query is canceled
+  by its `sqlQueryId`, which every query gets unless its context has one,
+  and the `Req.TransportError` is raised.
+
   ## Native queries
 
   `native_query/2` sends a [native JSON query](https://druid.apache.org/docs/latest/querying/)
@@ -254,7 +259,7 @@ defmodule Ecto.Adapters.Druid do
     Telemetry.query(info, opts, fn ->
       values =
         case info.deep_storage do
-          nil -> broker_query(sql, params, request_opts)
+          nil -> broker_query(sql, params, info.query_id, request_opts)
           deep_storage -> __MODULE__.Statement.all(sql, params, deep_storage, request_opts)
         end
 
@@ -274,7 +279,7 @@ defmodule Ecto.Adapters.Druid do
         # but it is still not sent until the stream is enumerated
         Stream.flat_map([nil], fn nil ->
           Telemetry.query(info, opts, fn ->
-            values = broker_query(sql, params, request_opts)
+            values = broker_query(sql, params, info.query_id, request_opts)
             num_rows = Enum.count(values)
             {[{num_rows, values}], {:ok, %{num_rows: num_rows, rows: values}}}
           end)
@@ -329,9 +334,24 @@ defmodule Ecto.Adapters.Druid do
   defp prepared_sql({:cached, _update, _reset, {_id, sql}}), do: sql
   defp prepared_sql({:nocache, {_id, sql}}), do: sql
 
-  defp broker_query(sql, params, request_opts) do
+  # The Broker keeps running a query after the client gives up on it, so a
+  # query whose request times out is canceled before the error is reraised
+  defp broker_query(sql, params, query_id, request_opts) do
     Druid.Client.SQL.query(sql, params, request_opts)
     |> Telemetry.request!(request_opts)
+  rescue
+    error in Req.TransportError ->
+      if error.reason == :timeout, do: cancel(Druid.Client.SQL.cancel(query_id), request_opts)
+      reraise error, __STACKTRACE__
+  end
+
+  # Returns whether Druid accepted the cancel. It gets the default timeout,
+  # not the one that just ran out.
+  defp cancel(request, request_opts) do
+    match?(
+      {:ok, _},
+      Druid.Client.request(request, Keyword.delete(request_opts, :receive_timeout))
+    )
   end
 
   @doc false
@@ -445,14 +465,7 @@ defmodule Ecto.Adapters.Druid do
 
       # The Broker keeps running a query after the client gives up on it
       {:error, %Req.TransportError{reason: :timeout} = reason} ->
-        # The cancel gets the default timeout, not the one that just ran out
-        cancel_opts = Keyword.delete(request_opts, :receive_timeout)
-
-        canceled? =
-          match?(
-            {:ok, _},
-            Druid.Client.Native.cancel(query_id) |> Druid.Client.request(cancel_opts)
-          )
+        canceled? = cancel(Druid.Client.Native.cancel(query_id), request_opts)
 
         {:error,
          __MODULE__.NativeQueryError.exception(
@@ -520,9 +533,7 @@ defmodule Ecto.Adapters.Druid do
 
     [[plan | _] | _] =
       Telemetry.query(info, opts, fn ->
-        rows =
-          Druid.Client.SQL.query(sql, params, request_opts) |> Telemetry.request!(request_opts)
-
+        rows = broker_query(sql, params, query_id, request_opts)
         {rows, {:ok, %{num_rows: length(rows), rows: rows}}}
       end)
 
