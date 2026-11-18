@@ -50,8 +50,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Pulling and building the images takes ~30s, so it runs in the
+      # background while Elixir is set up and the project compiles. "Wait for
+      # Druid" fails with the output if it doesn't come up.
       - name: Start Druid
-        run: docker compose up -d --build druid
+        run: |
+          (docker compose up -d --build druid > "$RUNNER_TEMP/druid-start.log" 2>&1
+           echo $? > "$RUNNER_TEMP/druid-start.status") &
 
       - uses: erlef/setup-beam@v1
         id: beam
@@ -77,6 +82,11 @@ jobs:
         timeout-minutes: 10
         run: |
           until curl -sf localhost:9888/status/health && curl -sf localhost:9082/status/health; do
+            status=$(cat "$RUNNER_TEMP/druid-start.status" 2>/dev/null || true)
+            if [ -n "$status" ] && [ "$status" != 0 ]; then
+              cat "$RUNNER_TEMP/druid-start.log"
+              exit 1
+            fi
             echo "Waiting for Druid..."
             sleep 5
           done
@@ -114,7 +124,9 @@ jobs:
 
       - name: Druid logs
         if: failure()
-        run: docker compose logs druid | tail -n 500
+        run: |
+          cat "$RUNNER_TEMP/druid-start.log" || true
+          docker compose logs druid | tail -n 500
 
   example:
     name: Example app
