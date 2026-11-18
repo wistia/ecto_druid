@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Druid.Lookups.Sync do
       mix druid.lookups.sync
       mix druid.lookups.sync --only countries
       mix druid.lookups.sync --prune
+      mix druid.lookups.sync --wait --timeout 300
 
   In a release, call `Druid.Lookups.sync/2` instead. See `Druid.Lookups` for
   the template format and configuration.
@@ -20,20 +21,38 @@ defmodule Mix.Tasks.Druid.Lookups.Sync do
     * `--only` - Submit only these templates (comma-separated, or repeated).
     * `--dry-run` - Show which lookups would change without submitting them.
     * `--prune` - Delete lookups that have no template.
+    * `--wait` - Wait until every synced lookup is loaded on the nodes of its
+      tier. A lookup that isn't loaded in time is reported as an error.
+    * `--timeout` - With `--wait`, give up after this many seconds. Defaults
+      to waiting as long as it takes.
 
   Exits with a non-zero status if any request fails.
   """
 
   use Mix.Task
 
-  @switches [repo: :keep, only: :keep, dry_run: :boolean, prune: :boolean]
+  @switches [
+    repo: :keep,
+    only: :keep,
+    dry_run: :boolean,
+    prune: :boolean,
+    wait: :boolean,
+    timeout: :integer
+  ]
   @aliases [r: :repo]
 
   @impl true
   def run(args) do
     {opts, _} = OptionParser.parse!(args, strict: @switches, aliases: @aliases)
     repo = Mix.Druid.setup!(args)
-    sync_opts = Mix.Druid.only(opts) ++ Keyword.take(opts, [:dry_run, :prune])
+
+    sync_opts =
+      Mix.Druid.only(opts) ++
+        Keyword.take(opts, [:dry_run, :prune, :wait]) ++
+        case opts[:timeout] do
+          nil -> []
+          seconds -> [timeout: seconds * 1000]
+        end
 
     results =
       try do

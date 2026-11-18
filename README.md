@@ -92,3 +92,6 @@ mix test
 The compose file maps services to non-default host ports so they don't clash
 with other local containers: Druid router on 9888, Druid broker on 9082,
 Postgres on 6432, ZooKeeper on 3181, and SeaweedFS (S3 API) on 9900.
+
+Starting Druid also starts Kafka, which the streaming ingestion test writes to
+with `docker compose exec`, so run `mix test` from the repository root.

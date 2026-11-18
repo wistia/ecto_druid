@@ -13,7 +13,7 @@ defmodule Druid.Client.Lookup do
   To manage lookups from templates, see `Druid.Lookups`.
   """
 
-  import Druid.Client.Util, only: [escape: 1]
+  import Druid.Client.Util, only: [escape: 1, params: 2]
 
   @config_path "/druid/coordinator/v1/lookups/config"
 
@@ -86,13 +86,22 @@ defmodule Druid.Client.Lookup do
 
   @doc """
   Builds a request to get whether a lookup is loaded on every node of its
-  tier.
+  tier, as `%{"loaded" => boolean}`.
+
+  The Coordinator answers from what it last saw on each node, which it
+  checks every `druid.manager.lookups.period` (two minutes by default).
+
+  ## Options
+
+    * `:detailed` - When `true`, also list the nodes that haven't loaded the
+      current version yet, as `"pendingNodes"`.
   """
-  @spec status(String.t(), String.t()) :: Req.Request.t()
-  def status(tier, name) do
+  @spec status(String.t(), String.t(), Keyword.t()) :: Req.Request.t()
+  def status(tier, name, opts \\ []) do
     Req.new(
       method: :get,
-      url: "/druid/coordinator/v1/lookups/status/" <> escape(tier) <> "/" <> escape(name)
+      url: "/druid/coordinator/v1/lookups/status/" <> escape(tier) <> "/" <> escape(name),
+      params: params(opts, detailed: "detailed")
     )
   end
 

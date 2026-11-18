@@ -144,9 +144,37 @@ defmodule Druid.Supervisors do
   Compaction configs, retention rules, lookups and batch ingestion tasks are
   managed the same way, from their own template directories. See
   `Druid.Compaction`, `Druid.Retention`, `Druid.Lookups` and `Druid.Tasks`.
+
+  ## Waiting for streaming ingestion
+
+  Two functions wait on a streaming supervisor, which helps in tests that
+  write to a stream and query what Druid made of it:
+
+    * `await_running/3` waits until the supervisor's tasks are reading the
+      stream. A spec with `"useEarliestOffset": false` starts from the end of
+      the stream, so messages written before then are never ingested.
+    * `handoff/3` makes the tasks publish their segments now rather than at
+      the end of their `taskDuration`, and waits for them to finish, so the
+      rows can be queried from Historicals.
+
+  For example:
+
+      [{:created, _}] = Druid.Supervisors.sync(MyApp.DruidRepo, only: ["page_views"])
+      {:ok, _} = Druid.Supervisors.await_running(MyApp.DruidRepo, "page_views", timeout: 120_000)
+
+      produce_page_views()
+      # ... query the rows the tasks hold in memory ...
+
+      {:ok, _} =
+        Druid.Supervisors.handoff(MyApp.DruidRepo, "page_views",
+          wait_for_segments: true,
+          timeout: 300_000
+        )
+
+      # ... query them again, now from Historicals ...
   """
 
-  alias Druid.SpecTemplates
+  alias Druid.{Poll, SpecTemplates}
 
   defmodule Spec do
     @moduledoc """
@@ -163,10 +191,28 @@ defmodule Druid.Supervisors do
   end
 
   defmodule Error do
-    defexception [:message]
+    @moduledoc """
+    Raised when a supervisor template can't be rendered, and returned when
+    waiting on a supervisor fails.
+
+      * `:reason` - Why waiting failed: `:timeout`, `:suspended`,
+        `:unhealthy` or `:no_active_tasks`. `nil` for a template error.
+      * `:supervisor_id` - The supervisor's ID, when waiting on one.
+      * `:status` - The supervisor's last status report (its `"payload"`),
+        when there is one.
+    """
+    @type t :: %__MODULE__{
+            message: String.t(),
+            reason: :timeout | :suspended | :unhealthy | :no_active_tasks | nil,
+            supervisor_id: String.t() | nil,
+            status: map() | nil
+          }
+    defexception [:message, :reason, :supervisor_id, :status]
   end
 
   @default_path "priv/druid/supervisors"
+  @default_poll_interval 2_000
+  @unhealthy_states ["UNHEALTHY_SUPERVISOR", "UNHEALTHY_TASKS"]
 
   @doc """
   Renders every supervisor spec template for `repo`.
@@ -288,6 +334,244 @@ defmodule Druid.Supervisors do
   rescue
     error -> {:error, id, error}
   end
+
+  @doc """
+  Waits until a streaming supervisor's tasks are reading the stream.
+
+  Returns `{:ok, status}`, where `status` is the supervisor's status report
+  (the `"payload"` of `Druid.Client.Supervisor.status/1`), once the
+  supervisor is `RUNNING` and each of its active tasks has reported the
+  offsets it has read up to. Messages written to the stream from then on are
+  ingested, even by a spec with `"useEarliestOffset": false`.
+
+  Returns `{:error, %Druid.Supervisors.Error{}}` when:
+
+    * the supervisor is suspended (`reason: :suspended`),
+    * it is `UNHEALTHY_SUPERVISOR` or `UNHEALTHY_TASKS` (`reason:
+      :unhealthy`), with its recent errors in the message, or
+    * it isn't running by the timeout (`reason: :timeout`).
+
+  Request errors are returned as `{:error, exception}`, including the 404
+  for a supervisor that doesn't exist.
+
+  Druid only reports a supervisor unhealthy after several failures in a row
+  (`druid.supervisor.unhealthinessThreshold` and
+  `taskUnhealthinessThreshold`, 3 by default), so a supervisor that can't
+  reach its stream can take a few minutes to fail rather than time out.
+
+  ## Options
+
+    * `:timeout` - How long to wait in milliseconds. Defaults to `:infinity`.
+    * `:poll_interval` - How often to check, in milliseconds. Defaults to
+      `#{@default_poll_interval}`.
+    * `:host`, `:port`, `:scheme` - As in the "Configuration" section of the
+      module docs.
+  """
+  @spec await_running(Ecto.Repo.t(), String.t(), Keyword.t()) ::
+          {:ok, map()} | {:error, Exception.t()}
+  def await_running(repo, id, opts \\ []) do
+    request_opts = request_opts(repo, opts)
+    deadline = Poll.deadline(Keyword.get(opts, :timeout, :infinity))
+    poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
+
+    case Poll.poll(deadline, poll_interval, fn -> check_running(id, request_opts) end) do
+      {:timeout, status} ->
+        state = status && status["detailedState"]
+
+        {:error,
+         %Error{
+           message:
+             "timed out waiting for supervisor #{id} to start reading" <>
+               if(state, do: " (it is #{state})", else: ""),
+           reason: :timeout,
+           supervisor_id: id,
+           status: status
+         }}
+
+      result ->
+        result
+    end
+  end
+
+  defp check_running(id, request_opts) do
+    with {:ok, status} <- fetch_status(id, request_opts) do
+      cond do
+        status["suspended"] == true ->
+          {:error,
+           %Error{
+             message: "supervisor #{id} is suspended",
+             reason: :suspended,
+             supervisor_id: id,
+             status: status
+           }}
+
+        status["state"] in @unhealthy_states ->
+          {:error,
+           %Error{
+             message: "supervisor #{id} is #{status["detailedState"]}" <> recent_errors(status),
+             reason: :unhealthy,
+             supervisor_id: id,
+             status: status
+           }}
+
+        reading?(status) ->
+          {:done, status}
+
+        true ->
+          {:wait, status}
+      end
+    end
+  end
+
+  # A task's currentOffsets stay empty until it has started and read from
+  # the stream.
+  defp reading?(%{"state" => "RUNNING", "activeTasks" => [_ | _] = tasks}) do
+    Enum.all?(tasks, &match?(%{"currentOffsets" => offsets} when map_size(offsets) > 0, &1))
+  end
+
+  defp reading?(_status), do: false
+
+  defp recent_errors(%{"recentErrors" => [_ | _] = errors}) do
+    messages =
+      errors
+      |> Enum.take(-3)
+      |> Enum.map(&(&1["exceptionClass"] || &1["message"] || inspect(&1)))
+      |> Enum.uniq()
+
+    ": " <> Enum.join(messages, "; ")
+  end
+
+  defp recent_errors(_status), do: ""
+
+  @doc """
+  Makes a streaming supervisor's tasks publish their segments now, and waits
+  for those tasks to finish.
+
+  Druid normally publishes a task's segments at the end of its
+  `taskDuration`. This asks the supervisor to stop its active tasks early
+  (Druid's `taskGroups/handoff` API); they publish what they hold and new
+  tasks carry on reading. Kafka and Kinesis tasks wait for their segments
+  to be loaded by Historicals before finishing, up to the tuning config's
+  `handoffConditionTimeout` (15 minutes by default).
+
+  Returns `{:ok, statuses}`, one task status per task that was active, once
+  they have all succeeded. Returns `{:error, %Druid.Tasks.Error{}}` when one
+  of them fails or doesn't finish in time,
+  `{:error, %Druid.Supervisors.Error{reason: :no_active_tasks}}` when the
+  supervisor has no active tasks to stop, and `{:error, exception}` when a
+  request fails.
+
+  ## Options
+
+    * `:task_groups` - The task group IDs to hand off. Defaults to all of
+      them, `0` up to the spec's `taskCount`.
+    * `:wait` - When `false`, return `{:ok, task_ids}` as soon as Druid has
+      accepted the request, without waiting. Defaults to `true`.
+    * `:wait_for_segments` - When `true`, also wait until Historicals have
+      loaded the data source's segments, as in `Druid.Tasks.await/3`.
+      Defaults to `false`.
+    * `:segments_interval` - Only wait for segments in this interval.
+      Defaults to all of them.
+    * `:timeout` - How long to wait in milliseconds, for all the tasks
+      together. Defaults to `:infinity`.
+    * `:poll_interval` - How often to check, in milliseconds. Defaults to
+      `#{@default_poll_interval}`.
+    * `:host`, `:port`, `:scheme` - As in the "Configuration" section of the
+      module docs.
+
+  Waiting runs `Druid.Tasks.await/3` for each task, so it emits its
+  `[:druid, :task, :await]` telemetry spans.
+  """
+  @spec handoff(Ecto.Repo.t(), String.t(), Keyword.t()) ::
+          {:ok, [map()] | [String.t()]} | {:error, Exception.t()}
+  def handoff(repo, id, opts \\ []) do
+    request_opts = request_opts(repo, opts)
+    deadline = Poll.deadline(Keyword.get(opts, :timeout, :infinity))
+
+    with {:ok, status} <- fetch_status(id, request_opts),
+         {:ok, task_ids} <- active_task_ids(id, status),
+         {:ok, groups} <- task_groups(id, request_opts, opts),
+         {:ok, _} <-
+           Druid.Client.Supervisor.handoff(id, groups) |> Druid.Client.request(request_opts) do
+      if Keyword.get(opts, :wait, true) do
+        await_tasks(repo, task_ids, deadline, request_opts, opts)
+      else
+        {:ok, task_ids}
+      end
+    end
+  end
+
+  defp active_task_ids(id, status) do
+    case status["activeTasks"] do
+      [_ | _] = tasks ->
+        {:ok, Enum.map(tasks, & &1["id"])}
+
+      _ ->
+        {:error,
+         %Error{
+           message: "supervisor #{id} has no active tasks to hand off",
+           reason: :no_active_tasks,
+           supervisor_id: id,
+           status: status
+         }}
+    end
+  end
+
+  # Kafka and Kinesis assign each partition to task group
+  # `partition rem taskCount`, so the groups are 0 up to taskCount. Druid
+  # ignores groups that aren't reading.
+  defp task_groups(id, request_opts, opts) do
+    case Keyword.fetch(opts, :task_groups) do
+      {:ok, groups} ->
+        {:ok, groups}
+
+      :error ->
+        with {:ok, spec} <- Druid.Client.Supervisor.get(id) |> Druid.Client.request(request_opts) do
+          count = get_in(spec, ["spec", "ioConfig", "taskCount"]) || 1
+          {:ok, Enum.to_list(0..(count - 1)//1)}
+        end
+    end
+  end
+
+  defp await_tasks(repo, task_ids, deadline, request_opts, opts) do
+    await_opts =
+      opts
+      |> Keyword.take([:poll_interval, :wait_for_segments, :segments_interval])
+      |> Keyword.merge(Keyword.delete(request_opts, :telemetry_metadata))
+
+    Enum.reduce_while(task_ids, {:ok, []}, fn task_id, {:ok, statuses} ->
+      timeout = Poll.remaining(deadline)
+
+      case Druid.Tasks.await(repo, task_id, [timeout: timeout] ++ await_opts) do
+        {:ok, status} -> {:cont, {:ok, [status | statuses]}}
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+    |> case do
+      {:ok, statuses} -> {:ok, Enum.reverse(statuses)}
+      error -> error
+    end
+  end
+
+  defp fetch_status(id, request_opts) do
+    case Druid.Client.Supervisor.status(id) |> Druid.Client.request(request_opts) do
+      {:ok, %{"payload" => %{} = status}} ->
+        {:ok, status}
+
+      {:ok, body} ->
+        {:error,
+         %Error{
+           message: "unexpected status for supervisor #{id}: #{inspect(body)}",
+           supervisor_id: id
+         }}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp request_opts(repo, opts),
+    do: SpecTemplates.request_opts(repo, SpecTemplates.config(repo, :supervisors, opts))
 
   @doc """
   Returns the supervisor ID Druid assigns to a spec.

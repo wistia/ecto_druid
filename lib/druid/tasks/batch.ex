@@ -4,6 +4,7 @@ defmodule Druid.Tasks.Batch do
   # polls them with the bulk task status API until they finish. Used by
   # Druid.Tasks.backfill/5 and Druid.Tasks.await_all/3.
 
+  alias Druid.Poll
   alias Druid.Tasks.{Error, Run}
 
   @finished ["SUCCESS", "FAILED"]
@@ -12,7 +13,7 @@ defmodule Druid.Tasks.Batch do
     concurrency = Keyword.get(opts, :concurrency, :infinity)
     await? = Keyword.get(opts, :await, true)
     poll_interval = Keyword.fetch!(opts, :poll_interval)
-    deadline = deadline(Keyword.get(opts, :timeout, :infinity))
+    deadline = Poll.deadline(Keyword.get(opts, :timeout, :infinity))
 
     state = %{
       queue: [],
@@ -93,11 +94,11 @@ defmodule Druid.Tasks.Batch do
             report(state)
             state.done
 
-          remaining(state.deadline) == 0 ->
+          Poll.remaining(state.deadline) == 0 ->
             timed_out(state)
 
           true ->
-            Process.sleep(min(state.poll_interval, remaining(state.deadline)))
+            Process.sleep(min(state.poll_interval, Poll.remaining(state.deadline)))
             loop(state)
         end
     end
@@ -216,10 +217,4 @@ defmodule Druid.Tasks.Batch do
     if progress != state.last_progress, do: state.on_progress.(progress)
     %{state | last_progress: progress}
   end
-
-  defp deadline(:infinity), do: :infinity
-  defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
-
-  defp remaining(:infinity), do: :infinity
-  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 end
