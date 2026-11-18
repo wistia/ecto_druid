@@ -101,7 +101,8 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Ecto.Druid.Query.MultiValue,
           Ecto.Druid.Query.JSON,
           Ecto.Druid.Query.Table,
-          Ecto.Adapters.Druid.StatementError
+          Ecto.Adapters.Druid.StatementError,
+          Ecto.Adapters.Druid.NativeQueryError
         ],
         "Druid Ecto Types": [
           Ecto.Druid.DateTime,

@@ -70,7 +70,7 @@ defmodule IntegrationTest do
       limit: 3
     }
 
-    assert TestRepo.native_query(query) == [
+    assert TestRepo.native_query!(query) == [
              %{
                "__time" => "2016-06-27T00:00:00.000Z",
                "added" => 11_774_265,
@@ -78,7 +78,7 @@ defmodule IntegrationTest do
              }
            ]
 
-    assert TestRepo.native_query(query, raw: true) == [
+    assert TestRepo.native_query!(query, raw: true) == [
              %{
                "result" => %{"added" => 11_774_265, "deleted" => 278_288},
                "timestamp" => "2016-06-27T00:00:00.000Z"
@@ -94,7 +94,7 @@ defmodule IntegrationTest do
     refute Map.has_key?(native["context"], "sqlQueryId")
 
     # The planned query runs as is
-    assert [%{"a0" => 3}] = TestRepo.native_query(native)
+    assert [%{"a0" => 3}] = TestRepo.native_query!(native)
   end
 
   test "native query rows" do
@@ -110,7 +110,7 @@ defmodule IntegrationTest do
     }
 
     assert [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => _, "edits" => _} | _] =
-             query |> TestRepo.native_query(raw: true) |> Ecto.Druid.Native.rows(query)
+             query |> TestRepo.native_query!(raw: true) |> Ecto.Druid.Native.rows(query)
   end
 
   test "native query builders" do
@@ -159,7 +159,73 @@ defmodule IntegrationTest do
                "users" => 1.0,
                "net_per_edit" => 3.0
              }
-           ] = TestRepo.native_query(query)
+           ] = TestRepo.native_query!(query)
+  end
+
+  test "native queries on a schema, with checked columns and the repo context" do
+    query = %{
+      queryType: "timeseries",
+      dataSource: Wikipedia,
+      intervals: ["2016-06-27/2016-06-28"],
+      granularity: "all",
+      filter: %{
+        type: "equals",
+        column: "page",
+        matchValueType: "STRING",
+        matchValue: "Black Dahlia"
+      },
+      aggregations: [%{type: "longSum", name: "added", fieldName: "added"}]
+    }
+
+    assert {:ok, [%{"added" => 3}]} =
+             TestRepo.native_query(query, merge_context: true)
+
+    assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
+      TestRepo.native_query(%{query | filter: Ecto.Druid.Native.Filter.null("nope")})
+    end
+
+    import Ecto.Druid.Native.Expression
+
+    assert {:ok, [%{"net" => 3}]} =
+             TestRepo.native_query(%{
+               query
+               | aggregations: [
+                   %{type: "longSum", name: "net", expression: expr(added - deleted)}
+                 ]
+             })
+
+    assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
+      TestRepo.native_query(%{
+        query
+        | filter: Ecto.Druid.Native.Filter.expression(expr(nope > 0))
+      })
+    end
+  end
+
+  test "native query errors carry the queryId" do
+    query = %{queryType: "timeseries", dataSource: "no_such_source", intervals: ["2016/2017"]}
+
+    assert {:error, %Ecto.Adapters.Druid.NativeQueryError{query_id: id, reason: reason}} =
+             TestRepo.native_query(query)
+
+    assert {:ok, _} = Ecto.UUID.cast(id)
+    assert %Druid.Client.RequestError{} = reason
+  end
+
+  test "native queries that time out are canceled" do
+    query = %{
+      queryType: "groupBy",
+      dataSource: "wikipedia",
+      intervals: ["2016-06-27/2016-06-28"],
+      granularity: "all",
+      dimensions: ["page", "user", "comment"],
+      aggregations: [%{type: "count", name: "edits"}]
+    }
+
+    assert {:error, %Ecto.Adapters.Druid.NativeQueryError{canceled: true, reason: reason}} =
+             TestRepo.native_query(query, receive_timeout: 1)
+
+    assert %Req.TransportError{reason: :timeout} = reason
   end
 
   test "legacy native filters match the newer ones" do
@@ -168,7 +234,7 @@ defmodule IntegrationTest do
 
     count = fn filter ->
       [%{"edits" => edits}] =
-        TestRepo.native_query(%{
+        TestRepo.native_query!(%{
           queryType: "timeseries",
           dataSource: "wikipedia",
           intervals: ["2016-06-27/2016-06-28"],

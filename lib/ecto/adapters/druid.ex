@@ -122,15 +122,32 @@ defmodule Ecto.Adapters.Druid do
 
   Per-query values override repo config values, which override the adapter
   defaults. Native queries (`native_query/2`) carry their context inline in the
-  query map instead.
+  query map instead, and take the repo's `:context` only with
+  `merge_context: true`.
 
   ## Native queries
 
   `native_query/2` sends a [native JSON query](https://druid.apache.org/docs/latest/querying/)
-  and returns its results flattened into one map per row by
-  `Ecto.Druid.Native.rows/3`. Pass `raw: true` to get Druid's decoded response
-  as is. To see the native query Druid runs for an Ecto query, for debugging,
-  use `to_native/2`. See the [Native Queries guide](native_queries.md).
+  and returns `{:ok, rows}`, with the results flattened into one map per row
+  by `Ecto.Druid.Native.rows/3`, or `{:error, Ecto.Adapters.Druid.NativeQueryError.t()}`.
+  `native_query!/2` returns the rows or raises. Options:
+
+    * `:raw` - Return Druid's decoded response as is, without flattening.
+    * `:columns` - Column names for `windowOperator` results.
+    * `:merge_context` - Merge the repo's `:context` config into the query's
+      `context`, which wins where they overlap.
+    * `:check_columns` - When `dataSource` is a schema module, raise before
+      sending the query if it reads a column the schema doesn't define,
+      including in an expression built with `expr/1`. Defaults to `true` for
+      a schema. Pass `false` to skip the check.
+    * `:receive_timeout` - How long to wait for Druid's response, in
+      milliseconds. Defaults to `15_000`. On timeout, the query is canceled.
+
+  The `dataSource` can be a schema module, which is replaced with its source
+  name. Each query gets a `queryId` in its context unless it has one, which
+  `Druid.Client.Native.cancel/1` takes. To see the native query Druid runs for
+  an Ecto query, for debugging, use `to_native/2`. See the
+  [Native Queries guide](native_queries.md).
   """
 
   @behaviour Ecto.Adapter
@@ -146,6 +163,10 @@ defmodule Ecto.Adapters.Druid do
 
       def native_query(query, opts \\ []) do
         Ecto.Adapters.Druid.native_query(get_dynamic_repo(), query, opts)
+      end
+
+      def native_query!(query, opts \\ []) do
+        Ecto.Adapters.Druid.native_query!(get_dynamic_repo(), query, opts)
       end
 
       def to_native(query, opts \\ []) do
@@ -308,16 +329,67 @@ defmodule Ecto.Adapters.Druid do
   @doc false
   def native_query(repo, query, opts) do
     {raw?, opts} = Keyword.pop(opts, :raw, false)
+    {merge_context?, opts} = Keyword.pop(opts, :merge_context, false)
     {rows_opts, opts} = Keyword.split(opts, [:columns])
-    request_opts = repo.config() |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+    {prepare_opts, opts} = Keyword.split(opts, [:check_columns])
+    config = repo.config()
 
-    results =
-      Druid.Client.Native.query(query)
-      |> Druid.Client.request!(request_opts)
+    query =
+      query
+      |> Ecto.Druid.Native.prepare(prepare_opts)
+      |> put_native_context(if(merge_context?, do: Keyword.get(config, :context, %{}), else: %{}))
 
-    if raw? or not Ecto.Druid.Native.flattens?(query),
-      do: results,
-      else: Ecto.Druid.Native.rows(results, query, rows_opts)
+    query_id = query["context"]["queryId"]
+    request_opts = config |> Keyword.merge(opts) |> Keyword.put(:finch, __MODULE__.Finch)
+
+    case Druid.Client.Native.query(query) |> Druid.Client.request(request_opts) do
+      {:ok, results} ->
+        if raw? or not Ecto.Druid.Native.flattens?(query),
+          do: {:ok, results},
+          else: {:ok, Ecto.Druid.Native.rows(results, query, rows_opts)}
+
+      # The Broker keeps running a query after the client gives up on it
+      {:error, %Req.TransportError{reason: :timeout} = reason} ->
+        # The cancel gets the default timeout, not the one that just ran out
+        cancel_opts = Keyword.delete(request_opts, :receive_timeout)
+
+        canceled? =
+          match?(
+            {:ok, _},
+            Druid.Client.Native.cancel(query_id) |> Druid.Client.request(cancel_opts)
+          )
+
+        {:error,
+         __MODULE__.NativeQueryError.exception(
+           query_id: query_id,
+           reason: reason,
+           canceled: canceled?
+         )}
+
+      {:error, reason} ->
+        {:error, __MODULE__.NativeQueryError.exception(query_id: query_id, reason: reason)}
+    end
+  end
+
+  @doc false
+  def native_query!(repo, query, opts) do
+    case native_query(repo, query, opts) do
+      {:ok, results} -> results
+      {:error, error} -> raise error
+    end
+  end
+
+  # The query's own context wins over the repo's, and every query gets a
+  # queryId to cancel it by.
+  defp put_native_context(query, repo_context) do
+    repo_context = Map.new(repo_context, fn {key, value} -> {to_string(key), value} end)
+
+    context =
+      repo_context
+      |> Map.merge(query["context"] || %{})
+      |> Map.put_new_lazy("queryId", &Ecto.UUID.generate/0)
+
+    Map.put(query, "context", context)
   end
 
   # Druid's EXPLAIN PLAN FOR returns the native query a SQL statement plans

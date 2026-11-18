@@ -16,7 +16,7 @@ defmodule Ecto.Druid.Native do
         aggregations: [%{type: "count", name: "edits"}]
       }
 
-      MyApp.DruidRepo.native_query(query, raw: true)
+      MyApp.DruidRepo.native_query!(query, raw: true)
       |> Ecto.Druid.Native.rows(query)
       #=> [%{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#en.wikipedia", "edits" => 6650},
       #    %{"__time" => "2016-06-27T00:00:00.000Z", "channel" => "#sh.wikipedia", "edits" => 3969}]
@@ -227,4 +227,116 @@ defmodule Ecto.Druid.Native do
   # Druid with string keys, so look everything up by string.
   @doc false
   def stringify_keys(query), do: query |> Jason.encode!() |> Jason.decode!()
+
+  @doc false
+  # Readies a query to send: swaps a schema data source for its source name,
+  # optionally checking the columns the query reads against the schema, and
+  # returns it with string keys.
+  @spec prepare(map(), Keyword.t()) :: map()
+  def prepare(query, opts \\ []) do
+    {data_source, schema} = data_source(query[:dataSource] || query["dataSource"])
+    query = Map.drop(query, [:dataSource, "dataSource"])
+
+    # Expressions encode to plain strings, so read their columns first
+    expression_columns = expression_columns(query, [])
+    query = query |> stringify_keys() |> put_data_source(data_source)
+
+    # On by default for a schema. Asking for it without one raises, rather
+    # than quietly checking nothing.
+    if Keyword.get(opts, :check_columns, schema != nil) do
+      check_columns!(query, schema, expression_columns)
+    end
+
+    query
+  end
+
+  defp put_data_source(query, nil), do: query
+  defp put_data_source(query, data_source), do: Map.put(query, "dataSource", data_source)
+
+  defp data_source(module) when is_atom(module) and not is_nil(module) do
+    if schema?(module),
+      do: {module.__schema__(:source), module},
+      else: {to_string(module), nil}
+  end
+
+  defp data_source(%{} = data_source) do
+    case data_source[:name] || data_source["name"] do
+      module when is_atom(module) and not is_nil(module) ->
+        {name, schema} = data_source(module)
+
+        {data_source |> Map.drop([:name, "name"]) |> stringify_keys() |> Map.put("name", name),
+         schema}
+
+      _ ->
+        {data_source, nil}
+    end
+  end
+
+  defp data_source(data_source), do: {data_source, nil}
+
+  defp schema?(module),
+    do: Code.ensure_loaded?(module) and function_exported?(module, :__schema__, 1)
+
+  defp expression_columns(%Ecto.Druid.Native.Expression{columns: columns}, acc),
+    do: columns ++ acc
+
+  defp expression_columns(%_{}, acc), do: acc
+
+  defp expression_columns(map, acc) when is_map(map),
+    do: map |> Map.values() |> expression_columns(acc)
+
+  defp expression_columns(list, acc) when is_list(list),
+    do: Enum.reduce(list, acc, &expression_columns/2)
+
+  defp expression_columns(_term, acc), do: acc
+
+  defp check_columns!(_query, nil, _expression_columns) do
+    raise ArgumentError,
+          ":check_columns needs the query's dataSource to be a schema module"
+  end
+
+  defp check_columns!(query, schema, expression_columns) do
+    known =
+      MapSet.new(["__time" | Enum.map(schema.__schema__(:fields), &column_name(schema, &1))])
+
+    defined = query |> Map.delete("dataSource") |> collect(["name", "outputName"])
+
+    unknown =
+      query
+      |> Map.delete("dataSource")
+      |> collect(~w(dimension dimensions column columns fieldName fieldNames))
+      |> MapSet.union(MapSet.new(expression_columns))
+      |> MapSet.difference(known)
+      |> MapSet.difference(defined)
+
+    if MapSet.size(unknown) > 0 do
+      raise ArgumentError,
+            "the query reads columns #{inspect(schema)} doesn't define: " <>
+              inspect(Enum.sort(unknown))
+    end
+  end
+
+  defp column_name(schema, field),
+    do: Atom.to_string(schema.__schema__(:field_source, field))
+
+  # The names under any of `keys`, anywhere in the query. A dimension spec
+  # under "dimensions" holds its column under "dimension", which this finds
+  # by recursing.
+  defp collect(term, keys), do: term |> collect(keys, []) |> MapSet.new()
+
+  defp collect(map, keys, acc) when is_map(map) do
+    Enum.reduce(map, acc, fn {key, value}, acc ->
+      acc = if key in keys, do: names(value) ++ acc, else: acc
+      collect(value, keys, acc)
+    end)
+  end
+
+  defp collect(list, keys, acc) when is_list(list),
+    do: Enum.reduce(list, acc, &collect(&1, keys, &2))
+
+  defp collect(_term, _keys, acc), do: acc
+
+  defp names(name) when is_binary(name), do: [name]
+  defp names(names) when is_list(names), do: Enum.filter(names, &is_binary/1)
+  defp names(_), do: []
 end

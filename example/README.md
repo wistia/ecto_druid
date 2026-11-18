@@ -18,7 +18,7 @@ It shows how to:
   [template](priv/druid/lookups/channel_languages.json.eex))
 * Read Druid's system tables with the bundled `sys.*` and
   `INFORMATION_SCHEMA` schemas ([`Cluster`](lib/wiki_explorer/cluster.ex))
-* Run a native `topN` query with `native_query/1`
+* Run a native `topN` query with `native_query!/2`
 * Keep a batch ingestion task as an EEx template whose `dataSchema` is
   generated from that schema, then run it and wait for it with
   `mix druid.tasks.run` ([template](priv/druid/tasks/wiki_edits.json.eex))

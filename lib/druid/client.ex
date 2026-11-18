@@ -38,6 +38,8 @@ defmodule Druid.Client do
       Druid's Coordinator and Overlord redirect to their leader, which is
       usually another host, and by default the credentials are dropped
       there. Not needed when going through the Router.
+    * `:receive_timeout` - How long to wait for a response, in milliseconds.
+      Passed to `Req`, which defaults it to `15_000`.
     * `:plug`, `:adapter`, `:finch` - Passed to `Req`.
   """
 
@@ -84,6 +86,7 @@ defmodule Druid.Client do
       |> put_present(:finch, Keyword.get(opts, :finch))
       |> put_present(:auth, opts |> Keyword.get(:auth) |> auth())
       |> put_present(:redirect_trusted, Keyword.get(opts, :redirect_trusted))
+      |> put_present(:receive_timeout, Keyword.get(opts, :receive_timeout))
 
     response = Req.request!(request, [decode_body: false] ++ request_opts)
     body = decode_body(response)
