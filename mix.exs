@@ -109,9 +109,11 @@ defmodule Ecto.Adapters.Druid.MixProject do
         "Druid Ecto Types": [
           Ecto.Druid.DateTime,
           Ecto.Druid.DSHistogram,
+          Ecto.Druid.Estimate,
           Ecto.Druid.HLLSketch,
           Ecto.Druid.QuantilesSketch,
           Ecto.Druid.ThetaSketch,
+          Ecto.Druid.TDigestSketch,
           Ecto.Druid.TupleSketch,
           Ecto.Druid.JSON
         ],

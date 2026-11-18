@@ -11,10 +11,10 @@ defmodule Ecto.Druid.Query.HLL do
   sql_function hll_sketch_estimate(expr, round)
 
   @doc "Returns the distinct count estimate and error bounds from an HLL sketch. expr must return an HLL sketch. An optional numStdDev argument can be provided."
-  sql_function hll_sketch_estimate_with_error_bounds(expr)
+  sql_function hll_sketch_estimate_with_error_bounds(expr), type: Ecto.Druid.Estimate
 
   @doc "Returns the distinct count estimate and error bounds from an HLL sketch. expr must return an HLL sketch. An optional numStdDev argument can be provided."
-  sql_function hll_sketch_estimate_with_error_bounds(expr, num_std_dev)
+  sql_function hll_sketch_estimate_with_error_bounds(expr, num_std_dev), type: Ecto.Druid.Estimate
 
   @doc "Returns a union of HLL sketches, where each input expression must return an HLL sketch. The lgK and tgtHllType can be optionally specified as the first parameter; if provided, both optional parameters must be specified."
   sql_function hll_sketch_union(exprs), type: Ecto.Druid.HLLSketch
