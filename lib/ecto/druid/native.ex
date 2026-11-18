@@ -235,17 +235,16 @@ defmodule Ecto.Druid.Native do
   @spec prepare(map(), Keyword.t()) :: map()
   def prepare(query, opts \\ []) do
     {data_source, schema} = data_source(query[:dataSource] || query["dataSource"])
+    query = Map.drop(query, [:dataSource, "dataSource"])
 
-    query =
-      query
-      |> Map.drop([:dataSource, "dataSource"])
-      |> stringify_keys()
-      |> put_data_source(data_source)
+    # Expressions encode to plain strings, so read their columns first
+    expression_columns = expression_columns(query, [])
+    query = query |> stringify_keys() |> put_data_source(data_source)
 
     # On by default for a schema. Asking for it without one raises, rather
     # than quietly checking nothing.
     if Keyword.get(opts, :check_columns, schema != nil) do
-      check_columns!(query, schema)
+      check_columns!(query, schema, expression_columns)
     end
 
     query
@@ -278,12 +277,25 @@ defmodule Ecto.Druid.Native do
   defp schema?(module),
     do: Code.ensure_loaded?(module) and function_exported?(module, :__schema__, 1)
 
-  defp check_columns!(_query, nil) do
+  defp expression_columns(%Ecto.Druid.Native.Expression{columns: columns}, acc),
+    do: columns ++ acc
+
+  defp expression_columns(%_{}, acc), do: acc
+
+  defp expression_columns(map, acc) when is_map(map),
+    do: map |> Map.values() |> expression_columns(acc)
+
+  defp expression_columns(list, acc) when is_list(list),
+    do: Enum.reduce(list, acc, &expression_columns/2)
+
+  defp expression_columns(_term, acc), do: acc
+
+  defp check_columns!(_query, nil, _expression_columns) do
     raise ArgumentError,
           ":check_columns needs the query's dataSource to be a schema module"
   end
 
-  defp check_columns!(query, schema) do
+  defp check_columns!(query, schema, expression_columns) do
     known =
       MapSet.new(["__time" | Enum.map(schema.__schema__(:fields), &column_name(schema, &1))])
 
@@ -293,6 +305,7 @@ defmodule Ecto.Druid.Native do
       query
       |> Map.delete("dataSource")
       |> collect(~w(dimension dimensions column columns fieldName fieldNames))
+      |> MapSet.union(MapSet.new(expression_columns))
       |> MapSet.difference(known)
       |> MapSet.difference(defined)
 

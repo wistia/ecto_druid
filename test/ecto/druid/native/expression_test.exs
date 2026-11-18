@@ -85,6 +85,30 @@ defmodule Ecto.Druid.Native.ExpressionTest do
     end
   end
 
+  describe "columns" do
+    test "are the columns the expression reads, sorted" do
+      assert expr(added - deleted).columns == ["added", "deleted"]
+      assert expr(nvl(user, "anonymous") |> upper()).columns == ["user"]
+      assert expr(if a > 0, do: b, else: :c).columns == ["a", "b", "c"]
+      assert expr(a + a).columns == ["a"]
+    end
+
+    test "leave out functions and literals" do
+      assert expr(timestamp_floor(__time, "PT1H")).columns == ["__time"]
+      assert expr(1 + 2).columns == []
+      assert expr(__time > ~U[2016-06-27 00:00:00Z]).columns == ["__time"]
+    end
+
+    test "include those of pinned expressions, but not pinned literals" do
+      rate = expr(added / delta)
+      name = "page"
+
+      assert expr(^rate * weight).columns == ["added", "delta", "weight"]
+      assert expr(page == ^name).columns == ["page"]
+      assert expr(^column("page-name") == "x").columns == ["page-name"]
+    end
+  end
+
   test "encodes to JSON as the expression string" do
     assert Jason.encode!(%{expression: expr(a + 1)}) == ~S|{"expression":"(\"a\" + 1)"}|
   end

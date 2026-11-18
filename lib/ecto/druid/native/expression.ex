@@ -13,12 +13,16 @@ defmodule Ecto.Druid.Native.Expression do
   place in the expression. It returns an `Ecto.Druid.Native.Expression`, which
   encodes to JSON as the expression string, so you can put it straight into a
   query map.
+
+  The struct also keeps the columns the expression reads, in `:columns`.
+  `native_query/2` checks them against the schema when the query's
+  `dataSource` is one, as it does the other columns a query reads.
   """
 
   @enforce_keys [:expression]
-  defstruct [:expression]
+  defstruct [:expression, columns: []]
 
-  @type t :: %__MODULE__{expression: String.t()}
+  @type t :: %__MODULE__{expression: String.t(), columns: [String.t()]}
 
   @binary_ops %{
     +: "+",
@@ -74,9 +78,16 @@ defmodule Ecto.Druid.Native.Expression do
       ~S|round((cast("added", 'DOUBLE') / "delta"), 2)|
   """
   defmacro expr(ast) do
+    {static, pinned} = columns(ast, {[], []})
+
     quote do
       %Ecto.Druid.Native.Expression{
-        expression: IO.iodata_to_binary(unquote(compile(ast)))
+        expression: IO.iodata_to_binary(unquote(compile(ast))),
+        columns:
+          Ecto.Druid.Native.Expression.__columns__(
+            unquote(Enum.uniq(static)),
+            unquote(Enum.reverse(pinned))
+          )
       }
     end
   end
@@ -91,7 +102,7 @@ defmodule Ecto.Druid.Native.Expression do
       ~S|concat("page-name", '!')|
   """
   @spec column(String.t() | atom()) :: t()
-  def column(name), do: %__MODULE__{expression: identifier(name)}
+  def column(name), do: %__MODULE__{expression: identifier(name), columns: [to_string(name)]}
 
   @doc """
   Encodes an Elixir value as a Druid expression literal.
@@ -129,6 +140,49 @@ defmodule Ecto.Druid.Native.Expression do
   @doc false
   def __pin__(%__MODULE__{expression: expression}), do: expression
   def __pin__(value), do: literal(value)
+
+  @doc false
+  # The columns written in the expression, plus those of the expressions
+  # pinned into it. Pinned literals read no columns.
+  def __columns__(static, pinned) do
+    pinned
+    |> Enum.flat_map(fn
+      %__MODULE__{columns: columns} -> columns
+      _literal -> []
+    end)
+    |> Enum.concat(static)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  # Walks the same syntax as compile/1, collecting the column names written
+  # in it and the pinned values, whose columns are only known at runtime.
+  defp columns({:^, _, [value]}, {static, pinned}), do: {static, [value | pinned]}
+
+  defp columns({name, _, context}, {static, pinned}) when is_atom(name) and is_atom(context),
+    do: {[Atom.to_string(name) | static], pinned}
+
+  defp columns({:|>, _, _} = ast, acc) do
+    [{call, _} | rest] = Macro.unpipe(ast)
+
+    rest
+    |> Enum.reduce(call, fn {ast, position}, acc -> Macro.pipe(acc, ast, position) end)
+    |> columns(acc)
+  end
+
+  defp columns({:if, _, [condition, [do: then, else: otherwise]]}, acc),
+    do: Enum.reduce([condition, then, otherwise], acc, &columns/2)
+
+  defp columns({name, _, args}, acc) when is_atom(name) and is_list(args) do
+    if String.starts_with?(Atom.to_string(name), "sigil_"),
+      do: acc,
+      else: Enum.reduce(args, acc, &columns/2)
+  end
+
+  defp columns(name, {static, pinned}) when is_atom(name) and name not in [nil, true, false],
+    do: {[Atom.to_string(name) | static], pinned}
+
+  defp columns(_literal, acc), do: acc
 
   # Compiles to quoted code that builds the expression as iodata, so literal
   # parts are encoded at compile time and only pinned values at runtime.

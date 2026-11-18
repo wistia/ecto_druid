@@ -34,8 +34,9 @@ An `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
 Before the query is sent, every column it reads (dimensions, filter columns,
 aggregator fields and scan columns) is checked to be a field of the schema, a
 virtual column or an output the query names, and an `ArgumentError` names any
-that aren't. Druid expressions aren't parsed, so columns read only in an
-expression aren't checked.
+that aren't. An expression written with `Ecto.Druid.Native.Expression.expr/1`
+keeps the columns it reads, so those are checked too. An expression given as
+a string isn't parsed, so its columns aren't.
 
 ```elixir
 MyApp.DruidRepo.native_query!(%{

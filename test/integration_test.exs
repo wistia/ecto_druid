@@ -183,6 +183,23 @@ defmodule IntegrationTest do
     assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
       TestRepo.native_query(%{query | filter: Ecto.Druid.Native.Filter.null("nope")})
     end
+
+    import Ecto.Druid.Native.Expression
+
+    assert {:ok, [%{"net" => 3}]} =
+             TestRepo.native_query(%{
+               query
+               | aggregations: [
+                   %{type: "longSum", name: "net", expression: expr(added - deleted)}
+                 ]
+             })
+
+    assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
+      TestRepo.native_query(%{
+        query
+        | filter: Ecto.Druid.Native.Filter.expression(expr(nope > 0))
+      })
+    end
   end
 
   test "native query errors carry the queryId" do

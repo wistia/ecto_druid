@@ -164,6 +164,33 @@ defmodule Ecto.Adapters.Druid.NativeQueryTest do
       assert_received {"/druid/v2/", _}
     end
 
+    test "checks the columns expressions read" do
+      import Ecto.Druid.Native.Expression
+
+      query = %{
+        queryType: "timeseries",
+        dataSource: Wikipedia,
+        granularity: "all",
+        virtualColumns: [%{type: "expression", name: "net", expression: expr(added - deleted)}],
+        filter: %{type: "expression", expression: expr(net > 0)},
+        aggregations: [%{type: "longSum", name: "total", expression: expr(net * 2)}],
+        postAggregations: [%{type: "expression", name: "half", expression: expr(total / 2)}]
+      }
+
+      assert {:ok, _} = TestRepo.native_query(query, plug: druid([]))
+      assert_received {"/druid/v2/", _}
+
+      query = %{query | filter: %{type: "expression", expression: expr(net > nope)}}
+
+      assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
+        TestRepo.native_query(query, plug: druid([]))
+      end
+
+      # A string expression isn't parsed
+      query = %{query | filter: %{type: "expression", expression: "nope > 0"}}
+      assert {:ok, _} = TestRepo.native_query(query, plug: druid([]))
+    end
+
     test "doesn't check a dataSource given by name, and raises when asked to" do
       assert {:ok, _} =
                TestRepo.native_query(%{@topn | dimension: "nope"}, plug: druid(@topn_results))
