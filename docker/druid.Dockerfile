@@ -9,16 +9,19 @@ COPY --from=0 /opt/druid/ /opt/druid/
 COPY druid.properties /opt/druid/conf/druid/single-server/nano-quickstart/_common/common.runtime.properties
 COPY druid.conf /opt/druid/conf/supervise/single-server/nano-quickstart.conf
 COPY druid.sh /opt/druid/druid.sh
+# Runs in place of the quickstart's MiddleManager (see druid.conf)
+COPY indexer/ /opt/druid/conf/druid/single-server/nano-quickstart/indexer/
 
-# The nano quickstart runs two tasks at a time, but every SQL-based ingestion
-# or deep storage query takes two (a controller and a worker), so integration
-# tests that ingest concurrently would queue behind, or deadlock on, each
-# other. Fail the build if the quickstart config stops matching.
-ARG WORKER_CAPACITY=8
-RUN sed -i "s/^druid.worker.capacity=.*/druid.worker.capacity=${WORKER_CAPACITY}/" \
-      /opt/druid/conf/druid/single-server/nano-quickstart/middleManager/runtime.properties && \
-    grep -qx "druid.worker.capacity=${WORKER_CAPACITY}" \
-      /opt/druid/conf/druid/single-server/nano-quickstart/middleManager/runtime.properties
+# The Coordinator looks for newly published segments, and assigns them to
+# Historicals, every five seconds in the quickstart, so every ingestion waited
+# ~7s for its segments to load. Fail the build if the quickstart config stops
+# matching.
+ARG COORDINATOR=/opt/druid/conf/druid/single-server/nano-quickstart/coordinator-overlord/runtime.properties
+RUN sed -i -e "s/^druid.coordinator.period=.*/druid.coordinator.period=PT1S/" \
+      -e "s/^druid.manager.segments.pollDuration=.*/druid.manager.segments.pollDuration=PT1S/" \
+      "$COORDINATOR" && \
+    grep -qx "druid.coordinator.period=PT1S" "$COORDINATOR" && \
+    grep -qx "druid.manager.segments.pollDuration=PT1S" "$COORDINATOR"
 
 WORKDIR /opt/druid
 
