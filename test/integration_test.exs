@@ -202,6 +202,18 @@ defmodule IntegrationTest do
     end
   end
 
+  test "Broker errors carry Druid's error code" do
+    import Ecto.Query
+
+    error =
+      assert_raise Druid.Client.RequestError, fn ->
+        TestRepo.all(from(w in "no_such_source", select: field(w, :page)))
+      end
+
+    assert %{status: 400, error_code: "invalidInput", category: "INVALID_INPUT"} = error
+    assert Exception.message(error) =~ "Druid responded with 400 (invalidInput): Object"
+  end
+
   test "native query errors carry the queryId" do
     query = %{queryType: "timeseries", dataSource: "no_such_source", intervals: ["2016/2017"]}
 

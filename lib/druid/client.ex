@@ -75,8 +75,87 @@ defmodule Druid.Client do
     @moduledoc """
     Raised when Druid responds with an error status. `:status` is the HTTP
     status and `:body` the decoded response body.
+
+    Druid describes most errors with a JSON body, such as
+    `%{"error" => "druidException", "errorCode" => "invalidInput",
+    "category" => "INVALID_INPUT", "errorMessage" => "..."}`. Its fields
+    are copied out so they can be matched on:
+
+      * `:error_code` - Druid's `errorCode`, such as `"invalidInput"` or
+        `"notFound"`. Older error bodies, which some native query errors
+        still use, carry the code in `error`, such as `"Query timeout"`.
+      * `:category` - Druid's `category`, such as `"INVALID_INPUT"`,
+        `"NOT_FOUND"`, `"CAPACITY_EXCEEDED"` or `"TIMEOUT"`.
+      * `:error_message` - Druid's `errorMessage`, or `error` when that is
+        all the body has.
+
+    Each is `nil` when the body doesn't have it.
+
+        case Druid.Client.request(request, opts) do
+          {:error, %Druid.Client.RequestError{error_code: "notFound"}} -> ...
+        end
     """
-    defexception [:message, :status, :body]
+    defexception [:message, :status, :body, :error_code, :category, :error_message]
+
+    @type t :: %__MODULE__{
+            message: String.t(),
+            status: 400..599,
+            body: term,
+            error_code: String.t() | nil,
+            category: String.t() | nil,
+            error_message: String.t() | nil
+          }
+
+    @impl true
+    def exception(opts) do
+      status = Keyword.fetch!(opts, :status)
+      body = Keyword.get(opts, :body)
+      {error_code, category, error_message} = fields(body)
+
+      message =
+        Keyword.get_lazy(opts, :message, fn ->
+          message(status, error_code, error_message, body)
+        end)
+
+      %__MODULE__{
+        message: message,
+        status: status,
+        body: body,
+        error_code: error_code,
+        category: category,
+        error_message: error_message
+      }
+    end
+
+    # Newer Druid errors are DruidExceptions, with "error" set to
+    # "druidException" and the code in "errorCode". Older ones put the code
+    # in "error" next to an "errorMessage".
+    defp fields(%{} = body) do
+      error = string(body["error"])
+      error_message = string(body["errorMessage"])
+
+      error_code =
+        string(body["errorCode"]) ||
+          if(error_message && error != "druidException", do: error)
+
+      {error_code, string(body["category"]), error_message || error}
+    end
+
+    defp fields(_body), do: {nil, nil, nil}
+
+    defp string(value) when is_binary(value) and value != "", do: value
+    defp string(_value), do: nil
+
+    defp message(status, error_code, error_message, body) do
+      prefix = "Druid responded with #{status}"
+
+      case {error_code, error_message} do
+        {nil, nil} -> "#{prefix}: #{inspect(body)}"
+        {nil, message} -> "#{prefix}: #{message}"
+        {code, nil} -> "#{prefix} (#{code})"
+        {code, message} -> "#{prefix} (#{code}): #{message}"
+      end
+    end
   end
 
   @doc """
@@ -155,10 +234,7 @@ defmodule Druid.Client do
         {body, decode_time}
 
       code when code in 400..599 ->
-        raise RequestError,
-          message: "Error (#{response.status}) when querying Druid.\n\t#{inspect(body)}",
-          status: response.status,
-          body: body
+        raise RequestError, status: response.status, body: body
 
       _ ->
         raise RuntimeError,
