@@ -216,6 +216,9 @@ MyApp.DruidRepo.all(query, deep_storage: [timeout: :timer.minutes(30)])
 A query that Druid rejects up front raises `Druid.Client.RequestError`, like
 any other query. One that fails while running raises
 `Ecto.Adapters.Druid.StatementError`, with Druid's error in `:details`.
+Druid keeps running a statement that nobody is waiting on, so one that runs
+past its timeout, or whose status can't be checked because the requests keep
+failing, is canceled before the error is raised.
 
 Setting `deep_storage:` in the repo config sends every query from that repo
 through deep storage. That's useful for a separate repo that only reads cold

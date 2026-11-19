@@ -83,6 +83,10 @@ defmodule Ecto.Adapters.Druid.Statement do
   Submits a statement and waits for it to succeed, returning its final
   status. Raises `Ecto.Adapters.Druid.StatementError` if it fails, is
   canceled, or runs past `:timeout`, canceling it in the last case.
+
+  Druid keeps running a statement after the client stops waiting for it, so
+  one whose status can't be checked, for example because the request keeps
+  failing, is canceled before the error is reraised.
   """
   @spec await(String.t(), list(), Keyword.t(), Keyword.t()) :: map()
   def await(sql, params, deep_storage, request_opts) do
@@ -100,10 +104,22 @@ defmodule Ecto.Adapters.Druid.Statement do
     :telemetry.span([:druid, :statement, :await], metadata, fn ->
       deadline = deadline(timeout)
 
-      status =
+      submitted =
         Statement.submit(sql, params, context: context)
         |> Telemetry.request!(request_opts)
-        |> poll(deadline, poll_interval, timeout, request_opts)
+
+      status =
+        try do
+          poll(submitted, deadline, poll_interval, timeout, request_opts)
+        rescue
+          # The statement failed, was canceled, or was canceled on timeout
+          error in StatementError ->
+            reraise error, __STACKTRACE__
+        catch
+          kind, reason ->
+            _ = cancel(submitted["queryId"], request_opts)
+            :erlang.raise(kind, reason, __STACKTRACE__)
+        end
 
       {status, Map.merge(metadata, %{state: status["state"], num_rows: num_rows(status)})}
     end)
@@ -120,12 +136,16 @@ defmodule Ecto.Adapters.Druid.Statement do
     case remaining(deadline) do
       0 ->
         # The statement keeps running in Druid unless it is canceled
-        _ = Statement.cancel(query_id) |> Druid.Client.request(opts)
+        canceled =
+          case cancel(query_id, opts) do
+            :ok -> "It was canceled."
+            {:error, error} -> "Canceling it failed: #{Exception.message(error)}"
+          end
 
         raise StatementError,
           message:
             "Statement #{query_id} did not finish within #{timeout}ms (last state " <>
-              "#{status["state"]}). It was canceled.",
+              "#{status["state"]}). #{canceled}",
           query_id: query_id,
           state: status["state"]
 
@@ -154,6 +174,9 @@ defmodule Ecto.Adapters.Druid.Statement do
         |> Enum.reduce(0, &(&2 + (&1["numRows"] || 0)))
     end
   end
+
+  defp cancel(query_id, opts),
+    do: Ecto.Adapters.Druid.cancel(Statement.cancel(query_id), opts)
 
   defp deadline(:infinity), do: :infinity
   defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout

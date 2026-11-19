@@ -122,6 +122,71 @@ defmodule Ecto.Adapters.Druid.StatementTest do
     end
   end
 
+  describe "status errors" do
+    test "cancel the statement before the error is raised" do
+      {opts, requests} =
+        script([status("RUNNING"), {400, %{"errorMessage" => "bad request"}}, {202, %{}}])
+
+      assert_raise Druid.Client.RequestError, ~r/bad request/, fn ->
+        Statement.all("SELECT 1", [], @fast, opts)
+      end
+
+      assert [
+               {"POST", _, _, _},
+               {"GET", @path <> "/q1", _, _},
+               {"DELETE", @path <> "/q1", _, _}
+             ] = requests.()
+    end
+
+    test "cancel the statement when the status request fails without a response" do
+      test = self()
+
+      plug = fn conn ->
+        case conn.method do
+          "POST" -> Req.Test.json(conn, %{"queryId" => "q1", "state" => "RUNNING"})
+          "GET" -> Req.Test.transport_error(conn, :econnrefused)
+          "DELETE" -> send(test, :canceled) && Plug.Conn.send_resp(conn, 202, "")
+        end
+      end
+
+      opts = [plug: plug, host: "localhost", port: 8888, retry: false]
+
+      assert_raise Req.TransportError, fn -> Statement.all("SELECT 1", [], @fast, opts) end
+      assert_received :canceled
+    end
+
+    test "keep the original error when the cancel fails" do
+      {opts, _requests} =
+        script([
+          status("RUNNING"),
+          {400, %{"errorMessage" => "bad request"}},
+          {400, %{"errorMessage" => "can't cancel"}}
+        ])
+
+      assert_raise Druid.Client.RequestError, ~r/bad request/, fn ->
+        Statement.all("SELECT 1", [], @fast, opts)
+      end
+    end
+
+    test "don't cancel a statement that failed" do
+      {opts, requests} = script([status("FAILED")])
+      assert_raise StatementError, fn -> Statement.all("SELECT 1", [], @fast, opts) end
+      assert [{"POST", _, _, _}] = requests.()
+    end
+  end
+
+  test "says when canceling a timed out statement fails" do
+    {opts, _requests} = script([status("RUNNING"), {400, %{"errorMessage" => "can't cancel"}}])
+
+    error =
+      assert_raise StatementError, fn ->
+        Statement.all("SELECT 1", [], [timeout: 0] ++ @fast, opts)
+      end
+
+    assert Exception.message(error) =~
+             "Canceling it failed: Druid responded with 400: can't cancel"
+  end
+
   describe "stream/4" do
     test "does nothing until enumerated" do
       {opts, requests} = script([])

@@ -94,8 +94,9 @@ defmodule Ecto.Adapters.Druid do
   when it's small. In place of `true`, pass a keyword list with `:timeout`
   (milliseconds or `:infinity`, default five minutes) or `:poll_interval`
   (milliseconds, default `1_000`). A query that fails or runs past its
-  timeout raises `Ecto.Adapters.Druid.StatementError`, and on timeout it is
-  canceled first. `Repo.stream/2` fetches one result page at a time.
+  timeout raises `Ecto.Adapters.Druid.StatementError`. One that runs past
+  its timeout, or whose status can't be checked, is canceled first.
+  `Repo.stream/2` fetches one result page at a time.
   See the [Querying guide](querying.md#querying-from-deep-storage) for what
   the cluster needs.
 
@@ -352,9 +353,9 @@ defmodule Ecto.Adapters.Druid do
     cancel(Druid.Client.SQL.cancel(query_id), request_opts, retry_not_found: true)
   end
 
-  # Cancels a query whose request timed out. Returns :ok once Druid accepts
-  # the cancel, or {:error, exception}. The cancel gets the default timeout,
-  # not the one that just ran out.
+  # Cancels a query that the client gave up on. Returns :ok once Druid
+  # accepts the cancel, or {:error, exception}. The cancel gets the default
+  # timeout, not the one that may just have run out.
   #
   # A cancel that fails without a response from Druid, or with a 502, 503
   # or 504 from a proxy in front of it, is retried a few times, waiting
@@ -363,7 +364,8 @@ defmodule Ecto.Adapters.Druid do
   # can take a while to start a request it has queued. If the client hung up
   # before the Broker started the query, it may never run, and its cancel
   # keeps getting 404s.
-  defp cancel(request, request_opts, opts \\ []) do
+  @doc false
+  def cancel(request, request_opts, opts \\ []) do
     request_opts = Keyword.delete(request_opts, :receive_timeout)
     retry_not_found? = Keyword.get(opts, :retry_not_found, false)
     retry_cancel(request, request_opts, retry_not_found?, @cancel_retries, @cancel_retry_delay)
