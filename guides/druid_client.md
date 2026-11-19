@@ -30,3 +30,32 @@ A repo's config works as the connection options too:
 | `Druid.Client.Lookup` | Lookups |
 | `Druid.Client.Config` | Coordinator, Broker, and Overlord worker dynamic config |
 | `Druid.Client.Status` | Service health, leaders, readiness, and workers |
+
+## Errors and retries
+
+`request/2` returns `{:error, %Druid.Client.RequestError{}}` when Druid
+answers with an error status. Druid's error code, category and message are
+in `:error_code`, `:category` and `:error_message`, so you can match on
+them:
+
+```elixir
+case Druid.Client.SQL.Statement.status(id) |> Druid.Client.request(druid) do
+  {:ok, status} -> status
+  {:error, %Druid.Client.RequestError{error_code: "notFound"}} -> nil
+end
+```
+
+A request that gets no response returns the `Req.TransportError`.
+
+`Req` retries a GET or HEAD that fails with a transient error (a 408, 429,
+500, 502, 503 or 504, or no response) three times over about seven seconds.
+Pass `:retry`, `:max_retries` or `:retry_delay` to change that:
+
+```elixir
+Druid.Client.Task.all() |> Druid.Client.request(druid ++ [retry: false])
+```
+
+Health and readiness checks from `Druid.Client.Status` aren't retried, so a
+service that is down or not ready is reported at once.
+`Druid.Client.Task.statuses/1` is retried even though it is a POST, because
+it only reads.
