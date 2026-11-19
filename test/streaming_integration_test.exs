@@ -3,6 +3,8 @@ defmodule StreamingIntegrationTest do
   # the stack from docker-compose.yml, not only a Druid.
   use ExUnit.Case, async: true
 
+  @moduletag :druid
+
   import Ecto.Query
 
   alias Ecto.Adapters.Druid.IntegrationRepo

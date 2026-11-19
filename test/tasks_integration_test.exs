@@ -1,5 +1,8 @@
 defmodule TasksIntegrationTest do
   use ExUnit.Case, async: true
+
+  @moduletag :druid
+
   alias Ecto.Adapters.Druid.IntegrationRepo
 
   @druid [host: "localhost", port: 9888]

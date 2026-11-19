@@ -1,5 +1,8 @@
 defmodule InsertAllIntegrationTest do
   use ExUnit.Case, async: true
+
+  @moduletag :druid
+
   import Ecto.Query
   alias Ecto.Adapters.Druid.IntegrationRepo
 

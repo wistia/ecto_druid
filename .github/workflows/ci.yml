@@ -120,7 +120,7 @@ jobs:
           done
           echo "wikipedia has $rows rows"
 
-      - run: mix test
+      - run: mix test --include druid
 
       - name: Druid logs
         if: failure()

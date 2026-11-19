@@ -1,6 +1,8 @@
 defmodule LookupQueryIntegrationTest do
   use ExUnit.Case, async: true
 
+  @moduletag :druid
+
   import Ecto.Query
   import Ecto.Druid.Query.String, only: [lookup: 3]
 
