@@ -66,10 +66,12 @@ MyApp.DruidRepo.all(
 
 ## Example app
 
-[`example/`](example) is a Phoenix LiveView app that explores a day of
-Wikipedia edits with ecto_druid: schemas, Druid SQL functions, sketches,
-lookups, system tables, native queries and ingestion. See its
-[README](example/README.md) to run it.
+[`example/`](https://github.com/wistia/ecto_druid/tree/main/example) is a
+Phoenix LiveView app that explores a day of Wikipedia edits with ecto_druid:
+schemas, Druid SQL functions, sketches, lookups, system tables, native queries
+and ingestion. See its
+[README](https://github.com/wistia/ecto_druid/blob/main/example/README.md) to
+run it.
 
 ## Running Tests
 
