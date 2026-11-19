@@ -345,37 +345,57 @@ defmodule Ecto.Adapters.Druid do
       reraise error, __STACKTRACE__
   end
 
-  @cancel_attempts 5
+  @cancel_retries 5
   @cancel_retry_delay 20
 
-  # The Broker only knows a SQL query's id once it has started planning it,
-  # so a cancel sent right after a short timeout can get a 404 for a query
-  # that is about to run. Retry for a moment before giving up.
-  defp cancel_sql(query_id, request_opts, attempt \\ 1) do
-    case Druid.Client.request(
-           Druid.Client.SQL.cancel(query_id),
-           Keyword.delete(request_opts, :receive_timeout)
-         ) do
+  defp cancel_sql(query_id, request_opts) do
+    cancel(Druid.Client.SQL.cancel(query_id), request_opts, retry_not_found: true)
+  end
+
+  # Cancels a query whose request timed out. Returns :ok once Druid accepts
+  # the cancel, or {:error, exception}. The cancel gets the default timeout,
+  # not the one that just ran out.
+  #
+  # A cancel that fails without a response from Druid, or with a 502, 503
+  # or 504 from a proxy in front of it, is retried a few times, waiting
+  # twice as long each time. So is a SQL cancel that gets a 404: the Broker
+  # only knows a SQL query's id once it starts running it, and a busy Broker
+  # can take a while to start a request it has queued. If the client hung up
+  # before the Broker started the query, it may never run, and its cancel
+  # keeps getting 404s.
+  defp cancel(request, request_opts, opts \\ []) do
+    request_opts = Keyword.delete(request_opts, :receive_timeout)
+    retry_not_found? = Keyword.get(opts, :retry_not_found, false)
+    retry_cancel(request, request_opts, retry_not_found?, @cancel_retries, @cancel_retry_delay)
+  end
+
+  defp retry_cancel(request, request_opts, retry_not_found?, retries, delay) do
+    case Druid.Client.request(request, request_opts) do
       {:ok, _} ->
-        true
+        :ok
 
-      {:error, %Druid.Client.RequestError{status: 404}} when attempt < @cancel_attempts ->
-        Process.sleep(@cancel_retry_delay)
-        cancel_sql(query_id, request_opts, attempt + 1)
-
-      {:error, _} ->
-        false
+      {:error, error} ->
+        if retries > 0 and retry_cancel?(error, retry_not_found?) do
+          Process.sleep(delay)
+          retry_cancel(request, request_opts, retry_not_found?, retries - 1, delay * 2)
+        else
+          {:error, error}
+        end
     end
   end
 
-  # Returns whether Druid accepted the cancel. It gets the default timeout,
-  # not the one that just ran out.
-  defp cancel(request, request_opts) do
-    match?(
-      {:ok, _},
-      Druid.Client.request(request, Keyword.delete(request_opts, :receive_timeout))
-    )
-  end
+  # A timed out cancel isn't retried, since it already waited the full
+  # default timeout
+  defp retry_cancel?(%Req.TransportError{reason: :timeout}, _retry_not_found?), do: false
+  defp retry_cancel?(%Req.TransportError{}, _retry_not_found?), do: true
+
+  defp retry_cancel?(%Druid.Client.RequestError{status: status}, _) when status in 502..504,
+    do: true
+
+  defp retry_cancel?(%Druid.Client.RequestError{status: 404}, retry_not_found?),
+    do: retry_not_found?
+
+  defp retry_cancel?(_error, _retry_not_found?), do: false
 
   @doc false
   def merge_context(config, opts) do
@@ -488,13 +508,18 @@ defmodule Ecto.Adapters.Druid do
 
       # The Broker keeps running a query after the client gives up on it
       {:error, %Req.TransportError{reason: :timeout} = reason} ->
-        canceled? = cancel(Druid.Client.Native.cancel(query_id), request_opts)
+        cancel_error =
+          case cancel(Druid.Client.Native.cancel(query_id), request_opts) do
+            :ok -> nil
+            {:error, error} -> error
+          end
 
         {:error,
          __MODULE__.NativeQueryError.exception(
            query_id: query_id,
            reason: reason,
-           canceled: canceled?
+           canceled: is_nil(cancel_error),
+           cancel_error: cancel_error
          )}
 
       {:error, reason} ->

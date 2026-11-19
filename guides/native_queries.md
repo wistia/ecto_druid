@@ -193,6 +193,10 @@ case MyApp.DruidRepo.native_query(query, receive_timeout: 60_000) do
 end
 ```
 
+A cancel that fails without a response, or with a 502, 503 or 504, is
+retried a few times. If it still fails, `:canceled` is `false` and
+`:cancel_error` holds the error the cancel returned.
+
 To cancel a query yourself, such as one running in another process, set its
 `queryId` and pass it to `Druid.Client.Native.cancel/1`:
 
