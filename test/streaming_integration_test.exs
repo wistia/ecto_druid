@@ -90,7 +90,13 @@ defmodule StreamingIntegrationTest do
           "inputFormat" => %{"type" => "json"},
           "taskCount" => 1,
           "taskDuration" => "PT1H",
-          "useEarliestOffset" => false
+          "useEarliestOffset" => false,
+          # The supervisor waits five seconds before starting its task and
+          # acts on a handoff request on its next run, every 30 seconds by
+          # default. Its first report of the task's offsets, which
+          # await_running/3 waits for, still comes 15 seconds after startDelay.
+          "startDelay" => "PT1S",
+          "period" => "PT2S"
         },
         "tuningConfig" => %{"type" => "kafka"},
         "dataSchema" => %{
