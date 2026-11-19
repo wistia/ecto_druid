@@ -158,6 +158,26 @@ defmodule Druid.RetentionTest do
       end
     end
 
+    test "passes :receive_timeout and retry options to each request", %{tmp_dir: dir} do
+      write!(dir, "a.json.eex", @rules)
+      test = self()
+      plug = druid(%{})
+
+      # Req runs a :plug in place of any adapter, so this adapter runs it
+      adapter = fn request ->
+        send(test, {:options, request.options[:receive_timeout], request.options[:max_retries]})
+        Req.Steps.run_plug(%{request | options: Map.put(request.options, :plug, plug)})
+      end
+
+      opts = opts(dir, adapter: adapter, receive_timeout: 60_000, max_retries: 1)
+
+      assert [{:created, _}] = Retention.sync(TestRepo, opts)
+
+      # Fetching the current rules, then setting the new ones
+      assert_received {:options, 60_000, 1}
+      assert_received {:options, 60_000, 1}
+    end
+
     defp stored(tier, replicas) do
       [
         %{

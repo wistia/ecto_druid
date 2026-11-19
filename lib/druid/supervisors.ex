@@ -113,6 +113,10 @@ defmodule Druid.Supervisors do
     * `:specs` - A map of spec name to assigns for that spec only.
     * `:host`, `:port`, `:scheme` - Where to send supervisor API requests.
       Default to the repo's values.
+    * `:receive_timeout` - How long to wait for each response from Druid,
+      in milliseconds. Defaults to `15_000`.
+    * `:retry`, `:max_retries`, `:retry_delay`, `:retry_log_level` - How
+      failed requests are retried, as in `Druid.Client`'s options.
 
   Every option can also be given to `render/2` and `sync/2` directly, which
   take precedence over config.

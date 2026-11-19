@@ -133,6 +133,10 @@ defmodule Druid.Tasks do
     * `:specs` - A map of template name to assigns for that template only.
     * `:host`, `:port`, `:scheme` - Where to send task API requests. Default
       to the repo's values.
+    * `:receive_timeout` - How long to wait for each response from Druid,
+      in milliseconds. Defaults to `15_000`.
+    * `:retry`, `:max_retries`, `:retry_delay`, `:retry_log_level` - How
+      failed requests are retried, as in `Druid.Client`'s options.
 
   Backfills use the same options, under `:backfills`. Its `:assigns` and
   `:specs` are deep-merged over the ones under `:tasks`, and its other options

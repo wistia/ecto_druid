@@ -40,6 +40,13 @@ defmodule Druid.Client do
       there. Not needed when going through the Router.
     * `:receive_timeout` - How long to wait for a response, in milliseconds.
       Passed to `Req`, which defaults it to `15_000`.
+    * `:retry`, `:max_retries`, `:retry_delay`, `:retry_log_level` - How
+      `Req` retries a failed request (see `Req.Steps.retry/1`). By default
+      it retries a GET or HEAD that gets a 408, 429, 500, 502, 503 or 504,
+      or fails without a response, three times over about seven seconds.
+      Some requests set their own default: the `Druid.Client.Status` checks
+      don't retry, and `Druid.Client.Task.statuses/1` retries even though
+      it is a POST. `retry: false` turns retries off.
     * `:plug`, `:adapter`, `:finch` - Passed to `Req`.
     * `:telemetry_metadata` - A map merged into the metadata of this
       request's telemetry events.
@@ -117,6 +124,7 @@ defmodule Druid.Client do
       |> put_present(:auth, opts |> Keyword.get(:auth) |> auth())
       |> put_present(:redirect_trusted, Keyword.get(opts, :redirect_trusted))
       |> put_present(:receive_timeout, Keyword.get(opts, :receive_timeout))
+      |> put_retry_opts(opts)
 
     metadata =
       opts
@@ -195,6 +203,14 @@ defmodule Druid.Client do
       host: host,
       port: port
     }
+  end
+
+  @retry_keys [:retry, :max_retries, :retry_delay, :retry_log_level]
+
+  defp put_retry_opts(request_opts, opts) do
+    Enum.reduce(@retry_keys, request_opts, fn key, acc ->
+      put_present(acc, key, Keyword.get(opts, key))
+    end)
   end
 
   defp put_present(opts, key, value) do

@@ -259,6 +259,13 @@ mix druid.tasks.status tmp/druid/backfills/page_views-20261115T120000Z.jsonl
 mix druid.tasks.status tmp/druid/backfills/page_views-20261115T120000Z.jsonl --wait
 ```
 
+Status checks that fail with a transient error, such as a 503 from an
+Overlord that is changing leaders, are retried for a few seconds. If they
+keep failing, the backfill stops waiting and reports the tasks it was
+checking as failed with the request's error, but those tasks may still be
+running in Druid. Check them with `mix druid.tasks.status` before rerunning
+those days, or the rerun submits them a second time.
+
 Days start at midnight UTC. For days in another zone, pass
 `--time-zone America/New_York`, which needs a time zone database such as
 `:tz` or `:tzdata` configured in your app.

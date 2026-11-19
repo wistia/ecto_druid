@@ -27,6 +27,33 @@ defmodule Druid.ClientTest do
              request(respond(404, "application/json", ~s({"error":"nope"})))
   end
 
+  describe "retries" do
+    # Answers 503 and counts the attempts
+    defp unavailable do
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+      plug = fn conn ->
+        Agent.update(attempts, &(&1 + 1))
+        Plug.Conn.send_resp(conn, 503, "")
+      end
+
+      {plug, fn -> Agent.get(attempts, & &1) end}
+    end
+
+    defp retried(opts) do
+      {plug, attempts} = unavailable()
+      opts = Keyword.merge([plug: plug, host: "localhost", port: 1, retry_log_level: false], opts)
+      assert {:error, %Client.RequestError{status: 503}} = Client.request(Req.new(url: "/"), opts)
+      attempts.()
+    end
+
+    test "passes the retry options to Req" do
+      assert retried(retry_delay: 0) == 4
+      assert retried(retry_delay: 0, max_retries: 1) == 2
+      assert retried(retry: false) == 1
+    end
+  end
+
   describe ":auth" do
     # Answers 200 and reports the authorization header and host of each request
     defp echo_auth(test_pid) do

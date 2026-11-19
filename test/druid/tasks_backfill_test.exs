@@ -363,6 +363,51 @@ defmodule Druid.TasksBackfillTest do
     end
   end
 
+  describe "status polls" do
+    # Answers the first status check with a 503, then defers to `druid`
+    defp unavailable_once(druid) do
+      {:ok, failed?} = Agent.start_link(fn -> false end)
+
+      fn conn ->
+        status? = conn.method == "POST" and conn.request_path == "/druid/indexer/v1/taskStatus"
+
+        if status? and not Agent.get_and_update(failed?, &{&1, true}) do
+          send(self(), :unavailable)
+          Plug.Conn.send_resp(conn, 503, "")
+        else
+          druid.(conn)
+        end
+      end
+    end
+
+    test "are retried after a transient error", %{tmp_dir: dir} do
+      write_template!(dir)
+      opts = opts(dir, plug: unavailable_once(druid()), retry_delay: 0, retry_log_level: false)
+
+      runs = Tasks.backfill(TestRepo, "events", ~D[2026-11-01], ~D[2026-11-03], opts)
+
+      assert Enum.all?(runs, &Run.succeeded?/1)
+      assert_received :unavailable
+      # The tasks were submitted once each
+      assert_received {:submit, 2, _}
+      refute_received {:submit, 3, _}
+    end
+
+    test "that keep failing fail the runs but keep their task IDs", %{tmp_dir: dir} do
+      write_template!(dir)
+      down = fn conn -> Plug.Conn.send_resp(conn, 503, "") end
+
+      submit_then_down = fn conn ->
+        if conn.request_path == "/druid/indexer/v1/task", do: druid().(conn), else: down.(conn)
+      end
+
+      opts = opts(dir, plug: submit_then_down, retry_delay: 0, retry_log_level: false)
+
+      assert [%Run{task_id: "task-1", error: %Druid.Client.RequestError{status: 503}}] =
+               Tasks.backfill(TestRepo, "events", ~D[2026-11-01], ~D[2026-11-02], opts)
+    end
+  end
+
   describe "await_all/3 and statuses/3" do
     test "waits for task IDs" do
       runs =

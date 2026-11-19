@@ -7,7 +7,9 @@ defmodule Druid.SpecTemplates do
   alias Druid.Supervisors.Template
 
   @repo_keys [:host, :port, :scheme, :auth, :redirect_trusted]
-  @connection_keys @repo_keys ++ [:plug, :adapter, :finch]
+  @connection_keys @repo_keys ++
+                     [:plug, :adapter, :finch, :receive_timeout] ++
+                     [:retry, :max_retries, :retry_delay, :retry_log_level]
 
   @doc "Reads `key` from the repo's config, with `opts` taking precedence."
   def config(repo, key, opts) do
