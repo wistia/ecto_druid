@@ -57,6 +57,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
       main: "readme",
       extras: [
         "README.md",
+        "CHANGELOG.md",
         "guides/getting_started.md",
         "guides/querying.md",
         "guides/native_queries.md",
