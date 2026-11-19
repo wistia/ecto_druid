@@ -193,6 +193,18 @@ defmodule Druid.Client do
   @doc false
   @spec timed_request!(Req.Request.t(), Keyword.t()) :: {term, integer}
   def timed_request!(request, opts) do
+    send_request!(request, opts, fn response ->
+      decode_start = System.monotonic_time()
+      body = decode_body(response)
+      decode_time = System.monotonic_time() - decode_start
+      {{body, decode_time}, body, %{decode_time: decode_time}}
+    end)
+  end
+
+  # Sends the request in a [:druid, :request] span. `read_body` takes the
+  # response and returns {result, body, measurements}: `result` is returned
+  # for a 2xx response, and the decoded `body` goes in the error otherwise.
+  defp send_request!(request, opts, read_body) do
     base_url = base_url(opts)
 
     request_opts =
@@ -218,20 +230,16 @@ defmodule Druid.Client do
 
     # The status is checked after the span, so an error response is a
     # :stop with its status, and :exception means no response came back
-    {response, body, decode_time} =
+    {response, result, body} =
       :telemetry.span([:druid, :request], metadata, fn ->
         response = Req.request!(request, [decode_body: false] ++ request_opts)
-        decode_start = System.monotonic_time()
-        body = decode_body(response)
-        decode_time = System.monotonic_time() - decode_start
-
-        {{response, body, decode_time}, %{decode_time: decode_time},
-         Map.put(metadata, :status, response.status)}
+        {result, body, measurements} = read_body.(response)
+        {{response, result, body}, measurements, Map.put(metadata, :status, response.status)}
       end)
 
     case response.status do
       code when code in 200..299 ->
-        {body, decode_time}
+        result
 
       code when code in 400..599 ->
         raise RequestError, status: response.status, body: body
@@ -239,6 +247,118 @@ defmodule Druid.Client do
       _ ->
         raise RuntimeError,
               "Unexpected error (#{response.status}) when querying Druid.\n\t#{inspect(response)}"
+    end
+  end
+
+  # Streams a response body without holding all of it in memory. The request
+  # is sent from a linked process, which hands each chunk of the body to the
+  # caller, then reads the next one once the caller has taken it. So the
+  # body arrives at the pace the caller uses it, one chunk ahead.
+  #
+  # stream_open!/2 returns once the first chunk arrives, raising like
+  # request!/2 when Druid responds with an error status or doesn't respond
+  # in time. stream_next!/1 returns {:data, chunk, stream} or :done, and
+  # raises if the response fails partway. stream_close/1 stops the request
+  # if it is still running. The [:druid, :request] span covers the whole
+  # body, and `:decode_time` is 0, since the caller decodes it.
+  @doc false
+  @spec stream_open!(Req.Request.t(), Keyword.t()) :: map()
+  def stream_open!(request, opts) do
+    owner = self()
+    ref = make_ref()
+    callers = [owner | Process.get(:"$callers", [])]
+    logger_metadata = Logger.metadata()
+
+    pid =
+      spawn_link(fn ->
+        Process.put(:"$callers", callers)
+        Logger.metadata(logger_metadata)
+        send(owner, {ref, stream_body(request, opts, owner, ref)})
+      end)
+
+    stream = %{pid: pid, ref: ref, chunk: nil, done: false}
+
+    case receive_chunk(stream) do
+      {:data, chunk, stream} -> %{stream | chunk: chunk}
+      :done -> %{stream | done: true}
+    end
+  end
+
+  @doc false
+  @spec stream_next!(map()) :: {:data, binary, map()} | :done
+  def stream_next!(%{chunk: chunk} = stream) when is_binary(chunk),
+    do: {:data, chunk, %{stream | chunk: nil}}
+
+  def stream_next!(%{done: true}), do: :done
+  def stream_next!(stream), do: receive_chunk(stream)
+
+  @doc false
+  @spec stream_close(map()) :: :ok
+  def stream_close(%{pid: pid, ref: ref}) do
+    Process.unlink(pid)
+    Process.exit(pid, :kill)
+    flush(ref)
+  end
+
+  defp flush(ref) do
+    receive do
+      {^ref, _message} -> flush(ref)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp receive_chunk(%{pid: pid, ref: ref} = stream) do
+    receive do
+      {^ref, {:data, chunk}} ->
+        send(pid, {ref, :cont})
+        {:data, chunk, stream}
+
+      {^ref, :done} ->
+        :done
+
+      {^ref, {:error, kind, reason, stacktrace}} ->
+        :erlang.raise(kind, reason, stacktrace)
+    end
+  end
+
+  # Runs in the linked process. Each 2xx chunk is sent to the owner, which
+  # answers :cont when it has taken it. An error response is collected, to
+  # be decoded into the RequestError.
+  defp stream_body(request, opts, owner, ref) do
+    into = fn {:data, data}, {req, resp} ->
+      if resp.status in 200..299 do
+        forward(owner, ref, data)
+        {:cont, {req, resp}}
+      else
+        {:cont, {req, %{resp | body: resp.body <> data}}}
+      end
+    end
+
+    read_body = fn
+      %{status: status} = response when status in 200..299 ->
+        {response.body, nil, %{decode_time: 0}}
+
+      response ->
+        {nil, decode_body(response), %{decode_time: 0}}
+    end
+
+    # Adapters that don't stream, such as a test's, return the body whole
+    case send_request!(Req.merge(request, into: into), opts, read_body) do
+      body when is_binary(body) and body != "" -> forward(owner, ref, body)
+      _ -> :ok
+    end
+
+    :done
+  catch
+    kind, reason -> {:error, kind, reason, __STACKTRACE__}
+  end
+
+  defp forward(owner, ref, data) do
+    send(owner, {ref, {:data, data}})
+
+    receive do
+      {^ref, :cont} -> :ok
     end
   end
 

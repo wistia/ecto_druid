@@ -202,6 +202,17 @@ defmodule IntegrationTest do
     end
   end
 
+  test "streams Broker results as they arrive" do
+    import Ecto.Query
+
+    query = from(w in "wikipedia", order_by: field(w, :__time), select: field(w, :page))
+    rows = query |> TestRepo.stream() |> Enum.to_list()
+
+    assert length(rows) == 24_433
+    assert rows == TestRepo.all(query)
+    assert query |> TestRepo.stream() |> Enum.take(3) == Enum.take(rows, 3)
+  end
+
   test "Broker errors carry Druid's error code" do
     import Ecto.Query
 

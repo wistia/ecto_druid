@@ -186,6 +186,43 @@ a query yourself, such as one running in another process, set its
 `timeout` context parameter limits how long the query may run in Druid,
 whether or not anyone is still waiting for it.
 
+## Streaming results
+
+`Repo.stream/2` reads the Broker's response as it arrives, so a large
+result doesn't have to fit in memory. It asks Druid for one row per line
+(the `arrayLines` result format) and decodes each row as the stream takes
+it, reading only a little ahead of what has been taken:
+
+```elixir
+query
+|> MyApp.DruidRepo.stream(receive_timeout: 60_000)
+|> Stream.each(&write_row/1)
+|> Stream.run()
+```
+
+The query only starts when the stream is first enumerated. `:receive_timeout`
+applies to each part of the response, not the whole of it, so a long result
+can take longer than the timeout to read, as long as Druid keeps sending it.
+
+The Broker sends a 200 before it has every row, so a query that fails
+partway can't change the status. Druid ends a complete response with a
+blank line, and when that's missing the stream raises rather than return
+part of the result. A stream that is halted early, such as with
+`Enum.take/2`, or that fails, cancels its query in case the Broker is still
+running it.
+
+Query errors that Druid reports up front raise `Druid.Client.RequestError`,
+with Druid's `errorCode` in `:error_code` and its `category` in `:category`:
+
+```elixir
+try do
+  MyApp.DruidRepo.all(query)
+rescue
+  error in Druid.Client.RequestError ->
+    if error.category == "CAPACITY_EXCEEDED", do: retry_later(), else: reraise(error, __STACKTRACE__)
+end
+```
+
 ## Querying from deep storage
 
 The Broker only reads segments that are loaded on Historicals. Retention
@@ -234,9 +271,7 @@ query
 |> Stream.run()
 ```
 
-The query only starts when the stream is first enumerated. Without
-`deep_storage`, `Repo.stream/2` still works, but the Broker sends every row
-in one response.
+The query only starts when the stream is first enumerated.
 
 ### What deep storage queries need from the cluster
 

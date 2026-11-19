@@ -132,6 +132,14 @@ defmodule Ecto.Adapters.Druid do
   query map instead, and take the repo's `:context` only with
   `merge_context: true`.
 
+  ## Streaming
+
+  `Repo.stream/2` reads the Broker's response as it arrives, one row per
+  line, so a large result doesn't have to fit in memory. See the
+  [Querying guide](querying.md#streaming-results).
+
+  ## Timeouts
+
   Repo calls take `:receive_timeout`, how long to wait for Druid's response
   in milliseconds (`15_000` by default). On timeout, the query is canceled
   by its `sqlQueryId`, which every query gets unless its context has one,
@@ -276,15 +284,7 @@ defmodule Ecto.Adapters.Druid do
 
     case info.deep_storage do
       nil ->
-        # The Broker sends every row in one response, so this is one chunk,
-        # but it is still not sent until the stream is enumerated
-        Stream.flat_map([nil], fn nil ->
-          Telemetry.query(info, opts, fn ->
-            values = broker_query(sql, params, info.query_id, request_opts)
-            num_rows = Enum.count(values)
-            {[{num_rows, values}], {:ok, %{num_rows: num_rows, rows: values}}}
-          end)
-        end)
+        broker_stream(info, opts, request_opts)
 
       # The event covers running the statement, not reading its result
       # pages, which happens as the stream is enumerated
@@ -346,6 +346,88 @@ defmodule Ecto.Adapters.Druid do
       reraise error, __STACKTRACE__
   end
 
+  # Streams the Broker's response, one row per line, decoding rows as they
+  # arrive. Nothing is sent until the stream is enumerated. The query event
+  # covers the Broker starting to answer, not reading every row, so its
+  # result has no :num_rows or :rows.
+  defp broker_stream(info, opts, request_opts) do
+    Stream.resource(
+      fn ->
+        Telemetry.query(info, opts, fn ->
+          stream = open_broker_stream(info.query, info.params, info.query_id, request_opts)
+          {stream, {:ok, %{num_rows: nil, rows: nil}}}
+        end)
+      end,
+      &next_rows/1,
+      &close_broker_stream/1
+    )
+  end
+
+  defp open_broker_stream(sql, params, query_id, request_opts) do
+    stream =
+      Druid.Client.SQL.query(sql, params, Keyword.put(request_opts, :result_format, "arrayLines"))
+      |> Druid.Client.stream_open!(request_opts)
+
+    %{
+      stream: stream,
+      query_id: query_id,
+      request_opts: request_opts,
+      buffer: "",
+      tail: "",
+      done: false
+    }
+  rescue
+    error in Req.TransportError ->
+      if error.reason == :timeout, do: cancel_sql(query_id, request_opts)
+      reraise error, __STACKTRACE__
+  end
+
+  defp next_rows(state) do
+    case Druid.Client.stream_next!(state.stream) do
+      {:data, chunk, stream} ->
+        {lines, buffer} = split_lines(state.buffer <> chunk)
+        rows = for line <- lines, line != "", do: Jason.decode!(line)
+        # The last two bytes seen, to check for the trailer at the end
+        tail = binary_part_end(state.tail <> chunk, 2)
+        state = %{state | stream: stream, buffer: buffer, tail: tail}
+        if rows == [], do: {[], state}, else: {[{length(rows), rows}], state}
+
+      # The rows end with a blank line, which is missing when the Broker
+      # stopped partway, for example because the query failed after it
+      # started sending rows
+      :done when state.buffer == "" and state.tail == "\n\n" ->
+        {:halt, %{state | done: true}}
+
+      :done ->
+        raise RuntimeError,
+              "the Broker's response to query #{state.query_id} ended before its last row, " <>
+                "so the results are incomplete. The query may have failed after it started " <>
+                "sending rows; the Broker's log has the reason"
+    end
+  end
+
+  defp split_lines(data) do
+    lines = String.split(data, "\n")
+    {Enum.drop(lines, -1), List.last(lines)}
+  end
+
+  defp binary_part_end(binary, length) when byte_size(binary) <= length, do: binary
+
+  defp binary_part_end(binary, length),
+    do: binary_part(binary, byte_size(binary) - length, length)
+
+  # A stream that stopped early, because it was halted or failed, may leave
+  # the query running in the Broker
+  defp close_broker_stream(state) do
+    Druid.Client.stream_close(state.stream)
+
+    unless state.done do
+      _ = cancel(Druid.Client.SQL.cancel(state.query_id), state.request_opts, retries: 0)
+    end
+
+    :ok
+  end
+
   @cancel_retries 5
   @cancel_retry_delay 20
 
@@ -368,7 +450,8 @@ defmodule Ecto.Adapters.Druid do
   def cancel(request, request_opts, opts \\ []) do
     request_opts = Keyword.delete(request_opts, :receive_timeout)
     retry_not_found? = Keyword.get(opts, :retry_not_found, false)
-    retry_cancel(request, request_opts, retry_not_found?, @cancel_retries, @cancel_retry_delay)
+    retries = Keyword.get(opts, :retries, @cancel_retries)
+    retry_cancel(request, request_opts, retry_not_found?, retries, @cancel_retry_delay)
   end
 
   defp retry_cancel(request, request_opts, retry_not_found?, retries, delay) do
