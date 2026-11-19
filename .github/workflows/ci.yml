@@ -50,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Pulling and building the images takes ~30s, so it runs in the
+      # Pulling and building the images takes 30-40s, so it runs in the
       # background while Elixir is set up and the project compiles. "Wait for
       # Druid" fails with the output if it doesn't come up.
       - name: Start Druid
@@ -88,7 +88,7 @@ jobs:
               exit 1
             fi
             echo "Waiting for Druid..."
-            sleep 5
+            sleep 1
           done
 
       - name: Load the wikipedia sample data
@@ -106,7 +106,7 @@ jobs:
               SUCCESS) break ;;
               FAILED) exit 1 ;;
             esac
-            sleep 5
+            sleep 1
           done
 
           # The task succeeds before its segments are loaded and queryable
@@ -116,7 +116,7 @@ jobs:
               -d '{"query": "SELECT COUNT(*) AS c FROM wikipedia"}' | jq -r '.[0].c // 0' || true)
             [ "${rows:-0}" -gt 0 ] && break
             echo "Waiting for wikipedia segments to load..."
-            sleep 5
+            sleep 1
           done
           echo "wikipedia has $rows rows"
 
