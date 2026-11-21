@@ -44,9 +44,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
 
     sql = prefix |> Query.insert(source, header, rows, opts) |> IO.iodata_to_binary()
 
-    params =
-      (interval_params(Keyword.get(opts, :overwrite), :overwrite) ++ params)
-      |> Enum.map(&Types.to_db/1)
+    params = interval_params(Keyword.get(opts, :overwrite), :overwrite) ++ params
 
     run(adapter_meta, source, sql, params, opts, fn repo, task_id, opts ->
       rows_written(repo, task_id, rows, opts)
@@ -58,7 +56,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
     bounds = interval_params(interval, :interval)
     sql = query |> Query.delete_all(opts) |> IO.iodata_to_binary()
     %{source: {source, _schema}} = query.from
-    params = Enum.map(bounds ++ bounds ++ params, &Types.to_db/1)
+    params = bounds ++ bounds ++ params
 
     # The task doesn't report how many rows it dropped, and Ecto needs an
     # integer, so the count is always 0
@@ -77,7 +75,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
     num_updates = update_ixs |> Enum.uniq() |> length()
     updates = Enum.map(update_ixs, &elem(params, &1))
     wheres = params |> Tuple.to_list() |> Enum.drop(num_updates)
-    params = Enum.map(bounds ++ updates ++ wheres ++ bounds, &Types.to_db/1)
+    params = bounds ++ updates ++ wheres ++ bounds
 
     # As for delete_all, the task doesn't say how many rows it changed
     run(adapter_meta, source, IO.iodata_to_binary(sql), params, opts, fn _, _, _ -> 0 end)
@@ -155,6 +153,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
     %{config: config, repo: repo} = adapter_meta
     call_opts = opts
     opts = Ecto.Adapters.Druid.merge_context(config, opts)
+    params = Types.to_db_params(params, opts[:context])
     {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
     opts = Keyword.put(opts, :context, context)
 

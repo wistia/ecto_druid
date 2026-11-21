@@ -197,6 +197,78 @@ MyApp.DruidRepo.all(query, context: %{sqlTimeZone: "America/New_York", timeout: 
 
 Per-call values override the repo config.
 
+## Time zones
+
+Druid stores `__time` in UTC. To bucket and filter by days that start
+somewhere else, such as a fixed UTC-5 day that ignores daylight saving time,
+set the `sqlTimeZone` context parameter, for the repo or per call:
+
+```elixir
+config :my_app, MyApp.DruidRepo, context: %{sqlTimeZone: "-05:00"}
+```
+
+With it set:
+
+* Time functions such as `time_floor/2`, `date_trunc/2`, `floor/2`,
+  `time_extract/2` and `time_format/2` work in that zone.
+* `Date` and `NaiveDateTime` parameters, and interval strings without an
+  offset (including `time_in_interval/2` with `Date` bounds), are times in
+  that zone. `~D[2026-11-01]` is midnight UTC-5, `2026-11-01T05:00:00Z`.
+* `DateTime` parameters are the instant they name. Druid ignores the offset
+  of a timestamp parameter, so the adapter sends the wall-clock time in
+  `sqlTimeZone`.
+* `:date` and `:naive_datetime` results are the date and wall-clock time in
+  that zone. `:utc_datetime` and `Ecto.Druid.DateTime` results are in UTC.
+
+```elixir
+from(p in "page_views",
+  where: p.__time >= ^~D[2026-11-01] and p.__time < ^~D[2026-11-08],
+  group_by: time_floor(p.__time, "P1D"),
+  select: %{day: type(time_floor(p.__time, "P1D"), :date), views: sum(p.views)}
+)
+|> MyApp.DruidRepo.all(context: %{sqlTimeZone: "-05:00"})
+#=> [%{day: ~D[2026-11-01], views: 1204}, %{day: ~D[2026-11-02], views: 1311}, ...]
+```
+
+To use a zone in one place without changing the session's, pass it to the
+function. The result is still a UTC timestamp:
+
+```elixir
+select: type(time_floor(p.__time, "P1D", nil, "-05:00"), :utc_datetime)
+#=> ~U[2026-11-01 05:00:00Z]
+```
+
+### Choosing a zone
+
+* `"-05:00"`, `"EST"` and `"Etc/GMT+5"` are all UTC-5 the whole year
+  (`Etc/GMT` zones have their sign inverted). `"America/New_York"` follows
+  daylight saving time, so its days start at 04:00 UTC in the summer.
+* Druid treats a zone it doesn't recognize, such as `"UTC-5"`, as UTC
+  without an error.
+* Sending `DateTime` parameters with a zone that has daylight saving time
+  needs a time zone database, such as `:tz` or `:tzdata`, set with
+  `config :elixir, :time_zone_database, ...`. Fixed offsets don't. When
+  clocks go back, Druid reads a time in the repeated hour as the first one.
+
+### Data rolled up to days in a zone
+
+A data source ingested with a period granularity in a zone, such as
+`query_granularity: %{"type" => "period", "period" => "P1D", "timeZone" => "-05:00"}`
+in `Ecto.Druid.Schema.Spec.data_schema/2`, stores each day's rows at the
+start of that day, 05:00 UTC for UTC-5. Queries with the same
+`sqlTimeZone` line up with those days: `Date` filters land on day
+boundaries, and `time_floor(p.__time, "P1D")` gives back each row's day.
+
+[Native queries](native_queries.md) don't use `sqlTimeZone`. Give them a
+period granularity with a `timeZone`, such as
+`%{type: "period", period: "P1D", timeZone: "-05:00"}`. Their `intervals`
+are in UTC unless a bound has an offset, so use `DateTime` bounds or strings
+like `"2026-11-01T00:00:00-05:00/2026-11-08T00:00:00-05:00"`.
+
+[SQL ingestion](sql_ingestion.md) only partitions by UTC periods. Druid
+rejects a time zone in `PARTITIONED BY`, and with `sqlTimeZone` set it
+checks `:overwrite` and `:interval` bounds against UTC partitions.
+
 ## Timeouts and canceling queries
 
 `:receive_timeout` sets how long a call waits for Druid's response, in

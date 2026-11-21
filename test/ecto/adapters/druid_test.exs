@@ -58,6 +58,44 @@ defmodule Ecto.Adapters.DruidTest do
       assert Types.to_db(["a", "b"]) == %{type: "ARRAY", value: ["a", "b"]}
     end
 
+    # Druid reads a TIMESTAMP parameter as a wall-clock time in sqlTimeZone,
+    # whatever offset it has
+    test "sends datetimes as their wall-clock time in sqlTimeZone" do
+      dt = ~U[2024-01-01 05:00:00Z]
+
+      for zone <- ["EST", "-05:00", "-0500", "-05", "Etc/GMT+5"] do
+        assert Types.to_db_params([dt], %{sqlTimeZone: zone}) ==
+                 [%{type: "TIMESTAMP", value: "2024-01-01T00:00:00"}],
+               zone
+      end
+
+      assert Types.to_db_params([dt], %{"sqlTimeZone" => "+09:30"}) ==
+               [%{type: "TIMESTAMP", value: "2024-01-01T14:30:00"}]
+
+      assert Types.to_db_params([[dt]], %{sqlTimeZone: "EST"}) ==
+               [%{type: "ARRAY", value: ["2024-01-01T00:00:00"]}]
+    end
+
+    test "leaves params alone without a non-UTC sqlTimeZone" do
+      params = [~U[2024-01-01 05:00:00.123Z], ~N[2024-01-01 05:00:00], ~D[2024-01-01]]
+      expected = Enum.map(params, &Types.to_db/1)
+
+      assert Types.to_db_params(params, %{}) == expected
+      assert Types.to_db_params(params, %{sqlTimeZone: "Etc/UTC"}) == expected
+
+      assert Types.to_db_params(tl(params), %{sqlTimeZone: "EST"}) ==
+               [
+                 %{type: "TIMESTAMP", value: "2024-01-01T05:00:00"},
+                 %{type: "DATE", value: "2024-01-01"}
+               ]
+    end
+
+    test "needs a time zone database for zones that aren't a fixed offset" do
+      assert_raise ArgumentError, ~r/needs a time zone database/, fn ->
+        Types.to_db_params([~U[2024-01-01 05:00:00Z]], %{sqlTimeZone: "America/New_York"})
+      end
+    end
+
     # Druid rejects a DECIMAL parameter sent as a JSON string
     test "sends decimals as JSON numbers" do
       assert %{type: "DECIMAL", value: value} = Types.to_db(Decimal.new("-1.50"))
@@ -82,6 +120,18 @@ defmodule Ecto.Adapters.DruidTest do
 
       assert load(:naive_datetime_usec, "2016-06-27T01:02:03.004Z") ==
                {:ok, ~N[2016-06-27 01:02:03.004000]}
+    end
+
+    # With a sqlTimeZone, Druid returns values with that zone's offset
+    test "keeps the wall-clock time in the query's time zone for dates and naive datetimes" do
+      assert load(:date, "2024-01-01T00:00:00.000+09:00") == {:ok, ~D[2024-01-01]}
+      assert load(:date, "2024-01-01T00:00:00.000-05:00") == {:ok, ~D[2024-01-01]}
+
+      assert load(:naive_datetime, "2024-01-01T00:00:00.000-05:00") ==
+               {:ok, ~N[2024-01-01 00:00:00]}
+
+      assert load(:utc_datetime, "2024-01-01T00:00:00.000-05:00") ==
+               {:ok, ~U[2024-01-01 05:00:00Z]}
     end
 
     test "passes nil through and rejects other strings" do
