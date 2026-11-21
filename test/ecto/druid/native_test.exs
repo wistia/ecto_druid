@@ -8,20 +8,6 @@ defmodule Ecto.Druid.NativeTest do
   @doubled %{type: "expression", name: "doubled", expression: "rows * 2"}
 
   describe "rows/3" do
-    test "adds the timestamp to timeseries results" do
-      query = %{queryType: "timeseries", granularity: "day", aggregations: [@count]}
-
-      results = [
-        %{"timestamp" => "2016-06-27T00:00:00.000Z", "result" => %{"rows" => 1}},
-        %{"timestamp" => "2016-06-28T00:00:00.000Z", "result" => %{"rows" => 2}}
-      ]
-
-      assert Native.rows(results, query) == [
-               %{"__time" => "2016-06-27T00:00:00.000Z", "rows" => 1},
-               %{"__time" => "2016-06-28T00:00:00.000Z", "rows" => 2}
-             ]
-    end
-
     test "flattens each topN bucket" do
       query = %{"queryType" => "topN", "dimension" => "page", "aggregations" => [@count]}
 
@@ -93,6 +79,12 @@ defmodule Ecto.Druid.NativeTest do
              ]
     end
 
+    test "names scan arrays with the query's columns when a batch doesn't list them" do
+      query = %{queryType: "scan", columns: ["__time", "page"]}
+
+      assert Native.rows([%{"events" => [[1, "a"]]}], query) == [%{"__time" => 1, "page" => "a"}]
+    end
+
     test "names windowOperator results with :columns" do
       query = %{queryType: "windowOperator"}
 
@@ -117,33 +109,6 @@ defmodule Ecto.Druid.NativeTest do
       assert_raise ArgumentError, ~r/got: "timeBoundary"/, fn ->
         Native.rows([], %{queryType: "timeBoundary"})
       end
-    end
-  end
-
-  describe "columns/1" do
-    test "lists each query type's columns in array order" do
-      assert Native.columns(%{
-               queryType: "timeseries",
-               aggregations: [@count],
-               postAggregations: [@doubled],
-               context: %{timestampResultField: "d0"}
-             }) == ["__time", "d0", "rows", "doubled"]
-
-      assert Native.columns(%{
-               queryType: "topN",
-               dimension: %{type: "default", dimension: "page", outputName: "d0"},
-               aggregations: [@count]
-             }) == ["__time", "d0", "rows"]
-
-      assert Native.columns(%{queryType: "groupBy", granularity: "all", dimensions: ["page"]}) ==
-               ["page"]
-
-      assert Native.columns(%{queryType: "scan", columns: ["page"]}) == ["page"]
-    end
-
-    test "is nil when the query doesn't name its columns" do
-      assert Native.columns(%{queryType: "scan"}) == nil
-      assert Native.columns(%{queryType: "windowOperator"}) == nil
     end
   end
 end

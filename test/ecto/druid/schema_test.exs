@@ -182,7 +182,7 @@ defmodule Ecto.Druid.SchemaTest do
       assert [iso] =
                Spec.data_schema(PageViews, intervals: [interval])["granularitySpec"]["intervals"]
 
-      assert iso == Ecto.Druid.Interval.to_iso8601(interval)
+      assert iso == "2026-11-01T00:00:00Z/2026-11-02T00:00:00Z"
     end
 
     test "raises when a transform clashes with a generated one" do

@@ -160,24 +160,13 @@ defmodule Ecto.Druid.Native do
   @spec flattens?(map()) :: boolean()
   def flattens?(query), do: stringify_keys(query)["queryType"] in @supported
 
-  @doc false
-  # The columns each row of a native query has, in the order Druid returns
-  # them as arrays, or nil when the query alone doesn't say.
-  @spec columns(map()) :: [String.t()] | nil
-  def columns(query) do
-    query = stringify_keys(query)
-    outputs = aggregators(query)
-
+  # The columns of a groupBy or scan query's array rows, in the order Druid
+  # returns them, or nil when the query alone doesn't say.
+  defp columns(query) do
     case query["queryType"] do
-      "timeseries" ->
-        ["__time" | List.wrap(query["context"]["timestampResultField"])] ++ outputs
-
-      "topN" ->
-        ["__time", dimension_name(query["dimension"]) | outputs]
-
       "groupBy" ->
         time = if all_granularity?(query), do: [], else: ["__time"]
-        time ++ Enum.map(query["dimensions"] || [], &dimension_name/1) ++ outputs
+        time ++ Enum.map(query["dimensions"] || [], &dimension_name/1) ++ aggregators(query)
 
       "scan" ->
         case query["columns"] do

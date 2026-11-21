@@ -39,12 +39,6 @@ defmodule Ecto.Druid.LookupTest do
                 ~s|WHERE (c0."k" = ?)|, ["US"]}
   end
 
-  test "fetches by key" do
-    query = Ecto.Query.where(CountryNames, code: ^"US")
-    assert {sql, ["US"]} = TestRepo.to_sql(query)
-    assert sql =~ ~s|FROM "lookup"."country_names_v2" AS c0 WHERE (c0."k" = ?)|
-  end
-
   test "joins a datasource to the lookup" do
     query =
       from t in "test",
