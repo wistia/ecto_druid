@@ -1575,6 +1575,140 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT TABLE(EXTERN('{}', '{}', '{}')) FROM \"test\" AS t0", []}
     end
 
+    test "extern/2,3 encode pinned maps and lists as JSON" do
+      input = %{type: "inline", data: "a,1"}
+      format = %{type: "csv", columns: ["s", "l"]}
+      signature = [%{name: "s", type: "string"}]
+
+      {sql, params} =
+        from(e in table(extern(^input, ^format, ^signature)), select: e.s) |> to_sql()
+
+      assert sql == ~s{SELECT f0."s" FROM TABLE(EXTERN(?, ?, ?)) AS f0}
+
+      assert Enum.map(params, &Jason.decode!/1) == [
+               %{"type" => "inline", "data" => "a,1"},
+               %{"type" => "csv", "columns" => ["s", "l"]},
+               [%{"name" => "s", "type" => "string"}]
+             ]
+
+      {_sql, params} =
+        from(e in extend(table(extern(^input, ^format)), s: :string), select: e.s) |> to_sql()
+
+      assert Enum.map(params, &Jason.decode!/1) == [
+               %{"type" => "inline", "data" => "a,1"},
+               %{"type" => "csv", "columns" => ["s", "l"]}
+             ]
+    end
+
+    test "extern/2,3 encode map and list literals, and pass strings through" do
+      {sql, params} =
+        from(e in table(extern(%{type: "inline", data: "a"}, "{}", s: :string)),
+          select: e.s
+        )
+        |> to_sql()
+
+      assert sql == ~s|SELECT f0."s" FROM TABLE(EXTERN(?, '{}', ?)) AS f0|
+      assert params == [~s({"data":"a","type":"inline"}), ~s([{"name":"s","type":"string"}])]
+
+      json = ~s({"type":"json"})
+      {_sql, params} = from(e in table(extern(^json, ^json)), select: e.s) |> to_sql()
+      assert params == [json, json]
+    end
+
+    test "extern/3 takes a keyword row signature, built at runtime" do
+      signature = [
+        s: :string,
+        l: :long,
+        f: :float,
+        d: :double,
+        j: :json,
+        ss: {:array, :string},
+        ls: {:array, :long},
+        ds: {:array, :double}
+      ]
+
+      {_sql, [json]} =
+        from(e in table(extern("{}", "{}", ^signature)), select: e.s) |> to_sql()
+
+      assert Jason.decode!(json) == [
+               %{"name" => "s", "type" => "string"},
+               %{"name" => "l", "type" => "long"},
+               %{"name" => "f", "type" => "float"},
+               %{"name" => "d", "type" => "double"},
+               %{"name" => "j", "type" => "COMPLEX<json>"},
+               %{"name" => "ss", "type" => "ARRAY<STRING>"},
+               %{"name" => "ls", "type" => "ARRAY<LONG>"},
+               %{"name" => "ds", "type" => "ARRAY<DOUBLE>"}
+             ]
+
+      bad = [s: :integer]
+
+      assert_raise ArgumentError, ~r/extern\/3 doesn't support the column type :integer/, fn ->
+        from(e in table(extern("{}", "{}", ^bad)), select: e.s)
+      end
+    end
+
+    test "extend/2 with extern/2 as a from source" do
+      sql =
+        from(e in extend(table(extern(^"src", ^"fmt")), ts: :string, views: :long),
+          select: e.views
+        )
+        |> to_sql()
+
+      assert sql ==
+               {~s{SELECT f0."views" FROM TABLE(EXTERN(?, ?)) EXTEND ("ts" VARCHAR, "views" BIGINT) AS f0},
+                ["src", "fmt"]}
+    end
+
+    @extend_columns [
+      s: :string,
+      l: :long,
+      f: :float,
+      d: :double,
+      j: :json,
+      ss: {:array, :string},
+      ls: {:array, :long},
+      ds: {:array, :double}
+    ]
+
+    test "extend/2 types, from a module attribute" do
+      {sql, []} =
+        from(e in extend(table(extern("src", "fmt")), @extend_columns), select: e.s) |> to_sql()
+
+      assert sql =~
+               ~s{EXTEND ("s" VARCHAR, "l" BIGINT, "f" FLOAT, "d" DOUBLE, "j" TYPE('COMPLEX<json>'), } <>
+                 ~s{"ss" VARCHAR ARRAY, "ls" BIGINT ARRAY, "ds" DOUBLE ARRAY) AS f0}
+    end
+
+    test "extend/2 quotes column names" do
+      {sql, []} =
+        from(e in extend(table(extern("src", "fmt")), "a\"b": :string), select: count())
+        |> to_sql()
+
+      assert sql =~ ~s{EXTEND ("a""b" VARCHAR)}
+    end
+
+    test "extend/2 rejects unknown types and runtime column lists" do
+      assert_raise ArgumentError, ~r/doesn't support the column type :integer/, fn ->
+        Code.eval_quoted(
+          quote do
+            import Ecto.Druid.Query.Table
+            extend(table(extern("src", "fmt")), a: :integer)
+          end
+        )
+      end
+
+      assert_raise ArgumentError, ~r/known at compile time/, fn ->
+        Code.eval_quoted(
+          quote do
+            import Ecto.Druid.Query.Table
+            columns = [a: :string]
+            extend(table(extern("src", "fmt")), columns)
+          end
+        )
+      end
+    end
+
     test "append/1 as a from source" do
       sql = from(e in table(append(["a", "b"])), select: e.channel) |> to_sql()
       assert sql == {"SELECT f0.\"channel\" FROM TABLE(APPEND('a', 'b')) AS f0", []}

@@ -36,6 +36,10 @@ for how to move code from 0.5.x.
   their columns changed. `update_all` supports `set`, `inc`, `push` and (on
   multi-value columns) `pull`, and needs an `Ecto.Druid.Schema` to know every
   column. Both return `{0, nil}`.
+- `extern/2` and `extend/2`, for reading external data with its columns
+  declared in SQL (`TABLE(EXTERN(?, ?)) EXTEND (...)`) rather than as a JSON
+  row signature. `extern/2,3` take maps and lists and encode them as JSON,
+  and `extern/3` takes a keyword list of columns as its row signature.
 - `Repo.stream/2`, and querying from deep storage.
 - `Repo.to_native/2`, native query builders for filters, aggregators and
   expressions (`Ecto.Druid.Native`), and `Ecto.Druid.Native.rows/3` for
