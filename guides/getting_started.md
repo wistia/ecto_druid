@@ -55,3 +55,4 @@ the `Ecto.Druid.Schema` macros can be written without parentheses.
 * [Lookups](lookups.md)
 * [System Tables](system_tables.md): `sys.*` and `INFORMATION_SCHEMA.*`
 * [Druid API Client](druid_client.md): Druid's HTTP API
+* [Testing](testing.md): stubbing Druid in your app's tests

@@ -51,6 +51,8 @@ defmodule Ecto.Adapters.Druid do
     from deep storage API. See below.
   * `:log` - The level queries are logged at, or `false` to not log them.
     Defaults to `:debug`. See "Telemetry" below.
+  * `:plug` - Send requests to this plug instead of Druid, such as
+    `{Req.Test, MyApp.Repo}` in tests. See `Ecto.Druid.Test`.
 
   ## Authentication
 
