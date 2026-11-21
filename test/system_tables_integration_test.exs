@@ -1,6 +1,8 @@
 defmodule SystemTablesIntegrationTest do
   use ExUnit.Case
 
+  @moduletag :druid
+
   import Ecto.Query
 
   alias Ecto.Adapters.Druid.TestRepo

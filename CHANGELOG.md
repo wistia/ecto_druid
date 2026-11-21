@@ -1,0 +1,82 @@
+# Changelog
+
+## Unreleased (0.6.0)
+
+Targets Apache Druid 38 (up from 28). See [Upgrading](guides/upgrading.md)
+for how to move code from 0.5.x.
+
+### Breaking changes
+
+- Requires Ecto 3.12 or later (`ecto_sql ~> 3.12`).
+- The SQL function macros moved from `Ecto.Druid.Query` into per-category
+  submodules (`Ecto.Druid.Query.Numeric`, `Ecto.Druid.Query.DateTime`, ...).
+  `use Ecto.Druid.Query` imports them all; `import Ecto.Druid.Query` no longer
+  does.
+- `native_query/2` returns `{:ok, rows}` or `{:error, %NativeQueryError{}}`,
+  and `native_query!/2` returns the rows or raises. Timeseries, topN, groupBy,
+  scan and windowOperator results are flattened into rows; pass `raw: true`
+  for Druid's response as is.
+- `hll_sketch_estimate_with_error_bounds` and
+  `theta_sketch_estimate_with_error_bounds` load as an `Ecto.Druid.Estimate`
+  struct.
+- Sketch types cast and dump Base64 strings, and load Druid's JSON-encoded
+  form or a bare string. `tdigest_generate_sketch` loads as a
+  `Ecto.Druid.TDigestSketch` and `DSHistogram` as a list of floats.
+- Each repo starts its own Finch pool, named after the repo
+  (`MyApp.Repo.Finch`) or the `:finch` option, instead of
+  `Ecto.Adapters.Druid.Finch`.
+- `insert/update/delete`, `update_all` and `delete_all` raise errors that
+  point at what to use instead.
+
+### Added
+
+- `Repo.insert_all/3` through Druid SQL-based ingestion, with `:overwrite`,
+  `:partitioned_by` and `:clustered_by`.
+- `Repo.stream/2`, and querying from deep storage.
+- `Repo.to_native/2`, native query builders for filters, aggregators and
+  expressions (`Ecto.Druid.Native`), and `Ecto.Druid.Native.rows/3` for
+  flattening results. A schema can be a native query's `dataSource`, and the
+  columns the query reads are checked against it.
+- `unnest/2`, and SQL functions added in Druid 28 to 38:
+  `APPROX_COUNT_DISTINCT_DS_HLL`, `DS_HLL`, `SCALAR_IN_ARRAY`,
+  `MV_FILTER_REGEX`, `MV_FILTER_PREFIX` and `JSON_MERGE`.
+- `Ecto.Druid.Interval` for building query intervals, and `{start, stop}`
+  tuples in `time_in_interval/2`.
+- Schemas for Druid's system tables (`sys.*` and `INFORMATION_SCHEMA.*`), and
+  `Ecto.Druid.JSON` for their JSON columns.
+- `Ecto.Druid.Lookup` for defining lookup schemas, which `lookup/2,3` accept
+  in place of a lookup name.
+- Template-and-sync workflows, each with Mix tasks: `Druid.Supervisors` for
+  supervisor specs, `Druid.Retention` for retention rules, `Druid.Lookups`
+  for lookups, `Druid.Compaction` for compaction configs, and `Druid.Tasks`
+  for batch ingestion tasks and range backfills. `Ecto.Druid.Schema`
+  generates a `dataSchema` from an Ecto schema.
+- Helpers for waiting on Druid: `Druid.Tasks.await/3` and `await_all/3`
+  (optionally until segments are queryable),
+  `Druid.Supervisors.await_running/3` and `handoff/3`, and
+  `Druid.Lookups.await/3`.
+- Request builders for the rest of Druid's HTTP API in `Druid.Client`.
+- Repo-config `:context` merged under the per-call `context:` option.
+- `:auth` and `:redirect_trusted` options for authenticated clusters.
+- Telemetry: the repo's `[..., :query]` event with query logging,
+  `[:druid, :request]` spans for every client request, and
+  `[:druid, :task, :await]` and `[:druid, :statement, :await]` spans.
+- An example Phoenix LiveView app in `example/`.
+- Guides on HexDocs, split out of the README.
+
+### Fixed
+
+- SQL queries and native queries are canceled in Druid when their request
+  times out. Cancels are retried with backoff.
+- SQL generated for Ecto's built-in expressions: `type/2` casts, string
+  literals with backslashes, `datetime_add` and the other date arithmetic,
+  JSON paths and `x in array_field`.
+- `distinct: true` and top-level `ORDER BY` with Ecto 3.12's `ByExpr`.
+- Pinned integers, `DateTime`s, `Date`s, `Decimal`s, `nil` and lists.
+- Loading `:date`, `:utc_datetime` and `:naive_datetime` results.
+- Sketch casts in changesets, arrays and pinned values.
+- A second repo no longer crashes at boot over the shared Finch pool name.
+
+### Removed
+
+- The unused MySQL DDL generation.

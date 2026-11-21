@@ -1,5 +1,8 @@
 defmodule ClientIntegrationTest do
   use ExUnit.Case
+
+  @moduletag :druid
+
   alias Druid.Client
   alias Druid.Client.{Compaction, Config, DataSource, Metadata, Status, Supervisor, Task}
 

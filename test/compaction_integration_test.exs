@@ -1,5 +1,8 @@
 defmodule CompactionIntegrationTest do
   use ExUnit.Case
+
+  @moduletag :druid
+
   alias Ecto.Adapters.Druid.TestRepo
 
   @druid [host: "localhost", port: 9888]

@@ -32,12 +32,12 @@ defmodule Ecto.Adapters.Druid.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ecto_sql, "~> 3.7"},
-      {:telemetry, "~> 1.1"},
-      {:req, "~> 0.5.8"},
+      {:ecto_sql, "~> 3.12"},
+      {:telemetry, "~> 1.3"},
+      {:req, "~> 0.5.18"},
       {:jason, "~> 1.0"},
       {:plug, "~> 1.15", only: :test},
-      {:ex_doc, "~> 0.31", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.36", only: :dev, runtime: false}
     ]
   end
 
@@ -57,6 +57,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
       main: "readme",
       extras: [
         "README.md",
+        "CHANGELOG.md",
         "guides/getting_started.md",
         "guides/querying.md",
         "guides/native_queries.md",

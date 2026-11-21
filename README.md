@@ -66,19 +66,30 @@ MyApp.DruidRepo.all(
 
 ## Example app
 
-[`example/`](example) is a Phoenix LiveView app that explores a day of
-Wikipedia edits with ecto_druid: schemas, Druid SQL functions, sketches,
-lookups, system tables, native queries and ingestion. See its
-[README](example/README.md) to run it.
+[`example/`](https://github.com/wistia/ecto_druid/tree/main/example) is a
+Phoenix LiveView app that explores a day of Wikipedia edits with ecto_druid:
+schemas, Druid SQL functions, sketches, lookups, system tables, native queries
+and ingestion. See its
+[README](https://github.com/wistia/ecto_druid/blob/main/example/README.md) to
+run it.
 
 ## Running Tests
+
+`mix test` runs the unit tests, which don't need Druid. Tests that talk to a
+running Druid are tagged `:druid` and excluded by default.
 
 ```sh
 git clone https://github.com/wistia/ecto_druid.git
 cd ecto_druid
 
+mix test
+```
+
+To run the Druid tests too, start Druid and load the sample data first:
+
+```sh
 # Start druid
-docker compose up -d druid
+docker compose up -d --build druid
 
 # Wait for druid to start up, then load data into it
 curl "http://localhost:9888/druid/indexer/v1/task" \
@@ -86,7 +97,10 @@ curl "http://localhost:9888/druid/indexer/v1/task" \
   -d @ingestion_spec.json
 
 # Once the data has loaded
-mix test
+mix test --include druid
+
+# Or only the Druid tests
+mix test --only druid
 ```
 
 The compose file maps services to non-default host ports so they don't clash

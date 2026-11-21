@@ -22,8 +22,12 @@ defmodule Ecto.Druid.IntervalTest do
                "PT30M/2026-11-01T00:00:00Z"
     end
 
-    test "takes a Duration as a period" do
-      assert to_string(Interval.new(~D[2026-11-01], Duration.new!(day: 3))) == "2026-11-01/P3D"
+    # Duration is new in Elixir 1.17
+    if Code.ensure_loaded?(Duration) do
+      test "takes a Duration as a period" do
+        assert to_string(Interval.new(~D[2026-11-01], Duration.new!(day: 3))) ==
+                 "2026-11-01/P3D"
+      end
     end
 
     test "rejects invalid bounds" do

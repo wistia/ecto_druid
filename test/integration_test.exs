@@ -1,5 +1,8 @@
 defmodule IntegrationTest do
   use ExUnit.Case
+
+  @moduletag :druid
+
   alias Ecto.Adapters.Druid.TestRepo
   alias Ecto.Adapters.Druid.Wikipedia
 

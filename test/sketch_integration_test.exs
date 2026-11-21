@@ -1,6 +1,8 @@
 defmodule SketchIntegrationTest do
   use ExUnit.Case, async: true
 
+  @moduletag :druid
+
   import Ecto.Query
   use Ecto.Druid.Query
 
