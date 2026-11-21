@@ -87,10 +87,18 @@ defmodule Druid.Client.Task do
   @doc """
   Builds a request to get the statuses of several tasks, as a map of task ID
   to status. Unknown IDs are left out.
+
+  It is a POST only so the IDs can go in the body, so unlike other POSTs it
+  is retried like a GET when it fails with a transient error.
   """
   @spec statuses([String.t()]) :: Req.Request.t()
   def statuses(task_ids) do
-    Req.new(method: :post, url: @indexer_path <> "/taskStatus", json: task_ids)
+    Req.new(
+      method: :post,
+      url: @indexer_path <> "/taskStatus",
+      json: task_ids,
+      retry: :transient
+    )
   end
 
   @doc """

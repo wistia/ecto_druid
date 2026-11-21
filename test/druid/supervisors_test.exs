@@ -179,6 +179,23 @@ defmodule Druid.SupervisorsTest do
       end
     end
 
+    test "points at invalid JSON without showing the rendered spec", %{tmp_dir: dir} do
+      write!(dir, "events.json.eex", """
+      {
+        "password": <%= json @password %>,
+        "topic": "events",
+      }
+      """)
+
+      error =
+        assert_raise Supervisors.Error, fn ->
+          Supervisors.render(TestRepo, path: dir, assigns: %{password: "hunter2"})
+        end
+
+      assert error.message =~ "events rendered invalid JSON at line 4, column 1: unexpected byte"
+      refute error.message =~ "hunter2"
+    end
+
     test "raises when a spec has no supervisor id", %{tmp_dir: dir} do
       write!(dir, "events.json", ~s({"type": "kafka", "spec": {}}))
 

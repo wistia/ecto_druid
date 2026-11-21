@@ -202,6 +202,29 @@ defmodule IntegrationTest do
     end
   end
 
+  test "streams Broker results as they arrive" do
+    import Ecto.Query
+
+    query = from(w in "wikipedia", order_by: field(w, :__time), select: field(w, :page))
+    rows = query |> TestRepo.stream() |> Enum.to_list()
+
+    assert length(rows) == 24_433
+    assert rows == TestRepo.all(query)
+    assert query |> TestRepo.stream() |> Enum.take(3) == Enum.take(rows, 3)
+  end
+
+  test "Broker errors carry Druid's error code" do
+    import Ecto.Query
+
+    error =
+      assert_raise Druid.Client.RequestError, fn ->
+        TestRepo.all(from(w in "no_such_source", select: field(w, :page)))
+      end
+
+    assert %{status: 400, error_code: "invalidInput", category: "INVALID_INPUT"} = error
+    assert Exception.message(error) =~ "Druid responded with 400 (invalidInput): Object"
+  end
+
   test "native query errors carry the queryId" do
     query = %{queryType: "timeseries", dataSource: "no_such_source", intervals: ["2016/2017"]}
 

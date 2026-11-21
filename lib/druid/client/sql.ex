@@ -11,6 +11,10 @@ defmodule Druid.Client.SQL do
   * `:context` - A map of [SQL query context parameters](https://druid.apache.org/docs/latest/querying/sql-query-context),
     merged over the defaults (`sqlQueryId`, `sqlStringifyArrays`,
     `skipEmptyBuckets`, `enableWindowing`).
+  * `:result_format` - `"array"` (the default), `"object"`, `"arrayLines"`,
+    `"objectLines"`, or `"csv"`. The `"...Lines"` formats send one row per
+    line, which can be read as it arrives, and end with a blank line, so a
+    response cut short can be told from a complete one.
 
   ## Examples
 
@@ -29,7 +33,7 @@ defmodule Druid.Client.SQL do
       query: query,
       parameters: params,
       context: context(context),
-      resultFormat: "array",
+      resultFormat: Keyword.get(opts, :result_format, "array"),
       header: false,
       typesHeader: false
     }

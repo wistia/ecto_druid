@@ -13,7 +13,8 @@ Every query a repo sends to Druid emits one event, named after the repo's
 
 * `all/2`, `one/2` and the other read functions, for SQL queries to the
   Broker or from deep storage
-* `stream/2`, when the stream is first enumerated
+* `stream/2`, when the stream is first enumerated, once the Broker starts
+  answering or the deep storage query finishes
 * `insert_all/3`
 * `native_query/2` and `native_query!/2`
 * `to_native/2`
@@ -63,8 +64,9 @@ connection.
 * `:deep_storage` - The deep storage options for a query from deep storage,
   or `nil` for one the Broker answered.
 * `:result` - `{:ok, %{num_rows: n, rows: rows}}` or `{:error, exception}`.
-  `rows` is `nil` for `insert_all/3` and for a deep storage stream, whose
-  pages are read after the event.
+  `rows` is `nil` for `insert_all/3` and for a stream, whose rows are read
+  after the event. A stream from the Broker doesn't know how many rows it
+  will read, so its `num_rows` is `nil` too.
 * `:stacktrace` - The caller's stacktrace, when the repo is configured with
   `stacktrace: true` or the call passes it.
 * `:options` - The call's `:telemetry_options`.

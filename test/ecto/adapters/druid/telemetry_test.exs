@@ -97,11 +97,13 @@ defmodule Ecto.Adapters.Druid.TelemetryTest do
     end
 
     test "emit once a stream is enumerated" do
-      stream = TestRepo.stream(pages_query(), plug: druid([["a"]]))
+      plug = fn conn -> Plug.Conn.send_resp(conn, 200, ~s(["a"]\n\n)) end
+      stream = TestRepo.stream(pages_query(), plug: plug)
       refute_received {:telemetry, _, _, _}
 
+      # The rows are read after the event, so it doesn't count them
       assert Enum.to_list(stream) == ["a"]
-      assert_received {:telemetry, @event, _, %{result: {:ok, %{num_rows: 1}}}}
+      assert_received {:telemetry, @event, _, %{result: {:ok, %{num_rows: nil, rows: nil}}}}
     end
 
     test "include the stacktrace when asked" do

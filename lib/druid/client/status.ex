@@ -11,6 +11,11 @@ defmodule Druid.Client.Status do
   Some of these respond with a 503 to mean "not yet", so
   `Druid.Client.request/2` returns an error until the service is ready.
 
+  The checks (`health/0`, `self_discovered/0`, `readiness/1` and
+  `load_status/1`) aren't retried, so a service that is down or not ready
+  is reported as soon as it answers, not after `Req`'s retries. Pass
+  `retry: :safe_transient` to `Druid.Client.request/2` to retry them.
+
   ## Examples
 
       Druid.Client.Status.health()
@@ -31,7 +36,7 @@ defmodule Druid.Client.Status do
   `true`.
   """
   @spec health() :: Req.Request.t()
-  def health, do: get("/status/health")
+  def health, do: check("/status/health")
 
   @doc """
   Builds a request to get the service's runtime properties.
@@ -44,7 +49,7 @@ defmodule Druid.Client.Status do
   cluster. Druid responds with `%{"selfDiscovered" => boolean}`.
   """
   @spec self_discovered() :: Req.Request.t()
-  def self_discovered, do: get("/status/selfDiscovered/status")
+  def self_discovered, do: check("/status/selfDiscovered/status")
 
   @doc """
   Builds a request to get the address of the current Coordinator or Overlord
@@ -59,8 +64,8 @@ defmodule Druid.Client.Status do
   segments. Druid responds with a 503 until it has.
   """
   @spec readiness(:broker | :historical) :: Req.Request.t()
-  def readiness(:broker), do: get("/druid/broker/v1/readiness")
-  def readiness(:historical), do: get("/druid/historical/v1/readiness")
+  def readiness(:broker), do: check("/druid/broker/v1/readiness")
+  def readiness(:historical), do: check("/druid/historical/v1/readiness")
 
   @doc """
   Builds a request to get whether a Broker has initialized its view of the
@@ -69,8 +74,8 @@ defmodule Druid.Client.Status do
   `%{"cacheInitialized" => boolean}`.
   """
   @spec load_status(:broker | :historical) :: Req.Request.t()
-  def load_status(:broker), do: get("/druid/broker/v1/loadstatus")
-  def load_status(:historical), do: get("/druid/historical/v1/loadstatus")
+  def load_status(:broker), do: check("/druid/broker/v1/loadstatus")
+  def load_status(:historical), do: check("/druid/historical/v1/loadstatus")
 
   @doc """
   Builds a request to list the Overlord's workers, with their capacity and
@@ -86,4 +91,8 @@ defmodule Druid.Client.Status do
   def scaling, do: get("/druid/indexer/v1/scaling")
 
   defp get(url), do: Req.new(method: :get, url: url)
+
+  # A check answers "no" with a 503 or by not answering, which Req would
+  # retry for about seven seconds before reporting it
+  defp check(url), do: Req.new(method: :get, url: url, retry: false)
 end

@@ -153,7 +153,10 @@ defmodule Druid.Tasks.Batch do
 
       {:error, error} ->
         # A failed status request fails the runs it was for, rather than
-        # retrying forever. Req already retries transient errors.
+        # retrying forever. The request is already retried on transient
+        # errors (see Druid.Client.Task.statuses/1), so this is a status
+        # check that kept failing. The tasks may still be running, and
+        # keep their IDs so they can be checked later.
         failed = Enum.map(state.active, fn {run, index} -> {%{run | error: error}, index} end)
         report(%{state | active: [], done: failed ++ state.done})
     end

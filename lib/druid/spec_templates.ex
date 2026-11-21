@@ -7,7 +7,9 @@ defmodule Druid.SpecTemplates do
   alias Druid.Supervisors.Template
 
   @repo_keys [:host, :port, :scheme, :auth, :redirect_trusted]
-  @connection_keys @repo_keys ++ [:plug, :adapter, :finch]
+  @connection_keys @repo_keys ++
+                     [:plug, :adapter, :finch, :receive_timeout] ++
+                     [:retry, :max_retries, :retry_delay, :retry_log_level]
 
   @doc "Reads `key` from the repo's config, with `opts` taking precedence."
   def config(repo, key, opts) do
@@ -87,9 +89,20 @@ defmodule Druid.SpecTemplates do
       {:ok, decoded} ->
         decoded
 
+      # The rendered spec isn't shown, since assigns often hold credentials
       {:error, e} ->
-        raise error, "#{name} rendered invalid JSON: #{Exception.message(e)}\n\n#{rendered}"
+        {line, column} = line_column(rendered, e.position)
+
+        raise error,
+              "#{name} rendered invalid JSON at line #{line}, column #{column}: " <>
+                Exception.message(e)
     end
+  end
+
+  defp line_column(rendered, position) do
+    before = binary_part(rendered, 0, min(position, byte_size(rendered)))
+    lines = String.split(before, "\n")
+    {length(lines), String.length(List.last(lines)) + 1}
   end
 
   @doc """

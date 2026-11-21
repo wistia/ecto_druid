@@ -27,6 +27,83 @@ defmodule Druid.ClientTest do
              request(respond(404, "application/json", ~s({"error":"nope"})))
   end
 
+  describe "RequestError" do
+    defp error(status, content_type, body) do
+      plug = respond(status, content_type, body)
+      opts = [plug: plug, host: "localhost", port: 1, retry: false]
+      {:error, error} = Client.request(Req.new(url: "/"), opts)
+      error
+    end
+
+    test "copies Druid's error fields out of the body" do
+      body =
+        ~s({"error":"druidException","errorCode":"invalidInput","persona":"USER",) <>
+          ~s("category":"INVALID_INPUT","errorMessage":"Object 'nope' not found","context":{}})
+
+      assert %Client.RequestError{
+               status: 400,
+               error_code: "invalidInput",
+               category: "INVALID_INPUT",
+               error_message: "Object 'nope' not found",
+               body: %{"persona" => "USER"}
+             } = error = error(400, "application/json", body)
+
+      assert Exception.message(error) ==
+               "Druid responded with 400 (invalidInput): Object 'nope' not found"
+    end
+
+    test "reads the code from older error bodies" do
+      body = ~s({"error":"Query timeout","errorMessage":"Query timed out","errorClass":"x"})
+
+      assert %Client.RequestError{error_code: "Query timeout", category: nil} =
+               error = error(504, "application/json", body)
+
+      assert Exception.message(error) ==
+               "Druid responded with 504 (Query timeout): Query timed out"
+    end
+
+    test "uses a lone error as the message" do
+      assert %Client.RequestError{error_code: nil, error_message: "bad task"} =
+               error = error(400, "application/json", ~s({"error":"bad task"}))
+
+      assert Exception.message(error) == "Druid responded with 400: bad task"
+    end
+
+    test "falls back to the body when it isn't a Druid error" do
+      assert %Client.RequestError{error_code: nil, category: nil, error_message: nil} =
+               error = error(502, "text/html", "Bad Gateway")
+
+      assert Exception.message(error) == ~s(Druid responded with 502: "Bad Gateway")
+    end
+  end
+
+  describe "retries" do
+    # Answers 503 and counts the attempts
+    defp unavailable do
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+      plug = fn conn ->
+        Agent.update(attempts, &(&1 + 1))
+        Plug.Conn.send_resp(conn, 503, "")
+      end
+
+      {plug, fn -> Agent.get(attempts, & &1) end}
+    end
+
+    defp retried(opts) do
+      {plug, attempts} = unavailable()
+      opts = Keyword.merge([plug: plug, host: "localhost", port: 1, retry_log_level: false], opts)
+      assert {:error, %Client.RequestError{status: 503}} = Client.request(Req.new(url: "/"), opts)
+      attempts.()
+    end
+
+    test "passes the retry options to Req" do
+      assert retried(retry_delay: 0) == 4
+      assert retried(retry_delay: 0, max_retries: 1) == 2
+      assert retried(retry: false) == 1
+    end
+  end
+
   describe ":auth" do
     # Answers 200 and reports the authorization header and host of each request
     defp echo_auth(test_pid) do
