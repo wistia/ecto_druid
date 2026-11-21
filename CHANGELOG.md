@@ -25,13 +25,17 @@ for how to move code from 0.5.x.
 - Each repo starts its own Finch pool, named after the repo
   (`MyApp.Repo.Finch`) or the `:finch` option, instead of
   `Ecto.Adapters.Druid.Finch`.
-- `insert/update/delete`, `update_all` and `delete_all` raise errors that
-  point at what to use instead.
+- `insert/update/delete` raise errors that point at what to use instead.
 
 ### Added
 
 - `Repo.insert_all/3` through Druid SQL-based ingestion, with `:overwrite`,
   `:partitioned_by` and `:clustered_by`.
+- `Repo.delete_all/2` and `Repo.update_all/3`, which rewrite an `:interval`
+  with SQL-based ingestion `REPLACE`: without the matching rows, or with
+  their columns changed. `update_all` supports `set`, `inc`, `push` and (on
+  multi-value columns) `pull`, and needs an `Ecto.Druid.Schema` to know every
+  column. Both return `{0, nil}`.
 - `Repo.stream/2`, and querying from deep storage.
 - `Repo.to_native/2`, native query builders for filters, aggregators and
   expressions (`Ecto.Druid.Native`), and `Ecto.Druid.Native.rows/3` for

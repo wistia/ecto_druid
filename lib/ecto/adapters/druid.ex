@@ -123,9 +123,19 @@ defmodule Ecto.Adapters.Druid do
       )
       #=> {0, nil}
 
-  Druid can't change single rows, so `insert/2`, `update/2`, `delete/2` and
-  `update_all/3` raise. See the [SQL Ingestion guide](sql_ingestion.md) for
-  the options.
+  `Repo.update_all/3` rewrites them with the matched rows' columns changed.
+  It needs a schema that uses `Ecto.Druid.Schema`, to know every column:
+
+      MyApp.Repo.update_all(
+        from(e in MyApp.Events, where: e.channel == "#cats"),
+        [set: [category: "cats"]],
+        interval: Ecto.Druid.Interval.new(~D[2026-01-01], ~D[2026-11-01]),
+        partitioned_by: :day
+      )
+      #=> {0, nil}
+
+  Druid can't change single rows, so `insert/2`, `update/2` and `delete/2`
+  raise. See the [SQL Ingestion guide](sql_ingestion.md) for the options.
 
   ## SQL query context
 
@@ -267,17 +277,17 @@ defmodule Ecto.Adapters.Druid do
         {:nocache, {:delete_all, query}}
 
       :update_all ->
-        raise Ecto.QueryError,
-          query: query,
-          message:
-            "Druid doesn't support update_all. To replace data, use `insert_all/3` with " <>
-              "`:overwrite`"
+        {:nocache, {:update_all, query}}
     end
   end
 
   @impl Ecto.Adapter.Queryable
   def execute(adapter_meta, _query_meta, {:nocache, {:delete_all, query}}, params, opts) do
     __MODULE__.Ingest.delete_all(adapter_meta, query, params, opts)
+  end
+
+  def execute(adapter_meta, _query_meta, {:nocache, {:update_all, query}}, params, opts) do
+    __MODULE__.Ingest.update_all(adapter_meta, query, params, opts)
   end
 
   def execute(adapter_meta, query_meta, query, params, opts) do

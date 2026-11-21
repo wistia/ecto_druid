@@ -1,9 +1,9 @@
 defmodule Ecto.Adapters.Druid.Ingest do
   @moduledoc false
 
-  # `Repo.insert_all/3` and `Repo.delete_all/2` as Druid SQL-based
-  # ingestion. The statement runs as a task, which this waits for before
-  # returning the number of rows written or deleted.
+  # `Repo.insert_all/3`, `Repo.delete_all/2` and `Repo.update_all/3` as Druid
+  # SQL-based ingestion. The statement runs as a task, which this waits for
+  # before returning.
 
   alias Ecto.Adapters.Druid.{Query, Telemetry, Types}
   alias Druid.SpecTemplates
@@ -54,25 +54,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
   end
 
   def delete_all(adapter_meta, query, params, opts) do
-    if query.joins != [] or query.with_ctes != nil or query.select != nil do
-      raise Ecto.QueryError,
-        query: query,
-        message: "Druid's delete_all only takes a data source and where clauses"
-    end
-
-    interval =
-      Keyword.get(opts, :interval) ||
-        raise ArgumentError,
-              "Druid deletes rows by rewriting the time chunks they're in, so delete_all " <>
-                "needs an :interval to rewrite, such as `interval: \"2026-11-01/2026-11-02\"`, " <>
-                "or `interval: :all`"
-
-    unless Keyword.has_key?(opts, :partitioned_by) do
-      raise ArgumentError,
-            "Druid needs a :partitioned_by option to delete rows, such as `partitioned_by: :day`. " <>
-              "Use the data source's segment granularity"
-    end
-
+    interval = check_rewrite!(query, :delete_all, opts)
     bounds = interval_params(interval, :interval)
     sql = query |> Query.delete_all(opts) |> IO.iodata_to_binary()
     %{source: {source, _schema}} = query.from
@@ -81,6 +63,90 @@ defmodule Ecto.Adapters.Druid.Ingest do
     # The task doesn't report how many rows it dropped, and Ecto needs an
     # integer, so the count is always 0
     run(adapter_meta, source, sql, params, opts, fn _, _, _ -> 0 end)
+  end
+
+  def update_all(adapter_meta, query, params, opts) do
+    interval = check_rewrite!(query, :update_all, opts)
+    bounds = interval_params(interval, :interval)
+    columns = columns!(query)
+    {sql, update_ixs} = Query.update_all(query, columns, opts)
+    %{source: {source, _schema}} = query.from
+
+    # Ecto numbers the updated values' parameters before the where clauses'
+    params = List.to_tuple(params)
+    num_updates = update_ixs |> Enum.uniq() |> length()
+    updates = Enum.map(update_ixs, &elem(params, &1))
+    wheres = params |> Tuple.to_list() |> Enum.drop(num_updates)
+    params = Enum.map(bounds ++ updates ++ wheres ++ bounds, &Types.to_db/1)
+
+    # As for delete_all, the task doesn't say how many rows it changed
+    run(adapter_meta, source, IO.iodata_to_binary(sql), params, opts, fn _, _, _ -> 0 end)
+  end
+
+  # Checks the query and options of a delete_all or update_all, and returns
+  # its interval
+  defp check_rewrite!(query, op, opts) do
+    if query.joins != [] or query.with_ctes != nil or query.select != nil do
+      raise Ecto.QueryError,
+        query: query,
+        message: "Druid's #{op} only takes a data source and where clauses"
+    end
+
+    verb = if op == :delete_all, do: "deletes", else: "updates"
+
+    interval =
+      Keyword.get(opts, :interval) ||
+        raise ArgumentError,
+              "Druid #{verb} rows by rewriting the time chunks they're in, so #{op} " <>
+                "needs an :interval to rewrite, such as `interval: \"2026-11-01/2026-11-02\"`, " <>
+                "or `interval: :all`"
+
+    unless Keyword.has_key?(opts, :partitioned_by) do
+      raise ArgumentError,
+            "Druid needs a :partitioned_by option to #{String.trim_trailing(verb, "s")} rows, " <>
+              "such as `partitioned_by: :day`. Use the data source's segment granularity"
+    end
+
+    interval
+  end
+
+  # update_all writes every column of the rows it rewrites, so it needs to
+  # know them all. An Ecto.Druid.Schema describes how the data source is
+  # ingested, so its timestamp, dimensions and metrics are its columns.
+  defp columns!(%{from: %{source: {_table, schema}}} = query) do
+    unless schema && Code.ensure_loaded?(schema) && function_exported?(schema, :__druid__, 1) do
+      raise Ecto.QueryError,
+        query: query,
+        message:
+          "Druid's update_all needs a schema that uses Ecto.Druid.Schema, to know every " <>
+            "column of the data source: it rewrites whole rows, and drops any column it " <>
+            "doesn't know"
+    end
+
+    dimensions = Enum.map(schema.__druid__(:dimensions), &dimension_column(schema, &1))
+    metrics = Enum.map(schema.__druid__(:metrics), &metric_column/1)
+    [{"__time", nil, nil} | dimensions ++ metrics]
+  end
+
+  defp dimension_column(schema, %{name: name, column: column, type: type}) do
+    case {type, schema.__schema__(:type, name)} do
+      {"string", {:array, _}} -> {column, nil, :multi_value}
+      {"string", _} -> {column, "VARCHAR", nil}
+      {"long", _} -> {column, "BIGINT", nil}
+      {"double", _} -> {column, "DOUBLE", nil}
+      {"float", _} -> {column, "FLOAT", nil}
+      {_, {:array, _}} -> {column, nil, :array}
+      _ -> {column, nil, nil}
+    end
+  end
+
+  defp metric_column(%{column: column, type: type}) do
+    cond do
+      type == "count" or String.starts_with?(type, "long") -> {column, "BIGINT", nil}
+      String.starts_with?(type, "double") -> {column, "DOUBLE", nil}
+      String.starts_with?(type, "float") -> {column, "FLOAT", nil}
+      true -> {column, nil, nil}
+    end
   end
 
   # Submits a statement as a task and waits for it. `num_rows` gives the
