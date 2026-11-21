@@ -7,6 +7,18 @@ defmodule Ecto.Druid.Query.Array do
   @doc "Constructs a SQL ARRAY literal from the expression arguments, using the type of the first argument as the output array type."
   sql_function array(exprs), wrapper: {"[", "]"}
 
+  @doc """
+  Returns the `probability` quantile (between 0 and 1) of a numeric array, as
+  a double, interpolating between elements. Pairs with `array_agg/1` for exact
+  quantiles over small groups:
+
+      select: array_quantile(array_agg(t.added), 0.5)
+
+  `array_agg/1` fails once the array passes 1024 bytes (about a hundred
+  longs); give `array_agg/2` a larger size for bigger groups.
+  """
+  sql_function array_quantile(arr, probability)
+
   @doc "Returns length of the array expression."
   sql_function array_length(arr)
 

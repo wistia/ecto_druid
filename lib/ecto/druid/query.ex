@@ -20,7 +20,7 @@ defmodule Ecto.Druid.Query do
   * `Ecto.Druid.Query.Array` - array functions
   * `Ecto.Druid.Query.MultiValue` - multi-value string functions
   * `Ecto.Druid.Query.JSON` - JSON functions
-  * `Ecto.Druid.Query.Table` - table functions (TABLE, EXTERN, UNNEST)
+  * `Ecto.Druid.Query.Table` - table functions (TABLE, EXTERN, APPEND, UNNEST)
 
   `use Ecto.Druid.Query` imports all of them, along with `import Kernel,
   except: [...]` for the handful of names that clash with `Kernel` (`abs`,

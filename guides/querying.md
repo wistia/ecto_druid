@@ -154,6 +154,34 @@ from p in MyApp.PageViewsHourly,
   cross_join: t in unnest(p.tags, :tag),
   group_by: t.tag,
   select: {t.tag, sum(p.views)}
+
+# Read several data sources as one, matching columns by name
+from p in table(append(["page_views_hourly", "page_views_backfill"])),
+  group_by: p.country,
+  select: {p.country, sum(p.views)}
+```
+
+## Subtotals
+
+`rollup/1`, `cube/1` and `grouping_sets/1` (in `group_by`) compute several
+levels of aggregation in one query. In subtotal rows the rolled-up columns
+are `NULL`; `grouping/1` tells them apart from real `NULL`s, with a bit set
+for each argument the row's set leaves out:
+
+```elixir
+# Views per country and device, per country, and in total
+from p in MyApp.PageViewsHourly,
+  group_by: rollup([p.country, p.device]),
+  select: %{
+    country: p.country,
+    device: p.device,
+    views: sum(p.views),
+    level: grouping([p.country, p.device])
+  }
+#=> [%{country: "US", device: "mobile", views: 812, level: 0},
+#=>  %{country: "US", device: nil, views: 1290, level: 1},
+#=>  ...
+#=>  %{country: nil, device: nil, views: 5403, level: 3}]
 ```
 
 ## Query context
