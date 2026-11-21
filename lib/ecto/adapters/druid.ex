@@ -330,8 +330,8 @@ defmodule Ecto.Adapters.Druid do
   end
 
   defp request(%{config: config, repo: repo, finch: finch}, query_meta, query, params, opts) do
-    params = Enum.map(params, &__MODULE__.Types.to_db/1)
     opts = merge_context(config, opts)
+    params = __MODULE__.Types.to_db_params(params, opts[:context])
     {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
     opts = Keyword.put(opts, :context, context)
     request_opts = request_opts(config, repo, finch, opts)
@@ -679,7 +679,7 @@ defmodule Ecto.Adapters.Druid do
     {query_id, context} = Telemetry.put_sql_query_id(opts[:context])
     opts = Keyword.put(opts, :context, context)
     request_opts = request_opts(config, repo, finch, opts)
-    params = Enum.map(params, &__MODULE__.Types.to_db/1)
+    params = __MODULE__.Types.to_db_params(params, context)
 
     info = %{
       type: :druid_sql_query,

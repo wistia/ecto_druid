@@ -67,6 +67,7 @@ for how to move code from 0.5.x.
   `[:druid, :task, :await]` and `[:druid, :statement, :await]` spans.
 - An example Phoenix LiveView app in `example/`.
 - Guides on HexDocs, split out of the README.
+- A Time zones section in the Querying guide.
 
 ### Fixed
 
@@ -78,6 +79,13 @@ for how to move code from 0.5.x.
 - `distinct: true` and top-level `ORDER BY` with Ecto 3.12's `ByExpr`.
 - Pinned integers, `DateTime`s, `Date`s, `Decimal`s, `nil` and lists.
 - Loading `:date`, `:utc_datetime` and `:naive_datetime` results.
+- Pinned `DateTime`s with a non-UTC `sqlTimeZone`. Druid reads a timestamp
+  parameter as a wall-clock time in that zone and ignores its offset, so they
+  were off by the zone's offset. They're now sent as the wall-clock time in
+  `sqlTimeZone`. Zones with daylight saving time need a time zone database.
+- `:date` and `:naive_datetime` results with a `sqlTimeZone` are the date and
+  wall-clock time in that zone, rather than in UTC. Dates were a day early in
+  zones east of UTC.
 - Sketch casts in changesets, arrays and pinned values.
 - A second repo no longer crashes at boot over the shared Finch pool name.
 

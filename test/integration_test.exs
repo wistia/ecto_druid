@@ -520,6 +520,58 @@ defmodule IntegrationTest do
       assert count.(~U[2016-06-27 00:00:00Z]) == 0
     end
 
+    # Every row is at 2016-06-27T00:00:00Z, which is 2016-06-26 19:00 in EST.
+    # Druid reads a TIMESTAMP parameter as a wall-clock time in sqlTimeZone.
+    test "DateTimes and Dates with a sqlTimeZone" do
+      count = fn query, zone ->
+        TestRepo.one(from(w in query, select: count()), context: %{sqlTimeZone: zone})
+      end
+
+      for zone <- ["EST", "-05:00", "+09:00"] do
+        before = ~U[2016-06-27 00:00:00Z]
+        just_after = ~U[2016-06-27 00:00:00.001Z]
+        assert count.(from(w in "wikipedia", where: w.__time < ^before), zone) == 0, zone
+        assert count.(from(w in "wikipedia", where: w.__time < ^just_after), zone) == 24433, zone
+        assert count.(from(w in Wikipedia, where: w.time < ^just_after), zone) == 24433, zone
+      end
+
+      # A Date is midnight in sqlTimeZone
+      assert count.(from(w in "wikipedia", where: w.__time >= ^~D[2016-06-27]), "EST") == 0
+      assert count.(from(w in "wikipedia", where: w.__time >= ^~D[2016-06-26]), "EST") == 24433
+    end
+
+    test "loads dates and naive datetimes in sqlTimeZone" do
+      use Ecto.Druid.Query
+
+      query =
+        from(w in "wikipedia",
+          where: w.page == "Black Dahlia",
+          select: {
+            type(time_floor(w.__time, "P1D"), :date),
+            type(w.__time, :naive_datetime),
+            type(w.__time, :utc_datetime)
+          }
+        )
+
+      assert TestRepo.one(query, context: %{sqlTimeZone: "EST"}) ==
+               {~D[2016-06-26], ~N[2016-06-26 19:00:00], ~U[2016-06-27 00:00:00Z]}
+
+      assert TestRepo.one(query, context: %{sqlTimeZone: "+09:00"}) ==
+               {~D[2016-06-27], ~N[2016-06-27 09:00:00], ~U[2016-06-27 00:00:00Z]}
+    end
+
+    test "a time zone argument without a sqlTimeZone" do
+      use Ecto.Druid.Query
+
+      query =
+        from(w in "wikipedia",
+          where: w.page == "Black Dahlia",
+          select: type(time_floor(w.__time, "P1D", nil, "EST"), :utc_datetime)
+        )
+
+      assert TestRepo.one(query) == ~U[2016-06-26 05:00:00Z]
+    end
+
     test "Dates, Decimals and nil" do
       count = fn query -> TestRepo.one(from(w in query, select: count())) end
 
