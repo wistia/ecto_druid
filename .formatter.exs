@@ -5,7 +5,8 @@ schema_dsl = [
   dimension: 2,
   dimension: 3,
   metric: 2,
-  metric: 3
+  metric: 3,
+  projection: 2
 ]
 
 [

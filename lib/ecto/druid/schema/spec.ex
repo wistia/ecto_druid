@@ -27,6 +27,9 @@ defmodule Ecto.Druid.Schema.Spec do
     * `:merge` - A map deep-merged into the result, for anything else, for
       example `%{"dimensionsSpec" => %{"dimensionExclusions" => ["x"]}}`.
 
+  The result includes the schema's projections (see `projections/1`), if
+  it has any.
+
   ## Examples
 
       Ecto.Druid.Schema.Spec.data_schema(MyApp.PageViewsHourly, segment_granularity: "DAY")
@@ -60,8 +63,12 @@ defmodule Ecto.Druid.Schema.Spec do
         )
     }
     |> put_present("transformSpec", if(transform_spec == %{}, do: nil, else: transform_spec))
+    |> put_present("projections", empty_to_nil(projections(schema)))
     |> deep_merge(Keyword.get(opts, :merge, %{}))
   end
+
+  defp empty_to_nil([]), do: nil
+  defp empty_to_nil(list), do: list
 
   defp intervals(nil), do: nil
   defp intervals(intervals), do: Enum.map(List.wrap(intervals), &Ecto.Druid.Interval.to_iso8601/1)
@@ -161,6 +168,19 @@ defmodule Ecto.Druid.Schema.Spec do
       |> Map.merge(metric.extra)
     end
   end
+
+  @doc """
+  Builds the schema's `projection/2`s, in the order they're defined.
+
+  `data_schema/2` includes them. Segments only get a projection when
+  they're written with it, so to add one to data already ingested, put
+  them in the data source's compaction config, whose compaction then
+  rewrites older segments with it:
+
+      "projections": <%= projections MyApp.Edits %>
+  """
+  @spec projections(module()) :: [map()]
+  def projections(schema), do: druid!(schema, :projections)
 
   defp druid!(schema, key) do
     Code.ensure_loaded(schema)

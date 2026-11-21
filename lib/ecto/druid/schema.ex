@@ -28,6 +28,9 @@ defmodule Ecto.Druid.Schema do
   `Ecto.Druid.Schema.Spec` use. Fields defined with plain `field/3` are
   queryable but left out of generated specs.
 
+  `projection/2` declares a pre-aggregated summary that Druid builds into
+  each segment and uses for queries it can answer. It defines no field.
+
   In a supervisor spec template, generate the whole `dataSchema` with the
   `data_schema/2` helper:
 
@@ -72,11 +75,20 @@ defmodule Ecto.Druid.Schema do
       use Ecto.Schema
 
       import Ecto.Druid.Schema,
-        only: [timestamp: 1, timestamp: 2, dimension: 2, dimension: 3, metric: 2, metric: 3]
+        only: [
+          timestamp: 1,
+          timestamp: 2,
+          dimension: 2,
+          dimension: 3,
+          metric: 2,
+          metric: 3,
+          projection: 2
+        ]
 
       Module.register_attribute(__MODULE__, :druid_timestamp, accumulate: true)
       Module.register_attribute(__MODULE__, :druid_dimensions, accumulate: true)
       Module.register_attribute(__MODULE__, :druid_metrics, accumulate: true)
+      Module.register_attribute(__MODULE__, :druid_projections, accumulate: true)
 
       @before_compile Ecto.Druid.Schema
     end
@@ -179,6 +191,67 @@ defmodule Ecto.Druid.Schema do
     end
   end
 
+  @doc """
+  Declares a [projection](https://druid.apache.org/docs/latest/querying/projections):
+  a summary of the data that Druid builds into each segment at ingestion
+  time, next to the rows. A query whose grouping and aggregations the
+  summary can answer reads it instead of the rows; nothing in the query
+  names it. Druid marks projections experimental.
+
+      projection :channel_hourly,
+        granularity: :hour,
+        group_by: [:channel],
+        aggregate: [added: {:sum, :added}, edits: :count]
+
+  answers queries such as
+
+      from e in MyApp.Edits,
+        group_by: [time_floor(e.time, "PT1H"), e.channel],
+        select: {time_floor(e.time, "PT1H"), e.channel, sum(e.added), count()}
+
+  and also coarser time buckets (`"P1D"`), fewer grouping columns, and
+  filters on them.
+
+  `Ecto.Druid.Schema.Spec.data_schema/2` includes the schema's projections,
+  so ingestion specs built from it build them. Segments written before a
+  projection was added only get it when they're compacted with it (see
+  `Ecto.Druid.Schema.Spec.projections/1`).
+
+  ## Options
+
+    * `:granularity` - Groups by `__time` floored to this period: `:second`,
+      `:minute`, `:five_minute`, `:ten_minute`, `:fifteen_minute`,
+      `:thirty_minute`, `:hour`, `:six_hour`, `:eight_hour`, `:day`, `:week`,
+      `:month`, `:quarter`, `:year`, or an ISO 8601 period such as `"PT1H"`.
+      Without it, the projection doesn't group by time.
+    * `:group_by` - Dimension fields to group by, in sort order.
+    * `:aggregate` - A keyword list of the aggregations to store, by name:
+      * `:count` - Counts rows. On a rollup data source, sum its count
+        metric instead.
+      * `{:sum | :min | :max | :first | :last, field}` - Aggregates a
+        dimension or metric field. Its type picks the aggregator: `:sum` of
+        an integer is `longSum`, of a float `doubleSum`, and so on.
+      * `{sketch_type, field}` - Builds a sketch, such as
+        `{Ecto.Druid.HLLSketch, :user}`. Of a dimension it builds from the
+        values (`HLLSketchBuild`); of a sketch metric it merges them
+        (`HLLSketchMerge`).
+      * `{type, field}` - A Druid aggregator type string, such as
+        `{"doubleMean", :latency}`.
+      * a map - A whole Druid aggregator, used as is with the name added.
+
+      A three-element tuple takes extra aggregator options last:
+      `{Ecto.Druid.HLLSketch, :user, lg_k: 14}`. Druid only uses a projection
+      for a query whose aggregations match its aggregators, options included.
+
+  Any other options are added to the projection's JSON, with `snake_case`
+  keys converted to `camelCase`.
+  """
+  defmacro projection(name, opts) do
+    quote bind_quoted: [name: name, opts: opts] do
+      @druid_projections {name, opts}
+    end
+  end
+
   @doc false
   defmacro __before_compile__(env) do
     timestamp =
@@ -198,11 +271,20 @@ defmodule Ecto.Druid.Schema do
     dimensions = env.module |> Module.get_attribute(:druid_dimensions) |> Enum.reverse()
     metrics = env.module |> Module.get_attribute(:druid_metrics) |> Enum.reverse()
 
+    projections =
+      env.module
+      |> Module.get_attribute(:druid_projections)
+      |> Enum.reverse()
+      |> Enum.map(fn {name, opts} ->
+        Ecto.Druid.Schema.__projection__(env.module, name, opts, dimensions, metrics)
+      end)
+
     quote do
       @doc false
       def __druid__(:timestamp), do: unquote(Macro.escape(timestamp))
       def __druid__(:dimensions), do: unquote(Macro.escape(dimensions))
       def __druid__(:metrics), do: unquote(Macro.escape(metrics))
+      def __druid__(:projections), do: unquote(Macro.escape(projections))
     end
   end
 
@@ -298,6 +380,152 @@ defmodule Ecto.Druid.Schema do
   end
 
   defp aggregator(_type, _aggregate), do: nil
+
+  @granularity_periods %{
+    second: "PT1S",
+    minute: "PT1M",
+    five_minute: "PT5M",
+    ten_minute: "PT10M",
+    fifteen_minute: "PT15M",
+    thirty_minute: "PT30M",
+    hour: "PT1H",
+    six_hour: "PT6H",
+    eight_hour: "PT8H",
+    day: "P1D",
+    week: "P1W",
+    month: "P1M",
+    quarter: "P3M",
+    year: "P1Y"
+  }
+
+  # Builds a projection's JSON from the schema's dimensions and metrics. The
+  # time bucket is a virtual column, which Druid groups by like a dimension.
+  @doc false
+  def __projection__(module, name, opts, dimensions, metrics) do
+    {granularity, opts} = Keyword.pop(opts, :granularity)
+    {group_by, opts} = Keyword.pop(opts, :group_by, [])
+    {aggregate, opts} = Keyword.pop(opts, :aggregate, [])
+    where = "#{inspect(module)} projection #{inspect(name)}"
+    fields = Map.new(dimensions, &{&1.name, {:dimension, &1}})
+    fields = Enum.into(metrics, fields, &{&1.name, {:metric, &1}})
+
+    if aggregate == [] do
+      raise ArgumentError, "#{where} needs at least one aggregation in :aggregate"
+    end
+
+    {virtual_columns, time} =
+      case granularity do
+        nil ->
+          {[], []}
+
+        granularity ->
+          period = period!(where, granularity)
+
+          {[
+             %{
+               "type" => "expression",
+               "name" => "__gran",
+               "expression" => "timestamp_floor(__time, '#{period}')",
+               "outputType" => "LONG"
+             }
+           ], [%{"type" => "long", "name" => "__gran"}]}
+      end
+
+    grouping =
+      Enum.map(group_by, fn field ->
+        case Map.get(fields, field) do
+          {:dimension, dim} -> %{"type" => dim.type, "name" => dim.column}
+          _ -> raise ArgumentError, "#{where} can't group by #{inspect(field)}: not a dimension"
+        end
+      end)
+
+    aggregators =
+      Enum.map(aggregate, fn {agg_name, spec} ->
+        projection_aggregator(where, to_string(agg_name), spec, fields)
+      end)
+
+    %{
+      "type" => "aggregate",
+      "name" => to_string(name),
+      "groupingColumns" => time ++ grouping,
+      "aggregators" => aggregators
+    }
+    |> then(
+      &if virtual_columns == [], do: &1, else: Map.put(&1, "virtualColumns", virtual_columns)
+    )
+    |> Map.merge(camelize_keys(opts))
+  end
+
+  defp period!(_where, granularity) when is_map_key(@granularity_periods, granularity),
+    do: Map.fetch!(@granularity_periods, granularity)
+
+  defp period!(_where, "P" <> _ = period), do: period
+
+  defp period!(where, other) do
+    raise ArgumentError,
+          "#{where} has an unknown :granularity #{inspect(other)}. Use one of " <>
+            "#{inspect(Map.keys(@granularity_periods))} or an ISO 8601 period such as \"PT1H\""
+  end
+
+  defp projection_aggregator(_where, name, :count, _fields),
+    do: %{"type" => "count", "name" => name}
+
+  defp projection_aggregator(_where, name, %{} = aggregator, _fields),
+    do: aggregator |> Map.new(fn {k, v} -> {to_string(k), v} end) |> Map.put("name", name)
+
+  defp projection_aggregator(where, name, {kind, field}, fields),
+    do: projection_aggregator(where, name, {kind, field, []}, fields)
+
+  defp projection_aggregator(where, name, {kind, field, opts}, fields) do
+    {source, column} =
+      case Map.get(fields, field) do
+        {:dimension, dim} -> {{:dimension, dim}, dim.column}
+        {:metric, metric} -> {{:metric, metric}, metric.column}
+        nil -> raise ArgumentError, "#{where} can't aggregate #{inspect(field)}: no such column"
+      end
+
+    type =
+      projection_aggregator_type(kind, source) ||
+        raise ArgumentError,
+              "#{where} can't aggregate #{inspect(field)} with #{inspect(kind)}"
+
+    Map.merge(
+      %{"type" => type, "name" => name, "fieldName" => column},
+      camelize_keys(opts)
+    )
+  end
+
+  defp projection_aggregator(where, name, spec, _fields) do
+    raise ArgumentError, "#{where} has an unknown aggregation #{name}: #{inspect(spec)}"
+  end
+
+  defp projection_aggregator_type(kind, source) when kind in [:sum, :min, :max, :first, :last] do
+    prefix =
+      case source do
+        {:dimension, %{type: "long"}} -> "long"
+        {:dimension, %{type: type}} when type in ["double", "float"] -> "double"
+        {:dimension, %{type: "string"}} when kind in [:first, :last] -> "string"
+        {:metric, %{type: "count"}} -> "long"
+        {:metric, %{type: "long" <> _}} -> "long"
+        {:metric, %{type: "double" <> _}} -> "double"
+        {:metric, %{type: "float" <> _}} -> "double"
+        _ -> nil
+      end
+
+    if prefix, do: prefix <> (kind |> Atom.to_string() |> String.capitalize())
+  end
+
+  defp projection_aggregator_type(kind, source) when is_map_key(@complex_aggregators, kind) do
+    {build, merge} = Map.fetch!(@complex_aggregators, kind)
+
+    case source do
+      {:dimension, _} -> build
+      {:metric, _} -> merge
+    end
+  end
+
+  defp projection_aggregator_type(kind, _source) when is_binary(kind), do: kind
+  defp projection_aggregator_type(_kind, _source), do: nil
 
   defp column(name, ecto_opts) do
     ecto_opts |> Keyword.get(:source, name) |> to_string()

@@ -214,6 +214,141 @@ defmodule Ecto.Druid.SchemaTest do
     end
   end
 
+  defp compile_schema(body) do
+    name = "Ecto.Druid.SchemaTest.Schema#{System.unique_integer([:positive])}"
+
+    Code.compile_string("""
+    defmodule #{name} do
+      use Ecto.Druid.Schema
+      @primary_key false
+      schema "s" do
+        #{body}
+      end
+    end
+    """)
+  end
+
+  defmodule Edits do
+    use Ecto.Druid.Schema
+
+    @primary_key false
+    schema "edits" do
+      # Projections can come before the columns they use
+      projection :channel_hourly,
+        granularity: :hour,
+        group_by: [:channel, :robot],
+        aggregate: [
+          added: {:sum, :added},
+          edits: :count,
+          users: {Ecto.Druid.HLLSketch, :user, lg_k: 14}
+        ]
+
+      timestamp :time
+      dimension :channel, :string, source: :channel_name
+      dimension :robot, :boolean
+      dimension :user, :string
+      dimension :added, :integer
+      dimension :latency, :float
+      metric :views, :integer, aggregate: :count
+      metric :visitors, Ecto.Druid.HLLSketch, from: "visitor_id"
+
+      projection :daily_totals,
+        granularity: "P1D",
+        aggregate: [
+          views: {:sum, :views},
+          visitors: {Ecto.Druid.HLLSketch, :visitors},
+          slowest: {:max, :latency},
+          mean_latency: {"doubleMean", :latency},
+          first_user: {:first, :user},
+          least_added: %{type: "longMin", fieldName: "added"}
+        ],
+        extra_field: true
+    end
+  end
+
+  describe "projections" do
+    test "projections/1 builds each projection, grouping by the time bucket first" do
+      assert [channel_hourly, daily_totals] = Spec.projections(Edits)
+
+      assert channel_hourly == %{
+               "type" => "aggregate",
+               "name" => "channel_hourly",
+               "virtualColumns" => [
+                 %{
+                   "type" => "expression",
+                   "name" => "__gran",
+                   "expression" => "timestamp_floor(__time, 'PT1H')",
+                   "outputType" => "LONG"
+                 }
+               ],
+               "groupingColumns" => [
+                 %{"type" => "long", "name" => "__gran"},
+                 %{"type" => "string", "name" => "channel_name"},
+                 %{"type" => "long", "name" => "robot"}
+               ],
+               "aggregators" => [
+                 %{"type" => "longSum", "name" => "added", "fieldName" => "added"},
+                 %{"type" => "count", "name" => "edits"},
+                 %{
+                   "type" => "HLLSketchBuild",
+                   "name" => "users",
+                   "fieldName" => "user",
+                   "lgK" => 14
+                 }
+               ]
+             }
+
+      # Aggregations of metrics re-aggregate them, and the type picks the
+      # aggregator. Other options pass through.
+      assert daily_totals == %{
+               "type" => "aggregate",
+               "name" => "daily_totals",
+               "virtualColumns" => [
+                 %{
+                   "type" => "expression",
+                   "name" => "__gran",
+                   "expression" => "timestamp_floor(__time, 'P1D')",
+                   "outputType" => "LONG"
+                 }
+               ],
+               "groupingColumns" => [%{"type" => "long", "name" => "__gran"}],
+               "aggregators" => [
+                 %{"type" => "longSum", "name" => "views", "fieldName" => "views"},
+                 %{"type" => "HLLSketchMerge", "name" => "visitors", "fieldName" => "visitors"},
+                 %{"type" => "doubleMax", "name" => "slowest", "fieldName" => "latency"},
+                 %{"type" => "doubleMean", "name" => "mean_latency", "fieldName" => "latency"},
+                 %{"type" => "stringFirst", "name" => "first_user", "fieldName" => "user"},
+                 %{"type" => "longMin", "name" => "least_added", "fieldName" => "added"}
+               ],
+               "extraField" => true
+             }
+    end
+
+    test "a projection without a granularity doesn't group by time" do
+      [{module, _}] =
+        compile_schema("""
+        dimension :channel, :string
+        projection :by_channel, group_by: [:channel], aggregate: [edits: :count]
+        """)
+
+      assert [projection] = Spec.projections(module)
+      refute Map.has_key?(projection, "virtualColumns")
+      assert projection["groupingColumns"] == [%{"type" => "string", "name" => "channel"}]
+    end
+
+    test "data_schema/2 includes them, and leaves them out without any" do
+      assert Spec.data_schema(Edits)["projections"] == Spec.projections(Edits)
+      refute Map.has_key?(Spec.data_schema(PageViews), "projections")
+      assert Spec.projections(PageViews) == []
+    end
+
+    test "the template helper renders them as JSON" do
+      assert Edits
+             |> Druid.Supervisors.Template.Helpers.projections()
+             |> Jason.decode!() == Spec.projections(Edits)
+    end
+  end
+
   describe "errors" do
     defp compile(body) do
       name = "Ecto.Druid.SchemaTest.Bad#{System.unique_integer([:positive])}"
@@ -244,6 +379,27 @@ defmodule Ecto.Druid.SchemaTest do
     test "a dimension type that can't be inferred" do
       assert_raise ArgumentError, ~r/\.at: can't infer a Druid dimension type/, fn ->
         compile("dimension :at, :utc_datetime")
+      end
+    end
+
+    test "projections that don't fit the schema" do
+      base = "dimension :channel, :string\nmetric :views, :integer, aggregate: :count\n"
+
+      for {projection, message} <- [
+            {"projection :p, group_by: [:nope], aggregate: [n: :count]",
+             ~r/projection :p can't group by :nope: not a dimension/},
+            {"projection :p, group_by: [:views], aggregate: [n: :count]",
+             ~r/can't group by :views: not a dimension/},
+            {"projection :p, aggregate: [n: {:sum, :nope}]",
+             ~r/can't aggregate :nope: no such column/},
+            {"projection :p, aggregate: [n: {:sum, :channel}]",
+             ~r/can't aggregate :channel with :sum/},
+            {"projection :p, granularity: :fortnight, aggregate: [n: :count]",
+             ~r/unknown :granularity :fortnight/},
+            {"projection :p, group_by: [:channel]", ~r/needs at least one aggregation/},
+            {"projection :p, aggregate: [n: :total]", ~r/unknown aggregation n: :total/}
+          ] do
+        assert_raise ArgumentError, message, fn -> compile(base <> projection) end
       end
     end
 

@@ -29,6 +29,9 @@ for how to move code from 0.5.x.
 
 ### Added
 
+- `projection/2` in `Ecto.Druid.Schema` declares Druid projections. They're
+  included in `Ecto.Druid.Schema.Spec.data_schema/2`, and the `projections`
+  template helper adds them to compaction configs.
 - `Repo.insert_all/3` through Druid SQL-based ingestion, with `:overwrite`,
   `:partitioned_by` and `:clustered_by`.
 - `Repo.delete_all/2` and `Repo.update_all/3`, which rewrite an `:interval`

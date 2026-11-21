@@ -170,6 +170,16 @@ defmodule Druid.Supervisors.Template do
       do: json(Ecto.Druid.Schema.Spec.metrics_spec(schema, opts))
 
     @doc """
+    Generates a schema's projections, as a JSON array. Use it in compaction
+    configs, so compaction builds them into older segments. See
+    `Ecto.Druid.Schema.Spec.projections/1`.
+
+        "projections": <%= projections MyApp.Edits %>
+    """
+    @spec projections(module()) :: String.t()
+    def projections(schema), do: json(Ecto.Druid.Schema.Spec.projections(schema))
+
+    @doc """
     Generates a lookup's `lookupExtractorFactory` from a schema that uses
     `Ecto.Druid.Lookup`. See `Ecto.Druid.Lookup.Spec.factory/2` for options.
 

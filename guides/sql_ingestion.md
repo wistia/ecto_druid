@@ -11,6 +11,11 @@ rows the same way, and `Repo.update_all/3` changes them (see
 The cluster needs the `druid-multi-stage-query` extension loaded, and enough
 free task slots for a controller and at least one worker.
 
+SQL-based ingestion doesn't build a schema's
+[projections](ingestion_specs.md#projections), unless Druid's catalog
+extension defines them, so segments written this way don't have them until
+compaction rewrites them with the projections.
+
 ## Inserting rows
 
 Druid splits data into time chunks (segments), so every insert needs

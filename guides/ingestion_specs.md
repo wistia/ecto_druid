@@ -58,6 +58,52 @@ The same schema is used for [queries](querying.md). Add
 `import_deps: [:ecto_druid]` to your `.formatter.exs` to write the schema
 macros without parentheses.
 
+### Projections
+
+A [projection](https://druid.apache.org/docs/latest/querying/projections) is
+a summary of the data that Druid builds into each segment, next to the rows.
+Queries whose grouping and aggregations it can answer read it instead of the
+rows, which is faster; nothing in the query names it. Declare one in the
+schema with `projection/2`:
+
+```elixir
+schema "edits" do
+  timestamp :time
+  dimension :channel, :string
+  dimension :added, :integer
+
+  projection :channel_hourly,
+    granularity: :hour,
+    group_by: [:channel],
+    aggregate: [added: {:sum, :added}, edits: :count]
+end
+```
+
+`data_schema` adds it to the `dataSchema`, so supervisors and batch tasks
+built from the schema build it. It answers queries that group by hour (or a
+coarser period) and `channel`, or fewer of them, summing `added` or counting
+rows:
+
+```elixir
+from e in MyApp.Edits,
+  group_by: [time_floor(e.time, "PT1H"), e.channel],
+  select: {time_floor(e.time, "PT1H"), e.channel, sum(e.added), count()}
+```
+
+The aggregations a query uses must match the projection's aggregators,
+options included, so `{Ecto.Druid.HLLSketch, :user, lg_k: 14}` only answers
+HLL counts with the same `lgK`. To check that a query uses a projection, run
+it with `context: %{forceProjections: true}`, which fails it otherwise.
+`useProjection` names the projection to use, and `noProjections` turns them
+off. `Ecto.Druid.Sys.Segments` lists the projections each segment has.
+
+Segments only get a projection when they're written with it, so data
+ingested before you add one doesn't have it until compaction rewrites it with
+the projection (see [Compaction](compaction.md)). SQL-based ingestion
+(`insert_all/3`, `delete_all/2`, `update_all/3`) doesn't build projections at
+all without Druid's catalog extension, so the segments it writes don't have
+them until compaction does the same. Druid marks projections experimental.
+
 ## Configuring values
 
 Supply the template's values (`@kafka_consumer_properties`, `@task_count`) from

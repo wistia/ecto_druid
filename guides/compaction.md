@@ -48,6 +48,15 @@ file name. The schema helpers work here too:
 `combining: true` uses the combining form of each metric, which re-aggregates
 the stored columns rather than reading the original input fields.
 
+If the schema declares [projections](ingestion_specs.md#projections), add
+them to the config with the `projections` helper, so compaction builds them
+into the segments it rewrites: data ingested before a projection was added,
+and segments written by SQL-based ingestion, which doesn't build them:
+
+```eex
+  "projections": <%= projections MyApp.PageViewsHourly %>,
+```
+
 ### Configuration
 
 ```elixir
