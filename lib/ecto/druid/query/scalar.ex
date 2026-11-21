@@ -77,4 +77,7 @@ defmodule Ecto.Druid.Query.Scalar do
 
   @doc "Returns value1 if value1 is not null, otherwise value2."
   sql_function nvl(value1, value2)
+
+  @doc "Returns value1 if value1 is not null, otherwise value2. The same as `nvl/2`."
+  sql_function ifnull(value1, value2)
 end

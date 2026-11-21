@@ -343,6 +343,81 @@ defmodule IntegrationTest do
     assert TestRepo.all(query) == [1, 2, 3]
   end
 
+  test "queries appended data sources" do
+    import Ecto.Query
+    import Ecto.Druid.Query.Table, only: [table: 1, append: 1]
+
+    query =
+      from(w in table(append(["wikipedia", "wikipedia"])),
+        where: w.page == "Black Dahlia",
+        select: count()
+      )
+
+    assert TestRepo.one(query) == 2
+
+    data_sources = ["wikipedia", "wikipedia"]
+
+    query =
+      from(w in table(append(splice(^data_sources))),
+        where: w.page == "Black Dahlia",
+        select: count()
+      )
+
+    assert TestRepo.one(query) == 2
+  end
+
+  test "queries with grouping sets" do
+    import Ecto.Query
+    import Ecto.Druid.Query.Aggregations, only: [grouping: 1, grouping_sets: 1, rollup: 1]
+
+    query =
+      from(w in "wikipedia",
+        where: w.page == "Black Dahlia",
+        group_by: rollup([w.channel, w.isRobot]),
+        order_by: grouping([w.channel, w.isRobot]),
+        select: {w.channel, w.isRobot, count(), grouping([w.channel, w.isRobot])}
+      )
+
+    assert TestRepo.all(query) == [
+             {"#en.wikipedia", "false", 1, 0},
+             {"#en.wikipedia", nil, 1, 1},
+             {nil, nil, 1, 3}
+           ]
+
+    query =
+      from(w in "wikipedia",
+        where: w.channel == "#ar.wikipedia",
+        group_by: grouping_sets([w.isRobot, []]),
+        order_by: count(),
+        select: {w.isRobot, count()}
+      )
+
+    assert TestRepo.all(query) == [{"false", 169}, {"true", 245}, {nil, 414}]
+  end
+
+  test "queries with array_quantile and ifnull" do
+    import Ecto.Query
+    import Ecto.Druid.Query.Aggregations, only: [array_agg: 1]
+    import Ecto.Druid.Query.Array, only: [array_quantile: 2]
+    import Ecto.Druid.Query.Scalar, only: [ifnull: 2, nullif: 2]
+
+    query =
+      from(w in "wikipedia",
+        where: w.channel == "#be.wikipedia",
+        select: array_quantile(array_agg(w.added), 0.5)
+      )
+
+    assert TestRepo.one(query) == 109.0
+
+    query =
+      from(w in "wikipedia",
+        where: w.page == "Black Dahlia",
+        select: {ifnull(w.cityName, "none"), ifnull(nullif(w.cityName, "Houston"), "none")}
+      )
+
+    assert TestRepo.one(query) == {"Houston", "none"}
+  end
+
   test "queries with a custom sql query context" do
     assert %{added: 3} =
              TestRepo.one(Wikipedia.by_page("Black Dahlia"), context: %{sqlTimeZone: "Etc/UTC"})

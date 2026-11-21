@@ -19,6 +19,22 @@ defmodule Ecto.Druid.Query.Table do
   sql_function extern(input_source, input_format, row_signature)
 
   @doc """
+  Reads several data sources as one, for use with `table/1`. Columns are
+  matched by name; a column a data source lacks is `NULL` in its rows, so the
+  data sources don't need the same columns.
+
+      from(e in table(append(["edits", "edits_backfill"])),
+        group_by: e.channel,
+        select: {e.channel, count()}
+      )
+
+  The names can also be pinned at runtime with `splice/1`:
+
+      from(e in table(append(splice(^data_sources))), select: count())
+  """
+  sql_function append(data_sources)
+
+  @doc """
   Unnests an ARRAY or multi-value column into rows. Use as a join source, with
   the column alias(es) given as an atom or list of atoms:
 

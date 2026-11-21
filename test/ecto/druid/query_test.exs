@@ -1004,6 +1004,11 @@ defmodule Ecto.Druid.QueryTest do
       sql = from("test", select: nvl("value1", "value2")) |> to_sql()
       assert sql == {"SELECT NVL('value1', 'value2') FROM \"test\" AS t0", []}
     end
+
+    test "ifnull/2" do
+      sql = from(t in "test", select: ifnull(t.user, "anonymous")) |> to_sql()
+      assert sql == {"SELECT IFNULL(t0.\"user\", 'anonymous') FROM \"test\" AS t0", []}
+    end
   end
 
   describe "general aggregate functions" do
@@ -1134,6 +1139,37 @@ defmodule Ecto.Druid.QueryTest do
     test "grouping/1" do
       sql = from(t in "test", select: grouping([t.time, t.category])) |> to_sql()
       assert sql == {"SELECT GROUPING(t0.\"time\", t0.\"category\") FROM \"test\" AS t0", []}
+    end
+
+    test "grouping_sets/1" do
+      sql =
+        from(t in "test",
+          group_by: grouping_sets([[t.channel, t.is_robot], t.channel, []]),
+          select: count()
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT count(*) FROM \"test\" AS t0 GROUP BY GROUPING SETS ((t0.\"channel\", t0.\"is_robot\"), (t0.\"channel\"), ())",
+                []}
+    end
+
+    test "rollup/1" do
+      sql =
+        from(t in "test", group_by: rollup([t.channel, t.page]), select: count()) |> to_sql()
+
+      assert sql ==
+               {"SELECT count(*) FROM \"test\" AS t0 GROUP BY ROLLUP(t0.\"channel\", t0.\"page\")",
+                []}
+    end
+
+    test "cube/1" do
+      sql =
+        from(t in "test", group_by: cube([t.channel, t.page]), select: count()) |> to_sql()
+
+      assert sql ==
+               {"SELECT count(*) FROM \"test\" AS t0 GROUP BY CUBE(t0.\"channel\", t0.\"page\")",
+                []}
     end
 
     test "array_agg/1" do
@@ -1309,6 +1345,13 @@ defmodule Ecto.Druid.QueryTest do
     test "array/1" do
       sql = from(t in "test", select: array([1, 2, 3])) |> to_sql()
       assert sql == {"SELECT ARRAY[1, 2, 3] FROM \"test\" AS t0", []}
+    end
+
+    test "array_quantile/2" do
+      sql = from(t in "test", select: array_quantile(array_agg(t.added), 0.5)) |> to_sql()
+
+      assert sql ==
+               {"SELECT ARRAY_QUANTILE(ARRAY_AGG(t0.\"added\"), 0.5) FROM \"test\" AS t0", []}
     end
 
     test "array_length/1" do
@@ -1530,6 +1573,17 @@ defmodule Ecto.Druid.QueryTest do
     test "table/1 and extern/3" do
       sql = from(t in "test", select: table(extern("{}", "{}", "{}"))) |> to_sql()
       assert sql == {"SELECT TABLE(EXTERN('{}', '{}', '{}')) FROM \"test\" AS t0", []}
+    end
+
+    test "append/1 as a from source" do
+      sql = from(e in table(append(["a", "b"])), select: e.channel) |> to_sql()
+      assert sql == {"SELECT f0.\"channel\" FROM TABLE(APPEND('a', 'b')) AS f0", []}
+    end
+
+    test "append/1 with spliced data sources" do
+      names = ["a", "b"]
+      sql = from(e in table(append(splice(^names))), select: count()) |> to_sql()
+      assert sql == {"SELECT count(*) FROM TABLE(APPEND(?,?)) AS f0", ["a", "b"]}
     end
   end
 

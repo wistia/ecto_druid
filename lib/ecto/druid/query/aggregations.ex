@@ -190,6 +190,52 @@ defmodule Ecto.Druid.Query.Aggregations do
   @doc "Returns a number to indicate which groupBy dimension is included in a row, when using GROUPING SETS. Refer to additional documentation on how to infer this number."
   sql_function grouping(exprs)
 
+  @doc """
+  Groups by each listed set of expressions in one query, for use in
+  `group_by`. Each set is a list of expressions (or a single expression), and
+  `[]` is the grand total:
+
+      from(t in "edits",
+        group_by: grouping_sets([[t.channel], [t.channel, t.is_robot], []]),
+        select: {t.channel, t.is_robot, count(), grouping([t.channel, t.is_robot])}
+      )
+
+  Generates `GROUP BY GROUPING SETS ((t0."channel"), (t0."channel",
+  t0."is_robot"), ())`.
+
+  In a row for a set that leaves a column out, that column is `NULL`. Use
+  `grouping/1` to tell those rows apart from rows where the value is
+  `NULL`: its result has a bit set for each argument left out of the row's
+  set, with the first argument as the highest bit.
+  """
+  defmacro grouping_sets(sets) when is_list(sets) do
+    sets = Enum.map(sets, &List.wrap/1)
+    placeholders = Enum.map_join(sets, ", ", &"(#{Enum.map_join(&1, ", ", fn _ -> "?" end)})")
+
+    Ecto.Druid.Util.sql_function_body("GROUPING SETS", placeholders, sets, nil, {" (", ")"})
+  end
+
+  @doc """
+  Groups by each prefix of `exprs`, for use in `group_by`:
+  `rollup([a, b])` is `grouping_sets([[a, b], [a], []])`.
+
+      from(t in "edits",
+        group_by: rollup([t.channel, t.page]),
+        select: {t.channel, t.page, count()}
+      )
+
+  See `grouping_sets/1` for how rolled-up columns appear in the results.
+  """
+  sql_function rollup(exprs)
+
+  @doc """
+  Groups by every subset of `exprs`, for use in `group_by`:
+  `cube([a, b])` is `grouping_sets([[a, b], [a], [b], []])`.
+
+  See `grouping_sets/1` for how rolled-up columns appear in the results.
+  """
+  sql_function cube(exprs)
+
   @doc "Collects all values of expr into an ARRAY, including null values, with size in bytes limit on aggregation size (default of 1024 bytes). If the aggregated array grows larger than the maximum size in bytes, the query will fail. Use of ORDER BY within the ARRAY_AGG expression is not currently supported, and the ordering of results within the output array may vary depending on processing order."
   sql_function array_agg(expr)
 
