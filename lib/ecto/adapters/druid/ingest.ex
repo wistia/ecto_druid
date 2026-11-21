@@ -1,8 +1,9 @@
 defmodule Ecto.Adapters.Druid.Ingest do
   @moduledoc false
 
-  # `Repo.insert_all/3` as Druid SQL-based ingestion. The statement runs as a
-  # task, which this waits for before returning the number of rows written.
+  # `Repo.insert_all/3` and `Repo.delete_all/2` as Druid SQL-based
+  # ingestion. The statement runs as a task, which this waits for before
+  # returning the number of rows written or deleted.
 
   alias Ecto.Adapters.Druid.{Query, Telemetry, Types}
   alias Druid.SpecTemplates
@@ -44,9 +45,47 @@ defmodule Ecto.Adapters.Druid.Ingest do
     sql = prefix |> Query.insert(source, header, rows, opts) |> IO.iodata_to_binary()
 
     params =
-      (overwrite_params(Keyword.get(opts, :overwrite)) ++ params)
+      (interval_params(Keyword.get(opts, :overwrite), :overwrite) ++ params)
       |> Enum.map(&Types.to_db/1)
 
+    run(adapter_meta, source, sql, params, opts, fn repo, task_id, opts ->
+      rows_written(repo, task_id, rows, opts)
+    end)
+  end
+
+  def delete_all(adapter_meta, query, params, opts) do
+    if query.joins != [] or query.with_ctes != nil or query.select != nil do
+      raise Ecto.QueryError,
+        query: query,
+        message: "Druid's delete_all only takes a data source and where clauses"
+    end
+
+    interval =
+      Keyword.get(opts, :interval) ||
+        raise ArgumentError,
+              "Druid deletes rows by rewriting the time chunks they're in, so delete_all " <>
+                "needs an :interval to rewrite, such as `interval: \"2026-11-01/2026-11-02\"`, " <>
+                "or `interval: :all`"
+
+    unless Keyword.has_key?(opts, :partitioned_by) do
+      raise ArgumentError,
+            "Druid needs a :partitioned_by option to delete rows, such as `partitioned_by: :day`. " <>
+              "Use the data source's segment granularity"
+    end
+
+    bounds = interval_params(interval, :interval)
+    sql = query |> Query.delete_all(opts) |> IO.iodata_to_binary()
+    %{source: {source, _schema}} = query.from
+    params = Enum.map(bounds ++ bounds ++ params, &Types.to_db/1)
+
+    # The task doesn't report how many rows it dropped, and Ecto needs an
+    # integer, so the count is always 0
+    run(adapter_meta, source, sql, params, opts, fn _, _, _ -> 0 end)
+  end
+
+  # Submits a statement as a task and waits for it. `num_rows` gives the
+  # result's row count once the task succeeds.
+  defp run(adapter_meta, source, sql, params, opts, num_rows) do
     %{config: config, repo: repo} = adapter_meta
     call_opts = opts
     opts = Ecto.Adapters.Druid.merge_context(config, opts)
@@ -76,7 +115,7 @@ defmodule Ecto.Adapters.Druid.Ingest do
 
       case Druid.Tasks.await(repo, task_id, Keyword.take(opts, @await_opts ++ @connection_opts)) do
         {:ok, _status} ->
-          num_rows = rows_written(repo, task_id, rows, opts)
+          num_rows = num_rows.(repo, task_id, opts)
           {{num_rows, nil}, {:ok, %{num_rows: num_rows, rows: nil}}}
 
         {:error, error} ->
@@ -124,38 +163,40 @@ defmodule Ecto.Adapters.Druid.Ingest do
   defp value(_key, nil, acc), do: {nil, acc}
   defp value(key, value, acc), do: {key, [value | acc]}
 
-  defp overwrite_params(nil), do: []
-  defp overwrite_params(:all), do: []
+  # The bounds of an :overwrite or :interval option, as parameters
+  defp interval_params(nil, _option), do: []
+  defp interval_params(:all, _option), do: []
 
-  defp overwrite_params(%Ecto.Druid.Interval{start: start, stop: stop}),
-    do: [timestamp!(start), timestamp!(stop)]
+  defp interval_params(%Ecto.Druid.Interval{start: start, stop: stop}, option),
+    do: [timestamp!(start, option), timestamp!(stop, option)]
 
-  defp overwrite_params({start, stop}), do: [timestamp!(start), timestamp!(stop)]
+  defp interval_params({start, stop}, option),
+    do: [timestamp!(start, option), timestamp!(stop, option)]
 
-  defp overwrite_params(interval) when is_binary(interval) do
+  defp interval_params(interval, option) when is_binary(interval) do
     case String.split(interval, "/") do
-      [start, stop] -> [timestamp!(start), timestamp!(stop)]
-      _ -> overwrite_error!(interval)
+      [start, stop] -> [timestamp!(start, option), timestamp!(stop, option)]
+      _ -> interval_error!(interval, option)
     end
   end
 
-  defp overwrite_params(other), do: overwrite_error!(other)
+  defp interval_params(other, option), do: interval_error!(other, option)
 
-  defp timestamp!(%DateTime{} = value), do: value
-  defp timestamp!(%NaiveDateTime{} = value), do: value
-  defp timestamp!(%Date{} = date), do: NaiveDateTime.new!(date, ~T[00:00:00])
+  defp timestamp!(%DateTime{} = value, _option), do: value
+  defp timestamp!(%NaiveDateTime{} = value, _option), do: value
+  defp timestamp!(%Date{} = date, _option), do: NaiveDateTime.new!(date, ~T[00:00:00])
 
-  defp timestamp!(string) when is_binary(string) do
+  defp timestamp!(string, option) when is_binary(string) do
     with {:error, _} <- datetime_from_iso8601(string),
          {:error, _} <- NaiveDateTime.from_iso8601(string),
          {:error, _} <- Date.from_iso8601(string) do
-      bound_error!(string)
+      bound_error!(string, option)
     else
-      {:ok, value} -> timestamp!(value)
+      {:ok, value} -> timestamp!(value, option)
     end
   end
 
-  defp timestamp!(other), do: bound_error!(other)
+  defp timestamp!(other, option), do: bound_error!(other, option)
 
   defp datetime_from_iso8601(string) do
     case DateTime.from_iso8601(string) do
@@ -164,16 +205,16 @@ defmodule Ecto.Adapters.Druid.Ingest do
     end
   end
 
-  defp bound_error!(bound) do
+  defp bound_error!(bound, option) do
     raise ArgumentError,
-          ":overwrite needs an interval with date or date-time bounds, since Druid replaces " <>
-            "whole time chunks, got the bound: #{inspect(bound)}"
+          "#{inspect(option)} needs an interval with date or date-time bounds, since Druid " <>
+            "replaces whole time chunks, got the bound: #{inspect(bound)}"
   end
 
-  defp overwrite_error!(other) do
+  defp interval_error!(other, option) do
     raise ArgumentError,
-          ":overwrite must be :all, an Ecto.Druid.Interval, a {start, stop} tuple or an " <>
-            "interval string, got: #{inspect(other)}"
+          "#{inspect(option)} must be :all, an Ecto.Druid.Interval, a {start, stop} tuple or " <>
+            "an interval string, got: #{inspect(other)}"
   end
 
   # The task report counts the rows each worker wrote to segments. If it

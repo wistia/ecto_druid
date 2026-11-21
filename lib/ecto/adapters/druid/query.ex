@@ -53,6 +53,48 @@ defmodule Ecto.Adapters.Druid.Query do
     ]
   end
 
+  # Deleting rows with SQL-based ingestion: Druid can't remove single rows,
+  # so the interval's time chunks are rewritten with every row that isn't
+  # deleted. The condition is negated with IS NOT TRUE rather than NOT, since
+  # NOT keeps neither the rows it matches nor the rows it is NULL for.
+  #
+  # The interval's bounds are sent as the first four parameters: two for
+  # OVERWRITE WHERE and two for the SELECT's time filter.
+  def delete_all(query, opts) do
+    interval = Keyword.fetch!(opts, :interval)
+    {table, name, condition} = delete_parts(query)
+    keep = if condition, do: [?(, condition, ") IS NOT TRUE"], else: "FALSE"
+
+    [
+      insert_target(table, interval),
+      " SELECT * FROM ",
+      table,
+      " AS ",
+      name,
+      " WHERE ",
+      Enum.intersperse([interval_filter(name, interval) | [keep]] -- [[]], " AND "),
+      partitioned_by(Keyword.fetch!(opts, :partitioned_by))
+      | clustered_by(Keyword.get(opts, :clustered_by, []))
+    ]
+  end
+
+  # The quoted table, its alias and the WHERE condition (nil without one)
+  defp delete_parts(%{from: %{source: {table, _schema}}} = query) when is_binary(table) do
+    sources = create_names(query, [])
+    {_expr, name, _schema} = elem(sources, 0)
+    condition = if query.wheres != [], do: boolean([], query.wheres, sources, query)
+    {quote_table(query.from.prefix || query.prefix, table), name, condition}
+  end
+
+  defp delete_parts(query) do
+    error!(query, "delete_all needs a data source to delete from, not a subquery or fragment")
+  end
+
+  defp interval_filter(_name, :all), do: []
+
+  defp interval_filter(name, _interval),
+    do: [name, ~S(."__time" >= ? AND ), name, ~S(."__time" < ?)]
+
   defp insert_target(table, nil), do: ["INSERT INTO ", table]
   defp insert_target(table, :all), do: ["REPLACE INTO ", table, " OVERWRITE ALL"]
 

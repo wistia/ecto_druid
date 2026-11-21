@@ -112,9 +112,20 @@ defmodule Ecto.Adapters.Druid do
         overwrite: Ecto.Druid.Interval.new(~D[2026-11-01], ~D[2026-11-02])
       )
 
-  Druid can't change or delete single rows, so `insert/2`, `update/2`,
-  `delete/2`, `update_all/3` and `delete_all/2` raise. See the
-  [SQL Ingestion guide](sql_ingestion.md) for the options.
+  `Repo.delete_all/2` rewrites the time chunks in an `:interval` without the
+  rows the query matches. It always returns `{0, nil}`, since Druid doesn't
+  report how many rows it dropped:
+
+      MyApp.Repo.delete_all(
+        from(e in MyApp.PageViews, where: e.country == "XX"),
+        interval: Ecto.Druid.Interval.new(~D[2026-11-01], ~D[2026-11-08]),
+        partitioned_by: :day
+      )
+      #=> {0, nil}
+
+  Druid can't change single rows, so `insert/2`, `update/2`, `delete/2` and
+  `update_all/3` raise. See the [SQL Ingestion guide](sql_ingestion.md) for
+  the options.
 
   ## SQL query context
 
@@ -251,16 +262,24 @@ defmodule Ecto.Adapters.Druid do
         sql = IO.iodata_to_binary(__MODULE__.Query.all(query))
         {:cache, {System.unique_integer([:positive]), sql}}
 
-      kind when kind in [:update_all, :delete_all] ->
+      # The SQL depends on the call's options, so it's built in execute/5
+      :delete_all ->
+        {:nocache, {:delete_all, query}}
+
+      :update_all ->
         raise Ecto.QueryError,
           query: query,
           message:
-            "Druid doesn't support #{kind}. To replace data, use `insert_all/3` with " <>
-              "`:overwrite`. To drop it, use `Druid.Client.DataSource.mark_unused/2`"
+            "Druid doesn't support update_all. To replace data, use `insert_all/3` with " <>
+              "`:overwrite`"
     end
   end
 
   @impl Ecto.Adapter.Queryable
+  def execute(adapter_meta, _query_meta, {:nocache, {:delete_all, query}}, params, opts) do
+    __MODULE__.Ingest.delete_all(adapter_meta, query, params, opts)
+  end
+
   def execute(adapter_meta, query_meta, query, params, opts) do
     {info, request_opts} = request(adapter_meta, query_meta, query, params, opts)
     %{query: sql, params: params} = info

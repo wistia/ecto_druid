@@ -283,14 +283,147 @@ defmodule Ecto.Adapters.Druid.IngestTest do
       assert_raise ArgumentError, ~r/insert_all/, fn -> TestRepo.insert(%Event{}) end
     end
 
-    test "update_all and delete_all raise Ecto.QueryError" do
+    test "update_all raises Ecto.QueryError" do
       assert_raise Ecto.QueryError, ~r/doesn't support update_all/, fn ->
         TestRepo.update_all(Event, set: [channel: "#fr"])
       end
+    end
+  end
 
-      assert_raise Ecto.QueryError, ~r/doesn't support delete_all/, fn ->
-        TestRepo.delete_all(Event)
+  describe "delete_all/2" do
+    test "rewrites the interval without the matching rows" do
+      query = from e in Event, where: e.channel == ^"#en"
+
+      # The task doesn't report how many rows it dropped, so the count is 0
+      assert {0, nil} =
+               TestRepo.delete_all(
+                 query,
+                 [interval: "2026-01-01/2026-01-02", partitioned_by: :day] ++ druid()
+               )
+
+      start = %{"type" => "TIMESTAMP", "value" => "2026-01-01T00:00:00"}
+      stop = %{"type" => "TIMESTAMP", "value" => "2026-01-02T00:00:00"}
+      channel = %{"type" => "VARCHAR", "value" => "#en"}
+
+      %{"query" => sql, "parameters" => params} = submitted()
+
+      # IS NOT TRUE keeps the rows the condition is NULL for
+      assert sql ==
+               ~s{REPLACE INTO "events" OVERWRITE WHERE "__time" >= ? AND "__time" < ? } <>
+                 ~s{SELECT * FROM "events" AS e0 } <>
+                 ~s{WHERE e0."__time" >= ? AND e0."__time" < ? AND ((e0."channel" = ?)) IS NOT TRUE } <>
+                 ~s{PARTITIONED BY 'DAY'}
+
+      assert params == [start, stop, start, stop, channel]
+
+      # Nothing else is sent: the task is the only statement
+      refute_received {:request, "POST", "/druid/v2/sql", _}
+    end
+
+    test "combines where clauses" do
+      query =
+        from e in "events",
+          where: e.channel == "#en",
+          or_where: e.count > ^10,
+          where: not is_nil(e.channel)
+
+      TestRepo.delete_all(query, [interval: :all, partitioned_by: :day] ++ druid())
+
+      assert %{"query" => sql, "parameters" => [%{"value" => 10}]} = submitted()
+
+      assert sql =~
+               ~s{WHERE ((((e0."channel" = '#en')) OR (e0."count" > ?)) AND (NOT (e0."channel" IS NULL))) IS NOT TRUE }
+    end
+
+    test "deletes every row in the interval without a where clause" do
+      assert {0, nil} =
+               TestRepo.delete_all(
+                 Event,
+                 [interval: {~D[2026-01-01], ~D[2026-01-02]}, partitioned_by: :day] ++ druid()
+               )
+
+      assert %{"query" => sql, "parameters" => [_, _, _, _]} = submitted()
+      assert sql =~ ~s{AS e0 WHERE e0."__time" >= ? AND e0."__time" < ? AND FALSE PARTITIONED BY}
+    end
+
+    test "rewrites every time chunk with interval: :all" do
+      query = from e in Event, where: e.channel == "#en"
+
+      TestRepo.delete_all(
+        query,
+        [interval: :all, partitioned_by: :day, clustered_by: [:channel]] ++ druid()
+      )
+
+      assert %{"query" => sql, "parameters" => []} = submitted()
+
+      assert sql ==
+               ~s{REPLACE INTO "events" OVERWRITE ALL SELECT * FROM "events" AS e0 } <>
+                 ~s{WHERE ((e0."channel" = '#en')) IS NOT TRUE } <>
+                 ~s{PARTITIONED BY 'DAY' CLUSTERED BY "channel"}
+    end
+
+    test "deletes from the query's prefix" do
+      TestRepo.delete_all(
+        from(e in "events", prefix: "druid"),
+        [interval: :all, partitioned_by: :day] ++ druid()
+      )
+
+      assert %{
+               "query" =>
+                 "REPLACE INTO \"druid\".\"events\" OVERWRITE ALL SELECT * FROM \"druid\".\"events\" AS e0" <>
+                   _
+             } =
+               submitted()
+    end
+
+    test "raises when the task fails" do
+      assert_raise Druid.Tasks.Error, ~r/task t1 failed: boom/, fn ->
+        TestRepo.delete_all(
+          Event,
+          [interval: :all, partitioned_by: :day] ++ druid(status: "FAILED")
+        )
       end
+    end
+
+    test "needs :interval and :partitioned_by, and sends nothing without them" do
+      assert_raise ArgumentError, ~r/needs an :interval/, fn ->
+        TestRepo.delete_all(Event, [partitioned_by: :day] ++ druid())
+      end
+
+      assert_raise ArgumentError, ~r/needs an :interval/, fn ->
+        TestRepo.delete_all(Event, [interval: nil, partitioned_by: :day] ++ druid())
+      end
+
+      assert_raise ArgumentError, ~r/:partitioned_by option to delete/, fn ->
+        TestRepo.delete_all(Event, [interval: :all] ++ druid())
+      end
+
+      assert_raise ArgumentError, ~r/:interval needs an interval with date/, fn ->
+        TestRepo.delete_all(
+          Event,
+          [interval: Ecto.Druid.Interval.last(day: 1), partitioned_by: :day] ++ druid()
+        )
+      end
+
+      refute_received {:request, _, _, _}
+    end
+
+    test "only takes a data source and where clauses" do
+      opts = [interval: :all, partitioned_by: :day] ++ druid()
+
+      assert_raise Ecto.QueryError, ~r/only takes a data source and where clauses/, fn ->
+        TestRepo.delete_all(from(e in Event, join: w in "wikipedia", on: true), opts)
+      end
+
+      assert_raise Ecto.QueryError, ~r/only takes a data source and where clauses/, fn ->
+        TestRepo.delete_all(from(e in Event, select: e.channel), opts)
+      end
+
+      assert_raise Ecto.QueryError, ~r/not a subquery or fragment/, fn ->
+        TestRepo.delete_all(from(e in fragment("TABLE(APPEND('a', 'b'))")), opts)
+      end
+
+      refute_received {:request, _, _, _}
     end
   end
 end
