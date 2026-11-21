@@ -39,8 +39,8 @@ replace data instead.
 ## Inserting from a query
 
 Pass a query to copy or transform data that's already in Druid, or to read
-external data with `Ecto.Druid.Query.Table.extern/3`. The query's `select`
-names the new columns:
+external data (see [Reading external data](#reading-external-data)). The
+query's `select` names the new columns:
 
 ```elixir
 query =
@@ -55,6 +55,54 @@ query =
 
 MyApp.DruidRepo.insert_all("page_views_hourly", query, partitioned_by: :day)
 ```
+
+## Reading external data
+
+`Ecto.Druid.Query.Table.extern/2` reads files, URLs or inline data, taking
+Druid's [input source](https://druid.apache.org/docs/latest/ingestion/input-sources)
+and [input format](https://druid.apache.org/docs/latest/ingestion/data-formats)
+as JSON. `extend/2` names the columns and their types:
+
+```elixir
+input = Jason.encode!(%{type: "s3", uris: ["s3://my-bucket/page_views.csv"]})
+format = Jason.encode!(%{type: "csv", findColumnsFromHeader: true})
+
+query =
+  from e in extend(table(extern(^input, ^format)),
+         ts: :string,
+         country: :string,
+         views: :long,
+         tags: {:array, :string}
+       ),
+       select: %{__time: time_parse(e.ts), country: e.country, views: e.views, tags: e.tags}
+
+MyApp.DruidRepo.insert_all("page_views", query, partitioned_by: :day)
+```
+
+The query reads from:
+
+```sql
+TABLE(EXTERN(?, ?)) EXTEND ("ts" VARCHAR, "country" VARCHAR, "views" BIGINT, "tags" VARCHAR ARRAY)
+```
+
+The column types are `:string`, `:long`, `:float`, `:double`, `:json` for
+nested JSON, and `{:array, type}`. The columns are part of the SQL, so they
+must be known at compile time, as a literal or a module attribute. To build
+them at runtime, use `extern/3`, which takes a JSON row signature instead:
+
+```elixir
+signature = Jason.encode!([%{name: "ts", type: "string"}, %{name: "views", type: "long"}])
+from e in table(extern(^input, ^format, ^signature)), select: ...
+```
+
+External data can only be read by SQL-based ingestion and queries from deep
+storage: the Broker rejects it in a plain `Repo.all/2`.
+
+Druid also has input-source-specific table functions, such as
+`TABLE(s3(uris => ARRAY[...], format => 'csv')) EXTEND (...)`, but as of
+Druid 38 they aren't registered outside Druid's own tests. A real cluster
+rejects them with "Function s3 does not accept an EXTEND clause", so use
+`extern/2`.
 
 ## Replacing data
 

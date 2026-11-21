@@ -9,6 +9,7 @@ defmodule InsertAllIntegrationTest do
   @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_insert_all_test"
   @copy "ecto_druid_insert_all_copy_test"
+  @extern "ecto_druid_insert_all_extern_test"
 
   # SQL-based ingestion runs as tasks, which take a while in the test cluster
   @moduletag timeout: 600_000
@@ -25,7 +26,7 @@ defmodule InsertAllIntegrationTest do
 
   setup do
     on_exit(fn ->
-      for data_source <- [@data_source, @copy] do
+      for data_source <- [@data_source, @copy, @extern] do
         Druid.Client.DataSource.mark_unused(data_source) |> Druid.Client.request(@druid)
       end
     end)
@@ -85,5 +86,43 @@ defmodule InsertAllIntegrationTest do
              )
 
     assert channels(@copy) == [{"2026-01-01T12:00:00.000Z", "#de", 40}]
+  end
+
+  test "inserts external data with extern/2 and extend/2" do
+    import Ecto.Druid.Query.Table, only: [table: 1, extern: 2, extend: 2]
+    import Ecto.Druid.Query.DateTime, only: [time_parse: 1]
+
+    input =
+      Jason.encode!(%{
+        type: "inline",
+        data: "2026-01-01T00:00:00Z,#en,1,a|b\n2026-01-02T00:00:00Z,#fr,2,c"
+      })
+
+    format =
+      Jason.encode!(%{type: "csv", columns: ~w(ts channel added tags), listDelimiter: "|"})
+
+    query =
+      from e in extend(table(extern(^input, ^format)),
+             ts: :string,
+             channel: :string,
+             added: :long,
+             tags: {:array, :string}
+           ),
+           select: %{
+             __time: time_parse(e.ts),
+             channel: e.channel,
+             added: e.added,
+             tags: e.tags
+           }
+
+    assert {2, nil} =
+             IntegrationRepo.insert_all(@extern, query,
+               partitioned_by: :day,
+               wait_for_segments: true
+             )
+
+    rows = IntegrationRepo.all(from e in @extern, select: {e.channel, e.added, e.tags})
+
+    assert Enum.sort(rows) == [{"#en", 1, ["a", "b"]}, {"#fr", 2, ["c"]}]
   end
 end

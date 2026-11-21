@@ -19,6 +19,69 @@ defmodule Ecto.Druid.Query.Table do
   sql_function extern(input_source, input_format, row_signature)
 
   @doc """
+  Reads external data, for use with SQL-based ingestion, with the columns
+  given by `extend/2` instead of a JSON row signature. Takes the JSON-encoded
+  input source and input format.
+
+      from(e in extend(table(extern(^input_source, ^input_format)), page: :string, views: :long))
+  """
+  sql_function extern(input_source, input_format)
+
+  @doc """
+  Declares the columns of an `extern/2` source, as Druid's `EXTEND` clause.
+  Takes a keyword list of column names and types, which must be known at
+  compile time: a literal or a module attribute.
+
+      from(e in extend(table(extern(^input_source, ^input_format)),
+               ts: :string,
+               page: :string,
+               views: :long,
+               tags: {:array, :string}
+             ),
+        select: %{__time: time_parse(e.ts), page: e.page, views: e.views, tags: e.tags}
+      )
+
+  Generates `TABLE(EXTERN(?, ?)) EXTEND ("ts" VARCHAR, "page" VARCHAR, "views"
+  BIGINT, "tags" VARCHAR ARRAY)`.
+
+  The types are `:string`, `:long`, `:float`, `:double`, `:json` (nested
+  JSON, as `COMPLEX<json>`), and `{:array, type}` of `:string`, `:long` or
+  `:double`.
+  """
+  defmacro extend(source, columns) do
+    columns = Macro.expand(columns, __CALLER__)
+
+    unless Keyword.keyword?(columns) and columns != [] do
+      raise ArgumentError,
+            "extend/2 expects a non-empty keyword list of column names and types, " <>
+              "known at compile time, got: #{Macro.to_string(columns)}"
+    end
+
+    columns =
+      Enum.map_join(columns, ", ", fn {name, type} ->
+        name = name |> Atom.to_string() |> String.replace(~s("), ~s(""))
+        ~s("#{name}" #{extend_type(type)})
+      end)
+
+    Ecto.Druid.Util.sql_function_body("", "?", [source], nil, {"", " EXTEND (#{columns})"})
+  end
+
+  @scalar_types %{string: "VARCHAR", long: "BIGINT", float: "FLOAT", double: "DOUBLE"}
+  @array_types [:string, :long, :double]
+
+  defp extend_type(:json), do: "TYPE('COMPLEX<json>')"
+  defp extend_type(type) when is_map_key(@scalar_types, type), do: @scalar_types[type]
+
+  defp extend_type({:array, type}) when type in @array_types,
+    do: "#{@scalar_types[type]} ARRAY"
+
+  defp extend_type(type) do
+    raise ArgumentError,
+          "extend/2 doesn't support the column type #{Macro.to_string(type)}. Use :string, " <>
+            ":long, :float, :double, :json, or {:array, type} of :string, :long or :double"
+  end
+
+  @doc """
   Reads several data sources as one, for use with `table/1`. Columns are
   matched by name; a column a data source lacks is `NULL` in its rows, so the
   data sources don't need the same columns.
