@@ -78,6 +78,9 @@ for how to move code from 0.5.x.
   and returns its rows, and answers the way Druid does, including errors,
   timeouts and failed tasks. See the [Testing](guides/testing.md) guide.
   `:plug` is now an optional dependency.
+- `Ecto.Druid.Fixtures.load!/3`, which loads test data into Druid once
+  before a suite runs, replacing what's in each data source. Rows are
+  ingested through an `Ecto.Druid.Schema`'s generated `dataSchema`.
 - Guides on HexDocs, split out of the README.
 - A Time zones section in the Querying guide.
 

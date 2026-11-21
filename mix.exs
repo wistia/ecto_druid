@@ -160,6 +160,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Lookups.Lookup
         ],
         Testing: [
+          Ecto.Druid.Fixtures,
           Ecto.Druid.Test,
           Ecto.Druid.Test.Request
         ],

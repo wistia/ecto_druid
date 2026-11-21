@@ -11,7 +11,8 @@ Code that queries Druid can be tested two ways:
   they're usually tagged and run separately.
 
 Most of this guide covers stubs. [Stubbed and real-Druid tests](#stubbed-and-real-druid-tests)
-shows how to keep both kinds in one suite.
+shows how to keep both kinds in one suite, and [Loading fixtures](#loading-fixtures)
+how to give the real-Druid tests data to query.
 
 ## Setup
 
@@ -220,6 +221,65 @@ stub fails rather than reaching Druid.
 Don't try to mix the two in one run with a second repo started without the
 plug. `insert_all`, `Druid.Tasks` and the other template modules read the
 repo module's config, so they would still send their requests to the stub.
+
+## Loading fixtures
+
+Ingesting data takes Druid several seconds, so rather than have each
+real-Druid test load its own, load it once when the suite starts, with
+`Ecto.Druid.Fixtures`:
+
+```elixir
+# test/test_helper.exs
+if System.get_env("DRUID_TESTS") do
+  Ecto.Druid.Fixtures.load!(MyApp.DruidRepo, [
+    {MyApp.Edit, "test/fixtures/edits.jsonl"}
+  ])
+end
+
+ExUnit.start(exclude: [:druid])
+```
+
+`MyApp.Edit` is an `Ecto.Druid.Schema` whose source is `"wikipedia"`. The
+file holds input records, one JSON object per line, keyed the way your
+ingestion reads them:
+
+```json
+{"timestamp": "2016-06-27T01:00:00Z", "channel": "#en.wikipedia", "page": "Main Page"}
+{"timestamp": "2016-06-27T02:00:00Z", "channel": "#en.wikipedia", "page": "Elixir"}
+{"timestamp": "2016-06-27T02:30:00Z", "channel": "#de.wikipedia", "page": "Berlin"}
+```
+
+They're ingested through the schema's generated `dataSchema`, so `from:`
+transforms, rollup and sketch metrics apply as they do in production. Rows
+can also be a list of maps, and a data source without a schema can be given
+its `dataSchema` directly; see `Ecto.Druid.Fixtures`.
+
+Each load replaces everything in the data source, so every run starts from
+the same data, and tests can assert exact results:
+
+```elixir
+test "counts edits by channel" do
+  assert MyApp.Wiki.edits_by_channel(~D[2016-06-27]) == [
+           %{channel: "#en.wikipedia", edits: 2},
+           %{channel: "#de.wikipedia", edits: 1}
+         ]
+end
+```
+
+The data sources load at the same time. On a small local cluster, a load
+takes about ten seconds.
+
+A few things keep fixture data useful:
+
+* **Tests only read it.** A test that writes to a fixture data source
+  changes it for every test after it. Tests that ingest should use a data
+  source of their own, and remove it when they're done.
+* **Dates are fixed.** Code that asks for "the last 7 days" should take its
+  time window as an argument, so a test can pass one that holds the
+  fixtures.
+* **Fixtures stay small.** The rows are sent inside the task spec, which
+  Druid stores in its metadata database, so thousands of rows are fine but
+  millions aren't.
 
 ## Other Druid APIs
 
