@@ -4,7 +4,8 @@
 [SQL-based ingestion](https://druid.apache.org/docs/latest/multi-stage-query/).
 It takes a list of rows or an `Ecto.Query`, like with any other Ecto adapter,
 and runs Druid's `INSERT` or `REPLACE` statement as a task. It waits for the
-task to finish, then returns `{rows_written, nil}`.
+task to finish, then returns `{rows_written, nil}`. `Repo.delete_all/2` deletes
+rows the same way (see [Deleting rows](#deleting-rows)).
 
 The cluster needs the `druid-multi-stage-query` extension loaded, and enough
 free task slots for a controller and at least one worker.
@@ -104,10 +105,57 @@ its `:timeout`, and `Druid.Client.RequestError` when Druid rejects the
 statement. `:on_conflict`, `:conflict_target` and `:returning` aren't
 supported.
 
-## Updating and deleting
+## Deleting rows
 
-Druid can't update or delete individual rows, so `insert/2`, `update/2`,
-`delete/2`, `update_all/3` and `delete_all/2` raise. To change data, replace
-its interval with `:overwrite`. To drop it, mark its segments unused with
-`Druid.Client.DataSource.mark_unused/2`, then remove them for good with
-`Druid.Client.DataSource.kill/2`.
+Druid can't delete single rows in place, so `Repo.delete_all/2` rewrites the
+time chunks in an `:interval` with every row the query doesn't match, using
+`REPLACE`:
+
+```elixir
+MyApp.Repo.delete_all(
+  from(e in MyApp.PageViews, where: e.country == "XX"),
+  interval: Ecto.Druid.Interval.new(~D[2026-11-01], ~D[2026-11-08]),
+  partitioned_by: :day
+)
+#=> {1204, nil}
+```
+
+```sql
+REPLACE INTO "page_views" OVERWRITE WHERE "__time" >= ? AND "__time" < ?
+SELECT * FROM "page_views" AS p0
+WHERE p0."__time" >= ? AND p0."__time" < ? AND ((p0."country" = 'XX')) IS NOT TRUE
+PARTITIONED BY 'DAY'
+```
+
+Rows outside the interval are left alone, even if they match. Rows the
+condition is `NULL` for, such as rows with no `country` above, are kept: the
+condition is negated with `IS NOT TRUE`, not `NOT`, which would drop them.
+Without a `where` clause, every row in the interval is deleted.
+
+The query can only have `where` clauses on a data source: no joins, `select`
+or `with_cte`. It takes the `insert_all/3` options above, except that
+`:interval` replaces `:overwrite`:
+
+  * `:interval` - Required. `:all`, to rewrite the whole data source, or an
+    interval in the same forms as `:overwrite`. Its bounds must line up with
+    `:partitioned_by`.
+  * `:partitioned_by` - Required. Use the data source's segment granularity,
+    or the rewritten time chunks will be partitioned differently from the
+    rest.
+  * `:clustered_by` - The data source's clustering columns, if it has any.
+    Rewritten segments aren't clustered without it.
+
+`delete_all/2` returns the number of matching rows in the interval, counted
+on the Broker just before the task is submitted, since the task doesn't
+report how many rows it dropped. Rows ingested after the count, or not yet
+visible to the Broker, can make it differ from what the task removes.
+
+A delete rewrites every row in the interval, so keep the interval as small as
+the data allows. To drop whole intervals, marking their segments unused with
+`Druid.Client.DataSource.mark_unused/2` is cheaper, and
+`Druid.Client.DataSource.kill/2` then removes them for good.
+
+## Updating
+
+Druid can't update rows in place, so `insert/2`, `update/2`, `delete/2` and
+`update_all/3` raise. To change data, replace its interval with `:overwrite`.
