@@ -36,7 +36,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
       {:telemetry, "~> 1.3"},
       {:req, "~> 0.5.18"},
       {:jason, "~> 1.0"},
-      {:plug, "~> 1.15", only: :test},
+      {:plug, "~> 1.15", optional: true},
       {:ex_doc, "~> 0.36", only: :dev, runtime: false}
     ]
   end
@@ -69,6 +69,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
         "guides/system_tables.md",
         "guides/druid_client.md",
         "guides/telemetry.md",
+        "guides/testing.md",
         "guides/upgrading.md"
       ],
       groups_for_extras: [
@@ -157,6 +158,10 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Druid.Retention.Rules,
           Druid.Lookups,
           Druid.Lookups.Lookup
+        ],
+        Testing: [
+          Ecto.Druid.Test,
+          Ecto.Druid.Test.Request
         ],
         Utilities: [
           Ecto.Druid.ComplexType,

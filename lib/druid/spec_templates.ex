@@ -6,7 +6,8 @@ defmodule Druid.SpecTemplates do
 
   alias Druid.Supervisors.Template
 
-  @repo_keys [:host, :port, :scheme, :auth, :redirect_trusted]
+  # :plug, so a repo whose requests go to a test plug sends these there too
+  @repo_keys [:host, :port, :scheme, :auth, :redirect_trusted, :plug]
   @connection_keys @repo_keys ++
                      [:plug, :adapter, :finch, :receive_timeout] ++
                      [:retry, :max_retries, :retry_delay, :retry_log_level]

@@ -73,6 +73,11 @@ for how to move code from 0.5.x.
   `[:druid, :request]` spans for every client request, and
   `[:druid, :task, :await]` and `[:druid, :statement, :await]` spans.
 - An example Phoenix LiveView app in `example/`.
+- `Ecto.Druid.Test`, which stubs Druid in an app's tests through
+  `Req.Test`. A stub gets each SQL, deep storage, ingestion or native query
+  and returns its rows, and answers the way Druid does, including errors,
+  timeouts and failed tasks. See the [Testing](guides/testing.md) guide.
+  `:plug` is now an optional dependency.
 - Guides on HexDocs, split out of the README.
 - A Time zones section in the Querying guide.
 
@@ -95,6 +100,11 @@ for how to move code from 0.5.x.
   zones east of UTC.
 - Sketch casts in changesets, arrays and pinned values.
 - A second repo no longer crashes at boot over the shared Finch pool name.
+- A repo's `:plug` config reaches `Druid.Tasks`, `Druid.Supervisors`,
+  `Druid.Retention`, `Druid.Lookups` and `Druid.Compaction`, like its
+  `:host` and `:auth`. `insert_all` waited for its task through them, so
+  with a repo plug it submitted the task to the plug and then polled the
+  real host.
 
 ### Removed
 

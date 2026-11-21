@@ -48,3 +48,10 @@ for repo <- [Ecto.Adapters.Druid.TestRepo, Ecto.Adapters.Druid.IntegrationRepo] 
       path: Path.expand("../test/fixtures/backfills", __DIR__)
     ]
 end
+
+# StubRepo's requests go to Ecto.Druid.Test stubs, the way an app's tests
+# would send them. Nothing listens on this host.
+config :ecto_druid, Ecto.Adapters.Druid.StubRepo,
+  host: "druid.example.com",
+  port: 8888,
+  plug: {Req.Test, Ecto.Adapters.Druid.StubRepo}

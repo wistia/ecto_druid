@@ -811,6 +811,10 @@ defmodule Druid.Tasks do
   SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'druid' AND TABLE_NAME = ?
   """
 
+  # Ecto.Druid.Test answers this query itself
+  @doc false
+  def broker_lists_sql, do: @broker_lists_sql
+
   defp check_broker(data_source, broker_opts) do
     request = Druid.Client.SQL.query(@broker_lists_sql, [%{type: "VARCHAR", value: data_source}])
 
