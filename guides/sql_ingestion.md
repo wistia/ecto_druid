@@ -61,11 +61,12 @@ MyApp.DruidRepo.insert_all("page_views_hourly", query, partitioned_by: :day)
 `Ecto.Druid.Query.Table.extern/2` reads files, URLs or inline data, taking
 Druid's [input source](https://druid.apache.org/docs/latest/ingestion/input-sources)
 and [input format](https://druid.apache.org/docs/latest/ingestion/data-formats)
-as JSON. `extend/2` names the columns and their types:
+as maps, which it encodes as JSON (an already-encoded JSON string works too).
+`extend/2` names the columns and their types:
 
 ```elixir
-input = Jason.encode!(%{type: "s3", uris: ["s3://my-bucket/page_views.csv"]})
-format = Jason.encode!(%{type: "csv", findColumnsFromHeader: true})
+input = %{type: "s3", uris: ["s3://my-bucket/page_views.csv"]}
+format = %{type: "csv", findColumnsFromHeader: true}
 
 query =
   from e in extend(table(extern(^input, ^format)),
@@ -88,10 +89,11 @@ TABLE(EXTERN(?, ?)) EXTEND ("ts" VARCHAR, "country" VARCHAR, "views" BIGINT, "ta
 The column types are `:string`, `:long`, `:float`, `:double`, `:json` for
 nested JSON, and `{:array, type}`. The columns are part of the SQL, so they
 must be known at compile time, as a literal or a module attribute. To build
-them at runtime, use `extern/3`, which takes a JSON row signature instead:
+them at runtime, use `extern/3`, which takes them as a row signature: the
+same keyword list, or Druid's list of `%{name: ..., type: ...}` maps:
 
 ```elixir
-signature = Jason.encode!([%{name: "ts", type: "string"}, %{name: "views", type: "long"}])
+signature = [ts: :string, views: :long]
 from e in table(extern(^input, ^format, ^signature)), select: ...
 ```
 
