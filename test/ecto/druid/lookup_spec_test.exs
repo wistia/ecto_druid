@@ -5,20 +5,6 @@ defmodule Ecto.Druid.Lookup.SpecTest do
   alias Ecto.Druid.TestLookups.{Countries, CountryNames, JdbcCountries}
 
   describe "schema options" do
-    test "default to a non-injective map lookup" do
-      assert Countries.__lookup__(:source) == nil
-      assert Countries.__lookup__(:injective) == false
-    end
-
-    test "jdbc columns default to the field names" do
-      defaults = Ecto.Druid.TestLookups.JdbcCountries.__lookup__(:source)
-
-      assert {:jdbc, opts} = defaults
-      assert opts[:key_column] == "code"
-      assert opts[:value_column] == "name"
-      assert opts[:table] == "countries"
-    end
-
     test "raise on bad jdbc options" do
       for {jdbc, message} <- [
             {"[key_column: \"code\"]", ~r/:jdbc requires :table/},

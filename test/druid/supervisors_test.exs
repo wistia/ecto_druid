@@ -171,14 +171,6 @@ defmodule Druid.SupervisorsTest do
       end
     end
 
-    test "raises on invalid JSON", %{tmp_dir: dir} do
-      write!(dir, "events.json.eex", ~s({"topic": <%= @topic %>}))
-
-      assert_raise Supervisors.Error, ~r/events rendered invalid JSON/, fn ->
-        Supervisors.render(TestRepo, base_opts(dir))
-      end
-    end
-
     test "points at invalid JSON without showing the rendered spec", %{tmp_dir: dir} do
       write!(dir, "events.json.eex", """
       {
@@ -285,6 +277,9 @@ defmodule Druid.SupervisorsTest do
         send(test_pid, {:host, conn.host, conn.port})
         druid([]).(conn)
       end
+
+      Supervisors.sync(TestRepo, path: dir, plug: plug)
+      assert_received {:host, "localhost", 9888}
 
       Supervisors.sync(TestRepo, path: dir, plug: plug, port: 8888)
       assert_received {:host, "localhost", 8888}

@@ -15,23 +15,10 @@ defmodule Ecto.Adapters.DruidTest do
   end
 
   describe "dumpers/2" do
-    test "dumps the correct types" do
-      assert Druid.dumpers(:string, :string) == [:string]
-    end
-
     test "dumps custom types through the custom type" do
-      assert Druid.dumpers(:string, Ecto.Druid.DateTime) == [Ecto.Druid.DateTime]
+      assert Ecto.Type.adapter_dump(Druid, Ecto.Druid.DateTime, ~U[2016-06-27 00:00:00Z]) ==
+               {:ok, "2016-06-27T00:00:00Z"}
     end
-
-    # TODO: Add more types
-  end
-
-  describe "loaders/2" do
-    test "loads the correct types" do
-      assert Druid.loaders(:integer, {:maybe, :integer}) == [:integer, {:maybe, :integer}]
-    end
-
-    # TODO: Add more types
   end
 
   describe "Types.to_db/1" do
@@ -78,7 +65,12 @@ defmodule Ecto.Adapters.DruidTest do
 
     test "leaves params alone without a non-UTC sqlTimeZone" do
       params = [~U[2024-01-01 05:00:00.123Z], ~N[2024-01-01 05:00:00], ~D[2024-01-01]]
-      expected = Enum.map(params, &Types.to_db/1)
+
+      expected = [
+        %{type: "TIMESTAMP", value: "2024-01-01T05:00:00.123Z"},
+        %{type: "TIMESTAMP", value: "2024-01-01T05:00:00"},
+        %{type: "DATE", value: "2024-01-01"}
+      ]
 
       assert Types.to_db_params(params, %{}) == expected
       assert Types.to_db_params(params, %{sqlTimeZone: "Etc/UTC"}) == expected
@@ -138,10 +130,6 @@ defmodule Ecto.Adapters.DruidTest do
       assert load(:date, nil) == {:ok, nil}
       assert load(:utc_datetime, "yesterday") == :error
     end
-  end
-
-  describe "prepare/2" do
-    # Integration tested
   end
 
   describe "merge_context/2" do

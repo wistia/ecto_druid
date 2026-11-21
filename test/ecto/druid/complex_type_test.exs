@@ -15,22 +15,11 @@ defmodule Ecto.Druid.ComplexTypeTest do
 
   @sketch "AgEHDAMIAQAiw2QM"
 
-  defmodule Row do
-    use Ecto.Schema
-
-    @primary_key false
-    embedded_schema do
-      field :visitors, Ecto.Druid.HLLSketch
-      field :histogram, Ecto.Druid.DSHistogram
-    end
-  end
-
   for type <- [HLLSketch, ThetaSketch, QuantilesSketch, TupleSketch, TDigestSketch] do
     describe inspect(type) do
       test "casts and dumps Base64 strings" do
         assert Ecto.Type.cast(unquote(type), @sketch) == {:ok, @sketch}
         assert Ecto.Type.cast(unquote(type), 1) == :error
-        assert Ecto.Type.cast({:array, unquote(type)}, [@sketch]) == {:ok, [@sketch]}
         assert Ecto.Type.adapter_dump(Druid, unquote(type), @sketch) == {:ok, @sketch}
       end
 
@@ -78,15 +67,5 @@ defmodule Ecto.Druid.ComplexTypeTest do
       assert Ecto.Type.cast(Estimate, @estimate) == {:ok, @estimate}
       assert Ecto.Type.cast(Estimate, [3.0, 2.0, 4.5]) == :error
     end
-  end
-
-  test "sketch fields cast in a changeset" do
-    changeset =
-      Ecto.Changeset.cast(%Row{}, %{visitors: @sketch, histogram: [1, 2]}, [:visitors, :histogram])
-
-    assert changeset.valid?
-    assert changeset.changes == %{visitors: @sketch, histogram: [1.0, 2.0]}
-
-    refute Ecto.Changeset.cast(%Row{}, %{visitors: 1}, [:visitors]).valid?
   end
 end

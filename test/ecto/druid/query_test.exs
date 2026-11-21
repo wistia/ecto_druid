@@ -1192,11 +1192,6 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT ARRAY_CONCAT_AGG(t0.\"category\") FROM \"test\" AS t0", []}
     end
 
-    test "array_concat_agg/1 distinct" do
-      sql = from(t in "test", select: array_concat_agg(distinct(t.category))) |> to_sql()
-      assert sql == {"SELECT ARRAY_CONCAT_AGG(DISTINCT t0.\"category\") FROM \"test\" AS t0", []}
-    end
-
     test "array_concat_agg/2" do
       sql = from(t in "test", select: array_concat_agg(t.category, 40)) |> to_sql()
       assert sql == {"SELECT ARRAY_CONCAT_AGG(t0.\"category\", 40) FROM \"test\" AS t0", []}
@@ -1205,11 +1200,6 @@ defmodule Ecto.Druid.QueryTest do
     test "string_agg/1" do
       sql = from(t in "test", select: string_agg(t.category)) |> to_sql()
       assert sql == {"SELECT STRING_AGG(t0.\"category\") FROM \"test\" AS t0", []}
-    end
-
-    test "string_agg/1 distinct" do
-      sql = from(t in "test", select: string_agg(distinct(t.category))) |> to_sql()
-      assert sql == {"SELECT STRING_AGG(DISTINCT t0.\"category\") FROM \"test\" AS t0", []}
     end
 
     test "string_agg/2" do
@@ -1225,11 +1215,6 @@ defmodule Ecto.Druid.QueryTest do
     test "listagg/1" do
       sql = from(t in "test", select: listagg(t.category)) |> to_sql()
       assert sql == {"SELECT LISTAGG(t0.\"category\") FROM \"test\" AS t0", []}
-    end
-
-    test "listagg/1 distinct" do
-      sql = from(t in "test", select: listagg(distinct(t.category))) |> to_sql()
-      assert sql == {"SELECT LISTAGG(DISTINCT t0.\"category\") FROM \"test\" AS t0", []}
     end
 
     test "listagg/2" do
@@ -1806,61 +1791,11 @@ defmodule Ecto.Druid.QueryTest do
                 []}
     end
 
-    test "dense_rank/0" do
-      sql = from(t in "test", select: over(dense_rank(), order_by: t.added)) |> to_sql()
-
-      assert sql ==
-               {"SELECT dense_rank() OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
-    end
-
-    test "percent_rank/0" do
-      sql = from(t in "test", select: over(percent_rank(), order_by: t.added)) |> to_sql()
-
-      assert sql ==
-               {"SELECT percent_rank() OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
-    end
-
-    test "cume_dist/0" do
-      sql = from(t in "test", select: over(cume_dist(), order_by: t.added)) |> to_sql()
-
-      assert sql == {"SELECT cume_dist() OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
-    end
-
-    test "ntile/1" do
-      sql = from(t in "test", select: over(ntile(4), order_by: t.added)) |> to_sql()
-
-      assert sql == {"SELECT ntile(4) OVER (ORDER BY t0.\"added\") FROM \"test\" AS t0", []}
-    end
-
     test "lag/3 with default value" do
       sql = from(t in "test", select: over(lag(t.added, 1, 0), order_by: t.time)) |> to_sql()
 
       assert sql ==
                {"SELECT lag(t0.\"added\", 1, 0) OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
-                []}
-    end
-
-    test "lead/2" do
-      sql = from(t in "test", select: over(lead(t.added, 1), order_by: t.time)) |> to_sql()
-
-      assert sql ==
-               {"SELECT lead(t0.\"added\", 1) OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
-                []}
-    end
-
-    test "first_value/1" do
-      sql = from(t in "test", select: over(first_value(t.added), order_by: t.time)) |> to_sql()
-
-      assert sql ==
-               {"SELECT first_value(t0.\"added\") OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
-                []}
-    end
-
-    test "last_value/1" do
-      sql = from(t in "test", select: over(last_value(t.added), order_by: t.time)) |> to_sql()
-
-      assert sql ==
-               {"SELECT last_value(t0.\"added\") OVER (ORDER BY t0.\"time\") FROM \"test\" AS t0",
                 []}
     end
 

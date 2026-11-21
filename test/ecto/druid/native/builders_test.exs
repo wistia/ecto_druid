@@ -108,9 +108,27 @@ defmodule Ecto.Druid.Native.BuildersTest do
     end
 
     test "builds every numeric aggregator type" do
-      for type <- ~w(long double float), op <- ~w(sum min max first last any) do
-        aggregator = apply(Aggregator, :"#{type}_#{op}", ["added"])
-        assert aggregator.type == type <> String.capitalize(op)
+      for {fun, type} <- [
+            long_sum: "longSum",
+            long_min: "longMin",
+            long_max: "longMax",
+            long_first: "longFirst",
+            long_last: "longLast",
+            long_any: "longAny",
+            double_sum: "doubleSum",
+            double_min: "doubleMin",
+            double_max: "doubleMax",
+            double_first: "doubleFirst",
+            double_last: "doubleLast",
+            double_any: "doubleAny",
+            float_sum: "floatSum",
+            float_min: "floatMin",
+            float_max: "floatMax",
+            float_first: "floatFirst",
+            float_last: "floatLast",
+            float_any: "floatAny"
+          ] do
+        assert apply(Aggregator, fun, ["added"]).type == type
       end
     end
 

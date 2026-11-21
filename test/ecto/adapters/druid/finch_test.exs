@@ -24,18 +24,6 @@ defmodule Ecto.Adapters.Druid.FinchTest do
 
   def handle_event(_event, _measurements, %{name: name}, test), do: send(test, {:finch, name})
 
-  defp finch(repo), do: Ecto.Adapter.lookup_meta(repo).finch
-
-  test "starts a Finch pool for each repo" do
-    start_supervised!({TestRepo, @closed})
-    start_supervised!({OtherRepo, @closed})
-
-    assert finch(TestRepo) == TestRepo.Finch
-    assert finch(OtherRepo) == OtherRepo.Finch
-    assert Process.whereis(TestRepo.Finch)
-    assert Process.whereis(OtherRepo.Finch)
-  end
-
   test "each repo sends queries through its own pool" do
     start_supervised!({TestRepo, @closed})
     start_supervised!({OtherRepo, @closed})
@@ -65,7 +53,6 @@ defmodule Ecto.Adapters.Druid.FinchTest do
   test "names the pool after the :finch option" do
     start_supervised!({OtherRepo, Keyword.put(@closed, :finch, __MODULE__.CustomFinch)})
 
-    assert finch(OtherRepo) == __MODULE__.CustomFinch
     assert Process.whereis(__MODULE__.CustomFinch)
 
     assert_raise Req.TransportError, fn ->

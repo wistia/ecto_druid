@@ -63,10 +63,6 @@ defmodule DeepStorageIntegrationTest do
              [%{page: "a", views: 4}, %{page: "b", views: 2}]
   end
 
-  test "streams Broker results" do
-    assert totals() |> IntegrationRepo.stream() |> Enum.to_list() == [%{page: "a", views: 3}]
-  end
-
   defp totals do
     from(d in @data_source,
       group_by: d.page,

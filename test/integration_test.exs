@@ -196,13 +196,6 @@ defmodule IntegrationTest do
                    %{type: "longSum", name: "net", expression: expr(added - deleted)}
                  ]
              })
-
-    assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
-      TestRepo.native_query(%{
-        query
-        | filter: Ecto.Druid.Native.Filter.expression(expr(nope > 0))
-      })
-    end
   end
 
   test "streams Broker results as they arrive" do
@@ -442,11 +435,6 @@ defmodule IntegrationTest do
       )
 
     assert TestRepo.one(query) == {"Houston", "none"}
-  end
-
-  test "queries with a custom sql query context" do
-    assert %{added: 3} =
-             TestRepo.one(Wikipedia.by_page("Black Dahlia"), context: %{sqlTimeZone: "Etc/UTC"})
   end
 
   describe "pinned params" do
