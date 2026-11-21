@@ -533,7 +533,7 @@ if Code.ensure_loaded?(Plug.Conn) do
 
         "groupBy" ->
           if get_in(query, ["context", "resultAsArray"]) do
-            columns = Ecto.Druid.Native.columns(query)
+            columns = group_by_columns(query)
             Enum.map(rows, &values(&1, columns))
           else
             Enum.map(rows, fn row ->
@@ -547,11 +547,11 @@ if Code.ensure_loaded?(Plug.Conn) do
 
         "scan" ->
           columns =
-            Ecto.Druid.Native.columns(query) ||
-              case hd(rows) do
-                row when is_map(row) -> Map.keys(row)
-                _ -> nil
-              end
+            case {query["columns"], hd(rows)} do
+              {[_ | _] = columns, _row} -> columns
+              {_columns, row} when is_map(row) -> Map.keys(row)
+              _ -> nil
+            end
 
           events =
             if query["resultFormat"] == "compactedList",
@@ -573,6 +573,22 @@ if Code.ensure_loaded?(Plug.Conn) do
 
     defp values(row, columns) when is_map(row), do: Enum.map(columns, &Map.get(row, &1))
     defp values(row, _columns) when is_list(row), do: row
+
+    # The order Druid sends a resultAsArray groupBy's values in
+    defp group_by_columns(query) do
+      time = if all_granularity?(query), do: [], else: ["__time"]
+      dimensions = Enum.map(query["dimensions"] || [], &dimension_name/1)
+      outputs = (query["aggregations"] || []) ++ (query["postAggregations"] || [])
+      time ++ dimensions ++ Enum.map(outputs, & &1["name"])
+    end
+
+    defp dimension_name(dimension) when is_binary(dimension), do: dimension
+    defp dimension_name(%{"outputName" => name}) when is_binary(name), do: name
+    defp dimension_name(%{"dimension" => name}), do: name
+
+    defp all_granularity?(query) do
+      query["granularity"] in [nil, "all", %{"type" => "all"}]
+    end
 
     defp interval_start(query) do
       case query["intervals"] do

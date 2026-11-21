@@ -318,6 +318,12 @@ defmodule Ecto.Druid.TestTest do
       assert StubRepo.native_query!(as_array) == expected
       assert StubRepo.native_query!(as_array, raw: true) == [["#en", 3], ["#fr", 2]]
 
+      daily = Map.put(as_array, :granularity, "day")
+      day = %{"__time" => "2026-01-01T00:00:00.000Z", "channel" => "#en", "edits" => 3}
+      stub(fn _ -> [day] end)
+      assert StubRepo.native_query!(daily) == [day]
+      assert StubRepo.native_query!(daily, raw: true) == [["2026-01-01T00:00:00.000Z", "#en", 3]]
+
       scan = %{
         queryType: "scan",
         dataSource: "edits",
