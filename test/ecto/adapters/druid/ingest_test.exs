@@ -32,13 +32,12 @@ defmodule Ecto.Adapters.Druid.IngestTest do
     }
   }
 
-  # Answers the count, submit, status and report requests of a successful task and
+  # Answers the submit, status and report requests of a successful task and
   # records what was asked.
   defp druid(opts \\ []) do
     test = self()
     status = Keyword.get(opts, :status, "SUCCESS")
     report = Keyword.get(opts, :report, @report)
-    count = Keyword.get(opts, :count, 4)
 
     plug = fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -47,9 +46,6 @@ defmodule Ecto.Adapters.Druid.IngestTest do
 
       {code, response} =
         case conn.request_path do
-          "/druid/v2/sql" ->
-            {200, [[count]]}
-
           "/druid/v2/sql/task" ->
             {200, %{"taskId" => "t1", "state" => "RUNNING"}}
 
@@ -295,15 +291,11 @@ defmodule Ecto.Adapters.Druid.IngestTest do
   end
 
   describe "delete_all/2" do
-    defp counted do
-      assert_received {:request, "POST", "/druid/v2/sql", body}
-      body
-    end
-
-    test "rewrites the interval without the matching rows and returns how many matched" do
+    test "rewrites the interval without the matching rows" do
       query = from e in Event, where: e.channel == ^"#en"
 
-      assert {4, nil} =
+      # The task doesn't report how many rows it dropped, so the count is 0
+      assert {0, nil} =
                TestRepo.delete_all(
                  query,
                  [interval: "2026-01-01/2026-01-02", partitioned_by: :day] ++ druid()
@@ -313,18 +305,7 @@ defmodule Ecto.Adapters.Druid.IngestTest do
       stop = %{"type" => "TIMESTAMP", "value" => "2026-01-02T00:00:00"}
       channel = %{"type" => "VARCHAR", "value" => "#en"}
 
-      # Rows are counted before they're deleted
-      %{"query" => count_sql, "parameters" => count_params, "context" => context} = counted()
-
-      assert count_sql ==
-               ~s{SELECT count(*) FROM "events" AS e0 } <>
-                 ~s{WHERE e0."__time" >= ? AND e0."__time" < ? AND ((e0."channel" = ?))}
-
-      assert count_params == [start, stop, channel]
-      %{"query" => sql, "parameters" => params, "context" => task_context} = submitted()
-
-      # The count is its own query, so it doesn't take the task's query id
-      assert context["sqlQueryId"] != task_context["sqlQueryId"]
+      %{"query" => sql, "parameters" => params} = submitted()
 
       # IS NOT TRUE keeps the rows the condition is NULL for
       assert sql ==
@@ -334,6 +315,9 @@ defmodule Ecto.Adapters.Druid.IngestTest do
                  ~s{PARTITIONED BY 'DAY'}
 
       assert params == [start, stop, start, stop, channel]
+
+      # Nothing else is sent: the task is the only statement
+      refute_received {:request, "POST", "/druid/v2/sql", _}
     end
 
     test "combines where clauses" do
@@ -352,16 +336,11 @@ defmodule Ecto.Adapters.Druid.IngestTest do
     end
 
     test "deletes every row in the interval without a where clause" do
-      assert {4, nil} =
+      assert {0, nil} =
                TestRepo.delete_all(
                  Event,
                  [interval: {~D[2026-01-01], ~D[2026-01-02]}, partitioned_by: :day] ++ druid()
                )
-
-      assert %{"query" => count_sql} = counted()
-
-      assert count_sql ==
-               ~s{SELECT count(*) FROM "events" AS e0 WHERE e0."__time" >= ? AND e0."__time" < ?}
 
       assert %{"query" => sql, "parameters" => [_, _, _, _]} = submitted()
       assert sql =~ ~s{AS e0 WHERE e0."__time" >= ? AND e0."__time" < ? AND FALSE PARTITIONED BY}
@@ -374,9 +353,6 @@ defmodule Ecto.Adapters.Druid.IngestTest do
         query,
         [interval: :all, partitioned_by: :day, clustered_by: [:channel]] ++ druid()
       )
-
-      assert %{"query" => count_sql, "parameters" => []} = counted()
-      assert count_sql == ~s{SELECT count(*) FROM "events" AS e0 WHERE ((e0."channel" = '#en'))}
 
       assert %{"query" => sql, "parameters" => []} = submitted()
 

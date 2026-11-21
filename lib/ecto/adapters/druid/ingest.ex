@@ -75,16 +75,12 @@ defmodule Ecto.Adapters.Druid.Ingest do
 
     bounds = interval_params(interval, :interval)
     sql = query |> Query.delete_all(opts) |> IO.iodata_to_binary()
-    count_sql = query |> Query.delete_count(interval) |> IO.iodata_to_binary()
     %{source: {source, _schema}} = query.from
-    params = Enum.map(params, &Types.to_db/1)
-    bounds = Enum.map(bounds, &Types.to_db/1)
+    params = Enum.map(bounds ++ bounds ++ params, &Types.to_db/1)
 
-    # Rows are counted before they're deleted, since the task's report
-    # doesn't say how many it dropped
-    count = count(adapter_meta, count_sql, bounds ++ params, opts)
-
-    run(adapter_meta, source, sql, bounds ++ bounds ++ params, opts, fn _, _, _ -> count end)
+    # The task doesn't report how many rows it dropped, and Ecto needs an
+    # integer, so the count is always 0
+    run(adapter_meta, source, sql, params, opts, fn _, _, _ -> 0 end)
   end
 
   # Submits a statement as a task and waits for it. `num_rows` gives the
@@ -126,21 +122,6 @@ defmodule Ecto.Adapters.Druid.Ingest do
           raise error
       end
     end)
-  end
-
-  # Counts rows on the Broker, with the call's context but not its query id,
-  # which belongs to the task
-  defp count(adapter_meta, sql, params, opts) do
-    %{config: config, repo: repo} = adapter_meta
-    opts = Ecto.Adapters.Druid.merge_context(config, opts)
-    context = Map.drop(opts[:context], [:sqlQueryId, "sqlQueryId"])
-    opts = Keyword.put(opts, :context, context)
-    request_opts = Ecto.Adapters.Druid.request_opts(config, repo, adapter_meta.finch, opts)
-
-    [[count]] =
-      Druid.Client.SQL.query(sql, params, request_opts) |> Telemetry.request!(request_opts)
-
-    count
   end
 
   defp check_on_conflict!({:raise, _, []}), do: :ok

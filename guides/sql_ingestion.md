@@ -117,7 +117,7 @@ MyApp.Repo.delete_all(
   interval: Ecto.Druid.Interval.new(~D[2026-11-01], ~D[2026-11-08]),
   partitioned_by: :day
 )
-#=> {1204, nil}
+#=> {0, nil}
 ```
 
 ```sql
@@ -145,10 +145,10 @@ or `with_cte`. It takes the `insert_all/3` options above, except that
   * `:clustered_by` - The data source's clustering columns, if it has any.
     Rewritten segments aren't clustered without it.
 
-`delete_all/2` returns the number of matching rows in the interval, counted
-on the Broker just before the task is submitted, since the task doesn't
-report how many rows it dropped. Rows ingested after the count, or not yet
-visible to the Broker, can make it differ from what the task removes.
+`delete_all/2` always returns `{0, nil}`, however many rows it deletes.
+Druid's task doesn't report how many rows it dropped, and Ecto needs an
+integer there, so don't read the `0` as "nothing matched". To know how many
+rows a delete will remove, count them with a query first.
 
 A delete rewrites every row in the interval, so keep the interval as small as
 the data allows. To drop whole intervals, marking their segments unused with

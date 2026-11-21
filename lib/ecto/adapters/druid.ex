@@ -113,13 +113,15 @@ defmodule Ecto.Adapters.Druid do
       )
 
   `Repo.delete_all/2` rewrites the time chunks in an `:interval` without the
-  rows the query matches:
+  rows the query matches. It always returns `{0, nil}`, since Druid doesn't
+  report how many rows it dropped:
 
       MyApp.Repo.delete_all(
         from(e in MyApp.PageViews, where: e.country == "XX"),
         interval: Ecto.Druid.Interval.new(~D[2026-11-01], ~D[2026-11-08]),
         partitioned_by: :day
       )
+      #=> {0, nil}
 
   Druid can't change single rows, so `insert/2`, `update/2`, `delete/2` and
   `update_all/3` raise. See the [SQL Ingestion guide](sql_ingestion.md) for

@@ -49,8 +49,9 @@ defmodule DeleteAllIntegrationTest do
              )
 
     # Only Jan 1 is rewritten, so Jan 2's #en row stays. The NULL channel
-    # isn't "#en", so its row stays too.
-    assert {1, nil} =
+    # isn't "#en", so its row stays too. Druid doesn't report how many rows
+    # a delete drops, so the count is always 0.
+    assert {0, nil} =
              IntegrationRepo.delete_all(
                from(e in Event, where: e.channel == ^"#en"),
                interval: Ecto.Druid.Interval.new(~D[2026-01-01], ~D[2026-01-02]),
@@ -65,7 +66,7 @@ defmodule DeleteAllIntegrationTest do
            ]
 
     # Without a where clause, every row in the interval goes
-    assert {1, nil} =
+    assert {0, nil} =
              IntegrationRepo.delete_all(Event,
                interval: "2026-01-02/2026-01-03",
                partitioned_by: :day,

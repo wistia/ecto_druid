@@ -78,27 +78,6 @@ defmodule Ecto.Adapters.Druid.Query do
     ]
   end
 
-  # Counts the rows delete_all/2 removes, taking the interval's bounds as the
-  # first two parameters
-  def delete_count(query, interval) do
-    {table, name, condition} = delete_parts(query)
-    match = if condition, do: [?(, condition, ?)], else: []
-
-    case [interval_filter(name, interval), match] -- [[], []] do
-      [] ->
-        ["SELECT count(*) FROM ", table, " AS ", name]
-
-      filters ->
-        [
-          "SELECT count(*) FROM ",
-          table,
-          " AS ",
-          name,
-          " WHERE " | Enum.intersperse(filters, " AND ")
-        ]
-    end
-  end
-
   # The quoted table, its alias and the WHERE condition (nil without one)
   defp delete_parts(%{from: %{source: {table, _schema}}} = query) when is_binary(table) do
     sources = create_names(query, [])
