@@ -13,6 +13,22 @@ defmodule Ecto.Adapters.Druid.IngestTest do
     end
   end
 
+  defmodule DruidEvent do
+    use Ecto.Druid.Schema
+    @primary_key false
+    schema "events" do
+      timestamp :time
+      dimension :channel, :string
+      dimension :count, :integer
+      dimension :tags, {:array, :string}, multi_value: true
+      dimension :labels, {:array, :string}
+      dimension :attrs, :map
+      metric :added, :integer, aggregate: :sum
+      metric :users, Ecto.Druid.ThetaSketch
+      field :note, :string
+    end
+  end
+
   setup do
     start_supervised!(TestRepo)
     :ok
@@ -282,12 +298,6 @@ defmodule Ecto.Adapters.Druid.IngestTest do
     test "insert explains to use insert_all" do
       assert_raise ArgumentError, ~r/insert_all/, fn -> TestRepo.insert(%Event{}) end
     end
-
-    test "update_all raises Ecto.QueryError" do
-      assert_raise Ecto.QueryError, ~r/doesn't support update_all/, fn ->
-        TestRepo.update_all(Event, set: [channel: "#fr"])
-      end
-    end
   end
 
   describe "delete_all/2" do
@@ -421,6 +431,177 @@ defmodule Ecto.Adapters.Druid.IngestTest do
 
       assert_raise Ecto.QueryError, ~r/not a subquery or fragment/, fn ->
         TestRepo.delete_all(from(e in fragment("TABLE(APPEND('a', 'b'))")), opts)
+      end
+
+      refute_received {:request, _, _, _}
+    end
+  end
+
+  describe "update_all/3" do
+    @bounds [
+      %{"type" => "TIMESTAMP", "value" => "2026-01-01T00:00:00"},
+      %{"type" => "TIMESTAMP", "value" => "2026-01-02T00:00:00"}
+    ]
+
+    defp update_opts(opts \\ []) do
+      [interval: "2026-01-01/2026-01-02", partitioned_by: :day] ++ opts ++ druid()
+    end
+
+    test "rewrites the interval with every column, changing the matched rows" do
+      query =
+        from e in DruidEvent, where: e.channel == ^"#en", update: [set: [channel: ^"#fr"]]
+
+      assert {0, nil} = TestRepo.update_all(query, [], update_opts())
+
+      %{"query" => sql, "parameters" => params} = submitted()
+
+      assert sql ==
+               ~s{REPLACE INTO "events" OVERWRITE WHERE "__time" >= ? AND "__time" < ? } <>
+                 ~s{SELECT e0."__time", } <>
+                 ~s{CASE WHEN e0."__match" THEN CAST(? AS VARCHAR) ELSE e0."channel" END AS "channel", } <>
+                 ~s{e0."count", e0."tags", e0."labels", e0."attrs", e0."added", e0."users" } <>
+                 ~s{FROM (SELECT *, ((e0."channel" = ?)) IS TRUE AS "__match" FROM "events" AS e0 } <>
+                 ~s{WHERE e0."__time" >= ? AND e0."__time" < ?) AS e0 } <>
+                 ~s{PARTITIONED BY 'DAY'}
+
+      assert params ==
+               @bounds ++
+                 [
+                   %{"type" => "VARCHAR", "value" => "#fr"},
+                   %{"type" => "VARCHAR", "value" => "#en"}
+                 ] ++ @bounds
+    end
+
+    test "sends each update's parameters where the SQL takes them" do
+      query =
+        from e in DruidEvent,
+          where: e.channel == ^"#en",
+          update: [
+            set: [channel: ^"#fr"],
+            inc: [count: ^2],
+            push: [labels: ^"new"],
+            pull: [tags: ^"old"]
+          ]
+
+      TestRepo.update_all(query, [], update_opts())
+
+      %{"query" => sql, "parameters" => params} = submitted()
+
+      assert sql =~
+               ~s{THEN CAST(e0."count" + ? AS BIGINT) ELSE e0."count" END AS "count", }
+
+      # A multi-value column is changed as an array, then made multi-value again
+      assert sql =~
+               ~s{ARRAY_TO_MV(CASE WHEN e0."__match" THEN MV_TO_ARRAY(MV_FILTER_NONE(e0."tags", ARRAY[?])) } <>
+                 ~s{ELSE MV_TO_ARRAY(e0."tags") END) AS "tags", }
+
+      assert sql =~
+               ~s{THEN CASE WHEN ARRAY_SLICE(e0."labels", 0) IS NULL THEN ARRAY[?] } <>
+                 ~s{ELSE ARRAY_APPEND(ARRAY_SLICE(e0."labels", 0), ?) END } <>
+                 ~s{ELSE ARRAY_SLICE(e0."labels", 0) END AS "labels", }
+
+      # Columns are in schema order, and push takes its value twice
+      assert Enum.map(params, & &1["value"]) ==
+               Enum.map(@bounds, & &1["value"]) ++
+                 ["#fr", 2, "old", "new", "new", "#en"] ++ Enum.map(@bounds, & &1["value"])
+    end
+
+    test "takes runtime updates, pushing onto a multi-value column" do
+      TestRepo.update_all(DruidEvent, [push: [tags: "new"]], update_opts())
+
+      assert %{"query" => sql, "parameters" => params} = submitted()
+
+      assert sql =~
+               ~s{ARRAY_TO_MV(CASE WHEN MV_TO_ARRAY(e0."tags") IS NULL THEN ARRAY[?] } <>
+                 ~s{ELSE ARRAY_APPEND(MV_TO_ARRAY(e0."tags"), ?) END) AS "tags"}
+
+      assert Enum.map(params, & &1["value"]) ==
+               ["2026-01-01T00:00:00", "2026-01-02T00:00:00", "new", "new"] ++
+                 ["2026-01-01T00:00:00", "2026-01-02T00:00:00"]
+    end
+
+    test "sets a multi-value column from a list" do
+      query = from e in DruidEvent, where: e.channel == "#en"
+      TestRepo.update_all(query, [set: [tags: ["a", "b"]]], update_opts())
+
+      assert %{"query" => sql, "parameters" => [_, _, tags, _, _]} = submitted()
+      assert tags == %{"type" => "ARRAY", "value" => ["a", "b"]}
+
+      assert sql =~
+               ~s{ARRAY_TO_MV(CASE WHEN e0."__match" THEN ? ELSE MV_TO_ARRAY(e0."tags") END) AS "tags"}
+    end
+
+    test "changes every row in the interval without a where clause" do
+      query = from(d in DruidEvent, update: [set: [channel: fragment("UPPER(?)", d.channel)]])
+
+      TestRepo.update_all(
+        query,
+        [],
+        [interval: :all, partitioned_by: :day, clustered_by: [:channel]] ++ druid()
+      )
+
+      assert %{"query" => sql, "parameters" => []} = submitted()
+
+      assert sql ==
+               ~s{REPLACE INTO "events" OVERWRITE ALL } <>
+                 ~s{SELECT e0."__time", CAST(UPPER(e0."channel") AS VARCHAR) AS "channel", } <>
+                 ~s{e0."count", e0."tags", e0."labels", e0."attrs", e0."added", e0."users" } <>
+                 ~s{FROM (SELECT * FROM "events" AS e0) AS e0 } <>
+                 ~s{PARTITIONED BY 'DAY' CLUSTERED BY "channel"}
+    end
+
+    test "raises when the task fails" do
+      assert_raise Druid.Tasks.Error, ~r/task t1 failed: boom/, fn ->
+        TestRepo.update_all(
+          DruidEvent,
+          [set: [channel: "#fr"]],
+          [interval: :all, partitioned_by: :day] ++ druid(status: "FAILED")
+        )
+      end
+    end
+
+    test "needs an Ecto.Druid.Schema to know every column" do
+      assert_raise Ecto.QueryError, ~r/needs a schema that uses Ecto.Druid.Schema/, fn ->
+        TestRepo.update_all(Event, [set: [channel: "#fr"]], update_opts())
+      end
+
+      assert_raise Ecto.QueryError, ~r/needs a schema that uses Ecto.Druid.Schema/, fn ->
+        TestRepo.update_all("events", [set: [channel: "#fr"]], update_opts())
+      end
+
+      refute_received {:request, _, _, _}
+    end
+
+    test "rejects changes it can't make, sending nothing" do
+      for {updates, message} <- [
+            {[set: [time: ~U[2026-01-01 00:00:00Z]]], ~r/can't change __time/},
+            {[set: [note: "x"]], ~r/can't change note: it isn't a Druid column/},
+            {[pull: [labels: "x"]], ~r/can't pull from labels: Druid has no function/},
+            {[inc: [labels: ["x"]]], ~r/can't inc labels, an array column/}
+          ] do
+        assert_raise Ecto.QueryError, message, fn ->
+          TestRepo.update_all(DruidEvent, updates, update_opts())
+        end
+      end
+
+      refute_received {:request, _, _, _}
+    end
+
+    test "needs :interval and :partitioned_by, and only where clauses" do
+      assert_raise ArgumentError, ~r/update_all needs an :interval/, fn ->
+        TestRepo.update_all(DruidEvent, [set: [channel: "x"]], [partitioned_by: :day] ++ druid())
+      end
+
+      assert_raise ArgumentError, ~r/:partitioned_by option to update/, fn ->
+        TestRepo.update_all(DruidEvent, [set: [channel: "x"]], [interval: :all] ++ druid())
+      end
+
+      assert_raise Ecto.QueryError, ~r/only takes a data source and where clauses/, fn ->
+        TestRepo.update_all(
+          from(d in DruidEvent, join: w in "wikipedia", on: true),
+          [set: [channel: "x"]],
+          update_opts()
+        )
       end
 
       refute_received {:request, _, _, _}

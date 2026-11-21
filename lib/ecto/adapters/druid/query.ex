@@ -62,7 +62,7 @@ defmodule Ecto.Adapters.Druid.Query do
   # OVERWRITE WHERE and two for the SELECT's time filter.
   def delete_all(query, opts) do
     interval = Keyword.fetch!(opts, :interval)
-    {table, name, condition} = delete_parts(query)
+    {table, name, condition} = rewrite_parts(query, :delete_all)
     keep = if condition, do: [?(, condition, ") IS NOT TRUE"], else: "FALSE"
 
     [
@@ -78,16 +78,204 @@ defmodule Ecto.Adapters.Druid.Query do
     ]
   end
 
+  # Updating rows with SQL-based ingestion: like delete_all/2, the
+  # interval's time chunks are rewritten, this time with every row, changing
+  # the updated columns of the rows the query matches. Druid can't select
+  # "every column but these", so `columns` lists them all, each as
+  # `{name, sql_type, array}`: the SQL type new values are cast to (nil to
+  # not cast), and :array or :multi_value for array columns.
+  #
+  # The match is computed once, as a "__match" column of a subquery, so the
+  # condition and its parameters aren't repeated for each updated column.
+  #
+  # Returns the SQL and the indexes of the update parameters in the order the
+  # SQL takes them. The parameters are the OVERWRITE WHERE bounds, those
+  # update parameters, the condition's parameters, then the subquery's time
+  # filter bounds.
+  def update_all(query, columns, opts) do
+    interval = Keyword.fetch!(opts, :interval)
+    {table, name, condition} = rewrite_parts(query, :update_all)
+    sources = create_names(query, [])
+    updates = updates(query, columns)
+
+    {selects, param_ixs} =
+      Enum.map_reduce(columns, [], fn {column, _type, _array} = col, ixs ->
+        case Map.fetch(updates, column) do
+          {:ok, {op, value}} ->
+            {new, value_ixs} = update_op(op, col, name, value, sources, query)
+
+            {[update_value(new, col, name, condition), " AS ", quote_name(column)],
+             [ixs | value_ixs]}
+
+          :error ->
+            {[name, ?., quote_name(column)], ixs}
+        end
+      end)
+
+    match = if condition, do: [", (", condition, ") IS TRUE AS \"__match\""], else: []
+
+    filter =
+      case interval_filter(name, interval) do
+        [] -> []
+        filter -> [" WHERE " | filter]
+      end
+
+    sql = [
+      insert_target(table, interval),
+      " SELECT ",
+      Enum.intersperse(selects, ", "),
+      " FROM (SELECT *",
+      match,
+      " FROM ",
+      table,
+      " AS ",
+      name,
+      filter,
+      ") AS ",
+      name,
+      partitioned_by(Keyword.fetch!(opts, :partitioned_by))
+      | clustered_by(Keyword.get(opts, :clustered_by, []))
+    ]
+
+    {sql, List.flatten(param_ixs)}
+  end
+
+  # The update_all changes by column name. Ecto gives the fields' column
+  # names and rejects a field updated twice.
+  defp updates(%{updates: updates} = query, columns) do
+    known = MapSet.new(columns, &elem(&1, 0))
+
+    for %QueryExpr{expr: expr} <- updates,
+        {op, fields} <- expr,
+        {field, value} <- fields,
+        into: %{} do
+      column = Atom.to_string(field)
+
+      cond do
+        column == "__time" ->
+          error!(query, "update_all can't change __time, which decides the rows' time chunks")
+
+        not MapSet.member?(known, column) ->
+          error!(
+            query,
+            "update_all can't change #{column}: it isn't a Druid column of the schema"
+          )
+
+        true ->
+          {column, {op, value}}
+      end
+    end
+  end
+
+  # Rows the condition doesn't match keep their value. Rows it's NULL for
+  # aren't matched.
+  #
+  # Druid rejects an expression that reads a column both as an array and as
+  # a scalar, and applies one that reads a multi-value column as a string to
+  # each of its values. So an array or multi-value column is only read
+  # through array_ref/2, and a multi-value column's new value is built as an
+  # array and turned back into a multi-value string.
+  defp update_value(new, {_column, _type, :multi_value} = col, name, condition),
+    do: ["ARRAY_TO_MV(", update_value(new, array_ref(col, name), name, condition), ?)]
+
+  defp update_value(new, {column, _type, nil}, name, condition),
+    do: update_value(new, [name, ?., quote_name(column)], name, condition)
+
+  defp update_value(new, {_column, _type, :array} = col, name, condition),
+    do: update_value(new, array_ref(col, name), name, condition)
+
+  defp update_value(new, _old, _name, nil), do: new
+
+  defp update_value(new, old, name, _condition),
+    do: ["CASE WHEN ", name, ~S(."__match" THEN ), new, " ELSE ", old, " END"]
+
+  # Reads an array or multi-value column as an array, unchanged
+  defp array_ref({column, _type, :array}, name),
+    do: ["ARRAY_SLICE(", name, ?., quote_name(column), ", 0)"]
+
+  defp array_ref({column, _type, :multi_value}, name),
+    do: ["MV_TO_ARRAY(", name, ?., quote_name(column), ?)]
+
+  # The new value of an updated column and the indexes of its parameters. An
+  # array or multi-value column's is an array (see update_value/4).
+  defp update_op(op, {column, type, array} = col, name, value, sources, query) do
+    ref = [name, ?., quote_name(column)]
+    v = expr(value, sources, query)
+    ixs = param_ixs(value, query)
+
+    case {op, array} do
+      {:set, nil} ->
+        {cast(v, type), ixs}
+
+      {:set, _array} ->
+        {v, ixs}
+
+      {:inc, nil} ->
+        {cast([ref, " + ", v], type), ixs}
+
+      # ARRAY_APPEND gives NULL for a NULL array, so a NULL column becomes a
+      # one-element array instead
+      {:push, array} when array in [:array, :multi_value] ->
+        old = array_ref(col, name)
+
+        {[
+           "CASE WHEN ",
+           old,
+           " IS NULL THEN ARRAY[",
+           v,
+           "] ELSE ARRAY_APPEND(",
+           old,
+           ", ",
+           v,
+           ") END"
+         ], ixs ++ ixs}
+
+      {:pull, :multi_value} ->
+        {["MV_TO_ARRAY(MV_FILTER_NONE(", ref, ", ARRAY[", v, "]))"], ixs}
+
+      {:pull, :array} ->
+        error!(
+          query,
+          "update_all can't pull from #{column}: Druid has no function to remove elements " <>
+            "from an ARRAY column. pull works on multi-value string columns"
+        )
+
+      {op, nil} when op in [:push, :pull] ->
+        error!(query, "update_all can only #{op} on an array column, and #{column} isn't one")
+
+      {:inc, _array} ->
+        error!(query, "update_all can't inc #{column}, an array column")
+    end
+  end
+
+  defp cast(value, nil), do: value
+  defp cast(value, type), do: ["CAST(", value, " AS ", type, ?)]
+
+  # The indexes of the parameters an expression takes, in the order its SQL
+  # has them
+  defp param_ixs({:^, _, [ix]}, _query), do: [ix]
+  defp param_ixs({:^, _, [ix, length]}, _query), do: Enum.to_list(ix..(ix + length - 1)//1)
+  defp param_ixs(%Ecto.Query.Tagged{value: value}, query), do: param_ixs(value, query)
+
+  defp param_ixs(%Ecto.SubQuery{}, query),
+    do: error!(query, "update_all doesn't support subqueries in updated values")
+
+  defp param_ixs(tuple, query) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> param_ixs(query)
+
+  defp param_ixs(list, query) when is_list(list), do: Enum.flat_map(list, &param_ixs(&1, query))
+  defp param_ixs(_other, _query), do: []
+
   # The quoted table, its alias and the WHERE condition (nil without one)
-  defp delete_parts(%{from: %{source: {table, _schema}}} = query) when is_binary(table) do
+  defp rewrite_parts(%{from: %{source: {table, _schema}}} = query, _op) when is_binary(table) do
     sources = create_names(query, [])
     {_expr, name, _schema} = elem(sources, 0)
     condition = if query.wheres != [], do: boolean([], query.wheres, sources, query)
     {quote_table(query.from.prefix || query.prefix, table), name, condition}
   end
 
-  defp delete_parts(query) do
-    error!(query, "delete_all needs a data source to delete from, not a subquery or fragment")
+  defp rewrite_parts(query, op) do
+    error!(query, "#{op} needs a data source to change, not a subquery or fragment")
   end
 
   defp interval_filter(_name, :all), do: []

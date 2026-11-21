@@ -5,7 +5,8 @@
 It takes a list of rows or an `Ecto.Query`, like with any other Ecto adapter,
 and runs Druid's `INSERT` or `REPLACE` statement as a task. It waits for the
 task to finish, then returns `{rows_written, nil}`. `Repo.delete_all/2` deletes
-rows the same way (see [Deleting rows](#deleting-rows)).
+rows the same way, and `Repo.update_all/3` changes them (see
+[Deleting rows](#deleting-rows) and [Updating rows](#updating-rows)).
 
 The cluster needs the `druid-multi-stage-query` extension loaded, and enough
 free task slots for a controller and at least one worker.
@@ -155,7 +156,79 @@ the data allows. To drop whole intervals, marking their segments unused with
 `Druid.Client.DataSource.mark_unused/2` is cheaper, and
 `Druid.Client.DataSource.kill/2` then removes them for good.
 
-## Updating
+## Updating rows
 
-Druid can't update rows in place, so `insert/2`, `update/2`, `delete/2` and
-`update_all/3` raise. To change data, replace its interval with `:overwrite`.
+`Repo.update_all/3` rewrites the time chunks in an `:interval` like
+`delete_all/2`, but writes back every row, changing the columns of the rows
+the query matches. A common use is backfilling a column that ingestion only
+started collecting recently:
+
+```elixir
+MyApp.Repo.update_all(
+  from(e in MyApp.Events, where: e.channel == "#cats"),
+  [set: [category: "cats"]],
+  interval: Ecto.Druid.Interval.new(~D[2026-01-01], ~D[2026-11-01]),
+  partitioned_by: :day
+)
+#=> {0, nil}
+```
+
+```sql
+REPLACE INTO "events" OVERWRITE WHERE "__time" >= ? AND "__time" < ?
+SELECT e0."__time", e0."channel",
+       CASE WHEN e0."__match" THEN CAST(? AS VARCHAR) ELSE e0."category" END AS "category",
+       e0."count"
+FROM (SELECT *, ((e0."channel" = ?)) IS TRUE AS "__match"
+      FROM "events" AS e0 WHERE e0."__time" >= ? AND e0."__time" < ?) AS e0
+PARTITIONED BY 'DAY'
+```
+
+Segments ingested before `category` existed read it as `NULL`, so rows the
+query doesn't match keep a `NULL` category, and the rewritten segments get
+the column. Druid still has to know the column from some segment, such as
+newer data, or it rejects the statement with "Column 'category' not found".
+The Broker picks up a new column a little while after the first segments
+with it load, so a backfill run right after them may need to wait.
+
+### The schema has to list every column
+
+Druid can't select "every column but these", so `update_all/3` names every
+column of the data source in its `SELECT`, and any column it leaves out is
+dropped from the rewritten interval. It takes them from the query's schema,
+which must use `Ecto.Druid.Schema`: its timestamp, dimensions and metrics
+are the columns, and new values are cast to each column's type, so a value
+of the wrong type can't change it. Fields defined with plain `field/3` aren't
+columns, and can't be updated.
+
+Keep the schema in step with what's been ingested: a column that only older
+segments have, because it was dropped from the schema, is lost from any
+interval `update_all/3` rewrites. A plain `Ecto.Schema` or a schemaless
+query raises.
+
+### Updates
+
+  * `set` - Any expression: a value, another column, or Druid SQL functions,
+    such as `set: [category: lookup(e.channel, "channel_categories")]`. A
+    multi-value column takes a list (or an ARRAY expression), which replaces
+    all of its values.
+  * `inc` - Adds to a numeric column. A `NULL` column stays `NULL`.
+  * `push` - Appends to an ARRAY or multi-value column. A `NULL` column
+    becomes a one-element array. Druid keeps a multi-value column's values
+    sorted (unless its `multiValueHandling` says otherwise), so the pushed
+    value isn't necessarily last.
+  * `pull` - Removes every occurrence of a value from a multi-value column.
+    A column left empty becomes `NULL`. Druid has no function to remove
+    elements from an ARRAY column, so `pull` raises for those.
+
+`__time` can't be changed, since it decides which time chunk a row is in.
+Rows the condition is `NULL` for aren't matched, and without a `where`
+clause every row in the interval changes. On a rollup data source the
+changed rows aren't re-aggregated with each other until compaction.
+
+The query and options are as for `delete_all/2`: only `where` clauses,
+`:interval` and `:partitioned_by` are required, and `:clustered_by` keeps the
+data source's clustering. `update_all/3` also returns `{0, nil}`, since
+Druid doesn't report how many rows it changed.
+
+Druid can't change single rows, so `insert/2`, `update/2` and `delete/2`
+raise.
