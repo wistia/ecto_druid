@@ -48,6 +48,24 @@ defmodule Ecto.Druid.TestTest do
     end)
   end
 
+  # Runs `fun` in a process the test allows to use the stub, which, not
+  # being started by the test, has no $callers
+  defp run_allowed(fun) do
+    test = self()
+
+    pid =
+      spawn(fn ->
+        receive do
+          :run -> send(test, {:result, fun.()})
+        end
+      end)
+
+    Req.Test.allow(StubRepo, test, pid)
+    send(pid, :run)
+    assert_receive {:result, result}
+    result
+  end
+
   describe "SQL queries" do
     test "returns the stub's rows and passes it the query" do
       stub(fn %Request{type: :sql} -> [["#en", 3], ["#fr", 1]] end)
@@ -159,6 +177,14 @@ defmodule Ecto.Druid.TestTest do
 
       task = Task.async(fn -> StubRepo.all(from e in Edit, select: e.channel) end)
       assert Task.await(task) == ["#en"]
+    end
+
+    test "answers queries from processes the test allows" do
+      stub(fn _ -> [["#en"]] end)
+      query = from e in Edit, select: e.channel
+
+      assert run_allowed(fn -> StubRepo.all(query) ++ StubRepo.all(query, deep_storage: true) end) ==
+               ["#en", "#en"]
     end
 
     test "raises when the stub doesn't return rows" do
@@ -383,6 +409,119 @@ defmodule Ecto.Druid.TestTest do
     end
   end
 
+  describe "expect/3" do
+    setup {Ecto.Druid.Test, :verify_on_exit!}
+
+    test "counts each query once, not the requests that finish it" do
+      StubRepo
+      |> Ecto.Druid.Test.expect(fn %Request{type: :sql} -> [["#en"]] end)
+      |> Ecto.Druid.Test.expect(fn %Request{type: :sql} -> [["#fr"]] end)
+      |> Ecto.Druid.Test.expect(fn %Request{type: :statement} -> [["#de"]] end)
+      |> Ecto.Druid.Test.expect(fn %Request{type: :ingest} -> :ok end)
+      |> Ecto.Druid.Test.expect(fn %Request{type: :native} ->
+        [%{"__time" => "2026-01-01T00:00:00.000Z", "edits" => 3}]
+      end)
+
+      query = from e in Edit, select: e.channel
+      assert StubRepo.all(query) == ["#en"]
+      assert query |> StubRepo.stream() |> Enum.to_list() == ["#fr"]
+      assert StubRepo.all(query, deep_storage: true) == ["#de"]
+
+      assert {1, nil} =
+               StubRepo.insert_all(Event, [%{time: ~U[2026-01-01 00:00:00Z], channel: "#en"}],
+                 partitioned_by: :day,
+                 wait_for_segments: true
+               )
+
+      timeseries = %{queryType: "timeseries", dataSource: "edits", granularity: "all"}
+
+      assert StubRepo.native_query!(timeseries) == [
+               %{"__time" => "2026-01-01T00:00:00.000Z", "edits" => 3}
+             ]
+
+      assert Ecto.Druid.Test.verify!(StubRepo) == :ok
+    end
+
+    test "counts a query that fails" do
+      Ecto.Druid.Test.expect(StubRepo, 2, fn _ -> {:failed, "Out of memory"} end)
+
+      assert_raise Ecto.Adapters.Druid.StatementError, fn ->
+        StubRepo.all(Edit, deep_storage: true)
+      end
+
+      assert_raise Druid.Tasks.Error, fn ->
+        StubRepo.insert_all(Event, [%{time: ~U[2026-01-01 00:00:00Z], channel: "#en"}],
+          partitioned_by: :day,
+          wait_for_segments: true
+        )
+      end
+    end
+
+    test "verify! raises until every expected query is sent" do
+      Ecto.Druid.Test.expect(StubRepo, 2, fn _ -> [] end)
+      StubRepo.all(Edit)
+
+      assert_raise RuntimeError, ~r/StubRepo} to be still used 1 more times/, fn ->
+        Ecto.Druid.Test.verify!(StubRepo)
+      end
+
+      StubRepo.all(Edit)
+      assert Ecto.Druid.Test.verify!(StubRepo) == :ok
+    end
+
+    test "a query after the expected ones raises without a stub" do
+      Ecto.Druid.Test.expect(StubRepo, fn _ -> [] end)
+      assert StubRepo.all(Edit) == []
+
+      assert_raise RuntimeError, ~r/got a :sql query after the ones given to/, fn ->
+        StubRepo.all(Edit)
+      end
+
+      query = %{queryType: "timeseries", dataSource: "edits", granularity: "all"}
+
+      assert {:error, %Ecto.Adapters.Druid.NativeQueryError{reason: %RuntimeError{} = error}} =
+               StubRepo.native_query(query)
+
+      assert error.message =~ "got a :native query"
+    end
+
+    test "answers before the stub, whichever was given first" do
+      Ecto.Druid.Test.expect(StubRepo, fn _ -> [["expected"]] end)
+      stub(fn _ -> [["stubbed"]] end)
+      Ecto.Druid.Test.expect(StubRepo, fn _ -> [["expected again"]] end)
+
+      query = from e in Edit, select: e.channel
+      assert StubRepo.all(query) == ["expected"]
+      assert StubRepo.all(query) == ["expected again"]
+      assert StubRepo.all(query) == ["stubbed"]
+      assert StubRepo.all(query) == ["stubbed"]
+    end
+
+    test "keeps each process's expectations apart" do
+      Ecto.Druid.Test.expect(StubRepo, fn _ -> [["test"]] end)
+      query = from e in Edit, select: e.channel
+
+      task =
+        Task.async(fn ->
+          Ecto.Druid.Test.expect(StubRepo, 2, fn _ -> [["task"]] end)
+          result = StubRepo.all(query) ++ StubRepo.all(query, deep_storage: true)
+          Ecto.Druid.Test.verify!(StubRepo)
+          result
+        end)
+
+      assert Task.await(task) == ["task", "task"]
+      assert StubRepo.all(query) == ["test"]
+    end
+
+    test "counts queries from processes the test allows" do
+      Ecto.Druid.Test.expect(StubRepo, 2, fn _ -> [["#en"]] end)
+      query = from e in Edit, select: e.channel
+
+      assert run_allowed(fn -> StubRepo.all(query) ++ StubRepo.all(query, deep_storage: true) end) ==
+               ["#en", "#en"]
+    end
+  end
+
   test "raises on requests it doesn't stub" do
     stub(fn _ -> flunk("not called") end)
 
@@ -398,5 +537,33 @@ defmodule Ecto.Druid.TestTest do
     assert_raise ArgumentError, ~r/unknown Druid error category :oops/, fn ->
       StubRepo.all(Edit)
     end
+  end
+end
+
+defmodule Ecto.Druid.TestSharedTest do
+  # Shared mode is global, so this can't run alongside the async tests
+  use ExUnit.Case, async: false
+
+  import Ecto.Query
+  alias Ecto.Adapters.Druid.StubRepo
+
+  setup do
+    Req.Test.set_req_test_to_shared()
+    on_exit(fn -> Req.Test.set_req_test_to_private() end)
+  end
+
+  setup {Ecto.Druid.Test, :verify_on_exit!}
+
+  test "answers queries from any process in shared mode" do
+    Ecto.Druid.Test.stub(StubRepo, fn _ -> [["stubbed"]] end)
+    Ecto.Druid.Test.expect(StubRepo, fn _ -> [["expected"]] end)
+    test = self()
+    query = from e in "edits", select: e.channel
+
+    spawn(fn ->
+      send(test, {:rows, StubRepo.all(query) ++ StubRepo.all(query, deep_storage: true)})
+    end)
+
+    assert_receive {:rows, ["expected", "stubbed"]}
   end
 end
