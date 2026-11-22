@@ -8,7 +8,6 @@ defmodule ProjectionIntegrationTest do
   alias Ecto.Adapters.Druid.IntegrationRepo
   alias Ecto.Druid.Sys
 
-  @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_projection_test"
 
   # Batch ingestion runs as a task, which takes a while in the test cluster
@@ -31,10 +30,7 @@ defmodule ProjectionIntegrationTest do
   end
 
   setup do
-    on_exit(fn ->
-      Ecto.Druid.TestTasks.shutdown_all(@data_source)
-      Druid.Client.DataSource.mark_unused(@data_source) |> Druid.Client.request(@druid)
-    end)
+    on_exit(fn -> Ecto.Druid.Fixtures.drop!(IntegrationRepo, @data_source) end)
   end
 
   test "ingestion specs built from a schema build its projections, which queries use" do

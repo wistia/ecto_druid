@@ -149,4 +149,142 @@ defmodule Ecto.Druid.FixturesTest do
 
     refute_received {:submit, _}
   end
+
+  # A fake Druid for drop!/3. Each data source has a running task,
+  # running-<name>, until it's shut down, and the Broker lists it until its
+  # kill task succeeds. Kill tasks are named kill-<name>, and fail when the
+  # data source is in `fail`. Every request is sent to the test process with
+  # the port it went to.
+  defp drop_druid(opts) do
+    test_pid = self()
+    fail = Keyword.get(opts, :fail, [])
+    listed = Keyword.get(opts, :listed, :until_killed)
+    {:ok, state} = Agent.start_link(fn -> %{shut_down: MapSet.new(), killed: MapSet.new()} end)
+
+    fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      conn = Plug.Conn.fetch_query_params(conn)
+      send(test_pid, {:request, conn.port, conn.method, conn.request_path})
+
+      case {conn.method, conn.path_info} do
+        {"GET", ["druid", "indexer", "v1", "tasks"]} ->
+          %{"state" => task_state, "datasource" => ds} = conn.query_params
+          shut_down = Agent.get(state, & &1.shut_down)
+          active = task_state == "running" and not MapSet.member?(shut_down, ds)
+          Req.Test.json(conn, if(active, do: [%{"id" => "running-#{ds}"}], else: []))
+
+        {"POST", ["druid", "indexer", "v1", "task", "running-" <> ds, "shutdown"]} ->
+          Agent.update(state, &update_in(&1.shut_down, fn s -> MapSet.put(s, ds) end))
+          Req.Test.json(conn, %{"task" => "running-#{ds}"})
+
+        {"DELETE", ["druid", "indexer", "v1", "datasources", _ds]} ->
+          Req.Test.json(conn, %{"numChangedSegments" => 1})
+
+        {"POST", ["druid", "indexer", "v1", "task"]} ->
+          %{"dataSource" => ds} = task = Jason.decode!(body)
+          send(test_pid, {:submit, task})
+          Req.Test.json(conn, %{"task" => "kill-#{ds}"})
+
+        {"GET", ["druid", "indexer", "v1", "task", "kill-" <> ds = id, "status"]} ->
+          status = if ds in fail, do: "FAILED", else: "SUCCESS"
+
+          if status == "SUCCESS",
+            do: Agent.update(state, &update_in(&1.killed, fn s -> MapSet.put(s, ds) end))
+
+          Req.Test.json(conn, %{
+            "status" => %{"id" => id, "status" => status, "errorMsg" => "boom"}
+          })
+
+        {"POST", ["druid", "v2", "sql"]} ->
+          [%{"value" => ds}] = Jason.decode!(body)["parameters"]
+          killed = Agent.get(state, &MapSet.member?(&1.killed, ds))
+          listed? = listed == :always or (listed == :until_killed and not killed)
+          Req.Test.json(conn, if(listed?, do: [[1]], else: []))
+      end
+    end
+  end
+
+  defp drop!(data_sources, opts \\ []) do
+    Fixtures.drop!(TestRepo, data_sources, [plug: drop_druid(opts), poll_interval: 1] ++ opts)
+  end
+
+  defp requests do
+    receive do
+      {:request, port, method, path} -> [{port, method, path} | requests()]
+    after
+      0 -> []
+    end
+  end
+
+  describe "drop!/3" do
+    test "shuts down tasks, marks segments unused, kills them, and waits for the Broker" do
+      assert drop!("events_test") == :ok
+
+      assert_received {:submit,
+                       %{
+                         "type" => "kill",
+                         "dataSource" => "events_test",
+                         "interval" =>
+                           "-146136543-09-08T08:23:32.096Z/146140482-04-24T15:36:27.903Z"
+                       }}
+
+      # In this order, so no task is left to publish segments after the kill.
+      # Tasks and segments go to the :tasks host, SQL to the repo's own.
+      assert requests() |> Enum.reject(&match?({_, "GET", "/druid/indexer/v1/tasks"}, &1)) == [
+               {9888, "POST", "/druid/indexer/v1/task/running-events_test/shutdown"},
+               {9888, "DELETE", "/druid/indexer/v1/datasources/events_test"},
+               {9888, "POST", "/druid/indexer/v1/task"},
+               {9888, "GET", "/druid/indexer/v1/task/kill-events_test/status"},
+               {9082, "POST", "/druid/v2/sql"}
+             ]
+    end
+
+    test "drops each of a list of data sources" do
+      assert drop!(["events_test", "edits_test"]) == :ok
+
+      assert_received {:submit, %{"dataSource" => "events_test"}}
+      assert_received {:submit, %{"dataSource" => "edits_test"}}
+      assert_received {:request, _, "POST", "/druid/indexer/v1/task/running-edits_test/shutdown"}
+      assert_received {:request, _, "DELETE", "/druid/indexer/v1/datasources/edits_test"}
+    end
+
+    test "raises when a kill task fails" do
+      error =
+        assert_raise Druid.Tasks.Error, fn -> drop!("events_test", fail: ["events_test"]) end
+
+      assert error.message =~ "couldn't drop events_test"
+      assert error.message =~ "boom"
+      assert error.reason == :failed
+      assert error.task_id == "kill-events_test"
+    end
+
+    test "raises when the Broker still lists a data source at the timeout" do
+      error =
+        assert_raise Druid.Tasks.Error, fn ->
+          drop!("events_test", listed: :always, timeout: 50)
+        end
+
+      assert error.message =~ "Broker to stop listing events_test"
+      assert error.reason == :timeout
+    end
+
+    test "raises when Druid can't be reached" do
+      plug = fn conn -> Req.Test.transport_error(conn, :econnrefused) end
+
+      error =
+        assert_raise Druid.Tasks.Error, fn ->
+          Fixtures.drop!(TestRepo, "events_test", plug: plug, retry: false)
+        end
+
+      assert error.message =~ "couldn't drop events_test"
+    end
+
+    test "takes data source names only" do
+      assert_raise ArgumentError, ~r/expected a data source name, got: .*PageViews/, fn ->
+        drop!(PageViews)
+      end
+
+      refute_received {:request, _, _, _}
+    end
+  end
 end

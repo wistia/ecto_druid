@@ -6,7 +6,6 @@ defmodule DeleteAllIntegrationTest do
   import Ecto.Query
   alias Ecto.Adapters.Druid.IntegrationRepo
 
-  @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_delete_all_test"
 
   # SQL-based ingestion runs as tasks, which take a while in the test cluster
@@ -23,10 +22,7 @@ defmodule DeleteAllIntegrationTest do
   end
 
   setup do
-    on_exit(fn ->
-      Ecto.Druid.TestTasks.shutdown_all(@data_source)
-      Druid.Client.DataSource.mark_unused(@data_source) |> Druid.Client.request(@druid)
-    end)
+    on_exit(fn -> Ecto.Druid.Fixtures.drop!(IntegrationRepo, @data_source) end)
   end
 
   defp rows do

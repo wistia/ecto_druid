@@ -26,10 +26,7 @@ defmodule UpdateAllIntegrationTest do
   end
 
   setup do
-    on_exit(fn ->
-      Ecto.Druid.TestTasks.shutdown_all(@data_source)
-      Druid.Client.DataSource.mark_unused(@data_source) |> Druid.Client.request(@druid)
-    end)
+    on_exit(fn -> Ecto.Druid.Fixtures.drop!(IntegrationRepo, @data_source) end)
   end
 
   # insert_all can't write multi-value columns, so the rows are written with
