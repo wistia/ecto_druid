@@ -8,6 +8,10 @@ for how to move code from 0.5.x.
 ### Breaking changes
 
 - Requires Ecto 3.12 or later (`ecto_sql ~> 3.12`).
+- Requires Req 0.7.5 or later (`req ~> 0.7.5`, up from `~> 0.5.8`) and
+  Finch 0.24 or later. Earlier Finch versions reuse a connection after a
+  receive timeout under Mint 1.11, so the request that cancels a timed-out
+  query read the old response and failed.
 - The SQL function macros moved from `Ecto.Druid.Query` into per-category
   submodules (`Ecto.Druid.Query.Numeric`, `Ecto.Druid.Query.DateTime`, ...).
   `use Ecto.Druid.Query` imports them all; `import Ecto.Druid.Query` no longer
