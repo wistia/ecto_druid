@@ -61,12 +61,22 @@ defmodule ProjectionIntegrationTest do
 
     assert {:ok, _} = Druid.Tasks.run(IntegrationRepo, spec, wait_for_segments: true)
 
-    assert [["channel_hourly"]] =
-             IntegrationRepo.all(
-               from s in Sys.Segments,
-                 where: s.datasource == ^@data_source and s.is_active == 1,
-                 select: s.projections
-             )
+    # The data is queryable once the task's segments are loaded, but the
+    # Broker's sys.segments shows them as published, and so active, a few
+    # seconds later
+    active_projections = fn ->
+      case IntegrationRepo.all(
+             from s in Sys.Segments,
+               where: s.datasource == ^@data_source and s.is_active == 1,
+               select: s.projections
+           ) do
+        [] -> :wait
+        projections -> {:done, projections}
+      end
+    end
+
+    assert {:ok, [["channel_hourly"]]} =
+             Druid.Poll.poll(Druid.Poll.deadline(30_000), 200, active_projections)
 
     # forceProjections fails a query that no projection can answer
     query =
