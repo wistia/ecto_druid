@@ -179,6 +179,20 @@ defmodule Ecto.Adapters.Druid.NativeQueryTest do
       assert_received {_, %{"dataSource" => %{"type" => "table", "name" => "wikipedia"}}}
     end
 
+    test "takes {name, schema} as the dataSource, reading name and checking the schema" do
+      query = %{@topn | dataSource: {"wikipedia_test", Wikipedia}}
+      assert {:ok, _} = TestRepo.native_query(query, plug: druid(@topn_results))
+      assert_received {"/druid/v2/", %{"dataSource" => "wikipedia_test"}}
+
+      assert_raise ArgumentError, ~r/doesn't define: \["nope"\]/, fn ->
+        TestRepo.native_query(%{query | dimension: "nope"}, plug: druid([]))
+      end
+
+      assert_raise ArgumentError, ~r/expected a schema module/, fn ->
+        TestRepo.native_query(%{query | dataSource: {"wikipedia_test", String}}, plug: druid([]))
+      end
+    end
+
     test "checks the columns a query reads against its schema" do
       query = %{
         queryType: "groupBy",

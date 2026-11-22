@@ -307,6 +307,39 @@ defmodule Ecto.Adapters.Druid.IngestTest do
     end
   end
 
+  # Ecto's {source, schema} form writes to another data source with a
+  # schema's columns, as a test with a data source of its own does
+  describe "{source, schema}" do
+    test "insert_all/3 writes to the source" do
+      rows = [%{time: ~U[2026-01-01 00:00:00Z], channel: "#en", count: 1}]
+      TestRepo.insert_all({"events_test", Event}, rows, [partitioned_by: :day] ++ druid())
+      assert %{"query" => "INSERT INTO \"events_test\" SELECT " <> _} = submitted()
+    end
+
+    test "delete_all/2 rewrites the source" do
+      query = from e in {"events_test", Event}, where: e.channel == ^"#en"
+      TestRepo.delete_all(query, [interval: :all, partitioned_by: :day] ++ druid())
+
+      assert %{"query" => sql} = submitted()
+
+      assert sql =~
+               ~s{REPLACE INTO "events_test" OVERWRITE ALL SELECT * FROM "events_test" AS e0 }
+    end
+
+    test "update_all/3 rewrites the source with the schema's columns" do
+      query = from e in {"events_test", DruidEvent}, update: [set: [channel: ^"#fr"]]
+      TestRepo.update_all(query, [], [interval: :all, partitioned_by: :day] ++ druid())
+
+      assert %{"query" => sql} = submitted()
+
+      assert sql ==
+               ~s{REPLACE INTO "events_test" OVERWRITE ALL SELECT e0."__time", } <>
+                 ~s{CAST(? AS VARCHAR) AS "channel", e0."count", e0."tags", e0."labels", } <>
+                 ~s{e0."attrs", e0."added", e0."users" } <>
+                 ~s{FROM (SELECT * FROM "events_test" AS e0) AS e0 PARTITIONED BY 'DAY'}
+    end
+  end
+
   describe "other writes" do
     test "insert explains to use insert_all" do
       assert_raise ArgumentError, ~r/insert_all/, fn -> TestRepo.insert(%Event{}) end
