@@ -51,7 +51,8 @@ defmodule Ecto.Druid.IntervalTest do
     end
 
     test "requires a period" do
-      assert_raise ArgumentError, fn -> Interval.last(~D[2026-11-01]) end
+      # apply/3 keeps Elixir's type checker from warning about the bad argument.
+      assert_raise ArgumentError, fn -> apply(Interval, :last, [~D[2026-11-01]]) end
     end
   end
 
