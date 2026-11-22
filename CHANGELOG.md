@@ -1,52 +1,6 @@
 # Changelog
 
-## Unreleased
-
-### Added
-
-- `Ecto.Druid.Test.expect/3` answers the next queries sent to a repo and
-  fails the test unless they're all sent, checked with
-  `Ecto.Druid.Test.verify!/1` or `setup {Ecto.Druid.Test, :verify_on_exit!}`.
-  It counts queries, not the follow-up requests the stub answers itself.
-- `Ecto.Druid.Fixtures.drop!/3` permanently deletes data sources, for tests
-  that write to one of their own: it shuts down their running tasks, marks
-  their segments unused, runs a `kill` task, and waits until the Broker no
-  longer lists them. See "Tests that write" in the
-  [Testing guide](guides/testing.md).
-
-### Fixed
-
-- `Repo.insert_all/3` into an `Ecto.Druid.Schema` with a `timestamp` field
-  failed with `Field[__time] was the wrong type[CHAR], expected TIMESTAMP`,
-  because the field's `Ecto.Druid.DateTime` type sent `__time` as a `VARCHAR`
-  parameter. `timestamp` fields now have the new `Ecto.Druid.Timestamp` type,
-  which loads and casts like `Ecto.Druid.DateTime` but sends a `TIMESTAMP`.
-  A plain `Ecto.Schema` that maps `__time` with
-  `field :time, Ecto.Druid.DateTime, source: :__time` should switch to
-  `Ecto.Druid.Timestamp` to insert. `Ecto.Druid.DateTime` is unchanged, since
-  the system tables hold their times as strings and Druid rejects a
-  `TIMESTAMP` parameter compared with them.
-- `native_query/2` takes `{name, schema}` as a `dataSource`, as Ecto queries
-  take `{source, schema}`: it reads the data source `name` and checks the
-  query's columns against the schema. Before, the tuple was sent as is and
-  failed to encode.
-
-### Documentation
-
-- `Druid.Client.Task.shutdown_all/1` documents that Druid 32 to 39 answer its
-  request with a 404 even when the data source has active tasks
-  ([apache/druid#18419](https://github.com/apache/druid/issues/18419)), and
-  how to shut the tasks down one by one instead.
-- The Testing guide explains why tests that query Druid don't need a case
-  template of their own, and why `use Ecto.Druid.Query` doesn't belong in
-  one.
-- The Testing guide's setup for stubbed and real-Druid tests makes
-  `DRUID_TESTS` the only switch: `test/test_helper.exs` runs just the
-  `:druid` tests when it's set, so `DRUID_TESTS=1 mix test` no longer sends
-  the stubbed tests' queries to Druid. It replaces
-  `DRUID_TESTS=1 mix test --only druid`.
-
-## 0.6.0 (2026-11-21)
+## 0.6.0 (2026-11-22)
 
 Targets Apache Druid 38 (up from 28). See [Upgrading](guides/upgrading.md)
 for how to move code from 0.5.x.
@@ -93,8 +47,8 @@ for how to move code from 0.5.x.
 - `Repo.stream/2`, and querying from deep storage.
 - `Repo.to_native/2`, native query builders for filters, aggregators and
   expressions (`Ecto.Druid.Native`), and `Ecto.Druid.Native.rows/3` for
-  flattening results. A schema can be a native query's `dataSource`, and the
-  columns the query reads are checked against it.
+  flattening results. A schema, or `{name, schema}`, can be a native query's
+  `dataSource`, and the columns the query reads are checked against it.
 - `unnest/2`, and SQL functions added in Druid 28 to 38:
   `APPROX_COUNT_DISTINCT_DS_HLL`, `DS_HLL`, `SCALAR_IN_ARRAY`,
   `MV_FILTER_REGEX`, `MV_FILTER_PREFIX` and `JSON_MERGE`.
@@ -128,8 +82,28 @@ for how to move code from 0.5.x.
 - `Ecto.Druid.Fixtures.load!/3`, which loads test data into Druid once
   before a suite runs, replacing what's in each data source. Rows are
   ingested through an `Ecto.Druid.Schema`'s generated `dataSchema`.
+- `Ecto.Druid.Fixtures.drop!/3`, which permanently deletes data sources for
+  tests that write to one of their own: it shuts down their running tasks,
+  marks their segments unused, runs a `kill` task, and waits until the Broker
+  no longer lists them. See "Tests that write" in the
+  [Testing guide](guides/testing.md).
+- `Ecto.Druid.Test.expect/3`, which answers the next queries sent to a repo
+  and fails the test unless they're all sent, checked with
+  `Ecto.Druid.Test.verify!/1` or `setup {Ecto.Druid.Test, :verify_on_exit!}`.
+  It counts queries, not the follow-up requests the stub answers itself.
+- `Ecto.Druid.Timestamp`, the type of an `Ecto.Druid.Schema`'s `timestamp`
+  field. It loads and casts like `Ecto.Druid.DateTime` but is sent as a
+  `TIMESTAMP` parameter, which `insert_all` needs for `__time`. A plain
+  `Ecto.Schema` that maps `__time` should use it rather than
+  `Ecto.Druid.DateTime` to insert. `Ecto.Druid.DateTime` is unchanged, since
+  the system tables hold their times as strings and Druid rejects a
+  `TIMESTAMP` parameter compared with them.
 - Guides on HexDocs, split out of the README.
 - A Time zones section in the Querying guide.
+- `Druid.Client.Task.shutdown_all/1` documents that Druid 32 to 39 answer its
+  request with a 404 even when the data source has active tasks
+  ([apache/druid#18419](https://github.com/apache/druid/issues/18419)), and
+  how to shut the tasks down one by one instead.
 
 ### Fixed
 
