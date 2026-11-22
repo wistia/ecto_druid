@@ -23,7 +23,7 @@ MyApp.DruidRepo.all(
 Or describe the data source with a schema and query that. A schema built with
 `Ecto.Druid.Schema` (see [Ingestion Specs](ingestion_specs.md)) maps `__time`
 to a field and loads it as a `DateTime`. Use a plain `Ecto.Schema` with
-`field :time, Ecto.Druid.DateTime, source: :__time` if you don't generate
+`field :time, Ecto.Druid.Timestamp, source: :__time` if you don't generate
 ingestion specs.
 
 ## Druid SQL functions
@@ -218,7 +218,8 @@ With it set:
   of a timestamp parameter, so the adapter sends the wall-clock time in
   `sqlTimeZone`.
 * `:date` and `:naive_datetime` results are the date and wall-clock time in
-  that zone. `:utc_datetime` and `Ecto.Druid.DateTime` results are in UTC.
+  that zone. `:utc_datetime`, `Ecto.Druid.Timestamp` and `Ecto.Druid.DateTime`
+  results are in UTC.
 
 ```elixir
 from(p in "page_views",

@@ -95,7 +95,7 @@ defmodule Ecto.Druid.Schema do
   end
 
   @doc """
-  Defines the `__time` column as field `name`, of type `Ecto.Druid.DateTime`.
+  Defines the `__time` column as field `name`, of type `Ecto.Druid.Timestamp`.
 
   ## Options
 
@@ -108,7 +108,7 @@ defmodule Ecto.Druid.Schema do
   defmacro timestamp(name, opts \\ []) do
     quote bind_quoted: [name: name, opts: opts] do
       {ecto_opts, druid_opts} = Ecto.Druid.Schema.__split_opts__(opts)
-      Ecto.Schema.field(name, Ecto.Druid.DateTime, Keyword.put(ecto_opts, :source, :__time))
+      Ecto.Schema.field(name, Ecto.Druid.Timestamp, Keyword.put(ecto_opts, :source, :__time))
       @druid_timestamp Ecto.Druid.Schema.__timestamp__(__MODULE__, name, druid_opts)
     end
   end

@@ -16,7 +16,7 @@ defmodule WikiExplorer.Wiki.Edit do
   @primary_key false
   schema "wiki_edits" do
     # Druid's `__time` column, read from the input's ISO 8601 `timestamp`
-    # field. Loaded as an Ecto.Druid.DateTime.
+    # field. Loaded as an Ecto.Druid.Timestamp.
     timestamp :time, column: "timestamp", format: "iso"
 
     dimension :channel, :string

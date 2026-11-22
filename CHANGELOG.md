@@ -9,6 +9,19 @@
   `Ecto.Druid.Test.verify!/1` or `setup {Ecto.Druid.Test, :verify_on_exit!}`.
   It counts queries, not the follow-up requests the stub answers itself.
 
+### Fixed
+
+- `Repo.insert_all/3` into an `Ecto.Druid.Schema` with a `timestamp` field
+  failed with `Field[__time] was the wrong type[CHAR], expected TIMESTAMP`,
+  because the field's `Ecto.Druid.DateTime` type sent `__time` as a `VARCHAR`
+  parameter. `timestamp` fields now have the new `Ecto.Druid.Timestamp` type,
+  which loads and casts like `Ecto.Druid.DateTime` but sends a `TIMESTAMP`.
+  A plain `Ecto.Schema` that maps `__time` with
+  `field :time, Ecto.Druid.DateTime, source: :__time` should switch to
+  `Ecto.Druid.Timestamp` to insert. `Ecto.Druid.DateTime` is unchanged, since
+  the system tables hold their times as strings and Druid rejects a
+  `TIMESTAMP` parameter compared with them.
+
 ### Documentation
 
 - `Druid.Client.Task.shutdown_all/1` documents that Druid 32 to 39 answer its

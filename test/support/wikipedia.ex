@@ -3,7 +3,7 @@ defmodule Ecto.Adapters.Druid.Wikipedia do
 
   @primary_key false
   schema "wikipedia" do
-    field :time, Ecto.Druid.DateTime, source: :__time
+    field :time, Ecto.Druid.Timestamp, source: :__time
     field :page, :string
     field :user, :string
     field :added, :integer

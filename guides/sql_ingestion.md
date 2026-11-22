@@ -35,7 +35,10 @@ MyApp.DruidRepo.insert_all(
 ```
 
 The rows need a `__time` column, unless they're partitioned by `:all`. With a
-schema, map a field to it with `source: :__time`.
+schema, use an `Ecto.Druid.Schema` `timestamp` field, or map a field to it with
+`source: :__time` and a type Druid takes as a `TIMESTAMP`, such as
+`Ecto.Druid.Timestamp` or `:utc_datetime`. `Ecto.Druid.DateTime` is sent as a
+string, which Druid rejects for `__time`.
 
 Druid appends rows. It doesn't check them against what's already there, so
 inserting the same rows twice stores them twice. Use `:overwrite` to
