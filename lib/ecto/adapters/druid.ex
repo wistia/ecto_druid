@@ -179,7 +179,7 @@ defmodule Ecto.Adapters.Druid do
     * `:columns` - Column names for `windowOperator` results.
     * `:merge_context` - Merge the repo's `:context` config into the query's
       `context`, which wins where they overlap.
-    * `:check_columns` - When `dataSource` is a schema module, raise before
+    * `:check_columns` - When `dataSource` is a schema, raise before
       sending the query if it reads a column the schema doesn't define,
       including in an expression built with `expr/1`. Defaults to `true` for
       a schema. Pass `false` to skip the check.
@@ -187,7 +187,8 @@ defmodule Ecto.Adapters.Druid do
       milliseconds. Defaults to `15_000`. On timeout, the query is canceled.
 
   The `dataSource` can be a schema module, which is replaced with its source
-  name. Each query gets a `queryId` in its context unless it has one, which
+  name, or `{name, schema}`, which reads `name` and checks the schema's
+  columns. Each query gets a `queryId` in its context unless it has one, which
   `Druid.Client.Native.cancel/1` takes. To see the native query Druid runs for
   an Ecto query, for debugging, use `to_native/2`. See the
   [Native Queries guide](native_queries.md).

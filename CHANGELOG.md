@@ -21,6 +21,10 @@
   `Ecto.Druid.Timestamp` to insert. `Ecto.Druid.DateTime` is unchanged, since
   the system tables hold their times as strings and Druid rejects a
   `TIMESTAMP` parameter compared with them.
+- `native_query/2` takes `{name, schema}` as a `dataSource`, as Ecto queries
+  take `{source, schema}`: it reads the data source `name` and checks the
+  query's columns against the schema. Before, the tuple was sent as is and
+  failed to encode.
 
 ### Documentation
 

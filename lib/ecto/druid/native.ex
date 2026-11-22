@@ -248,6 +248,14 @@ defmodule Ecto.Druid.Native do
       else: {to_string(module), nil}
   end
 
+  # A schema's columns read from another data source, as in Ecto's
+  # `from e in {"events_test", MyApp.Event}`
+  defp data_source({name, module} = data_source) when is_binary(name) and is_atom(module) do
+    if schema?(module),
+      do: {name, module},
+      else: raise(ArgumentError, "expected a schema module in #{inspect(data_source)}")
+  end
+
   defp data_source(%{} = data_source) do
     case data_source[:name] || data_source["name"] do
       module when is_atom(module) and not is_nil(module) ->

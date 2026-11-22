@@ -30,8 +30,10 @@ An `Ecto.Druid.Interval` encodes to its ISO 8601 string, so you can also write
 
 ### Schemas as data sources
 
-`dataSource` can be a schema module, which is replaced with its source name.
-Before the query is sent, every column it reads (dimensions, filter columns,
+`dataSource` can be a schema module, which is replaced with its source name,
+or `{name, schema}`, which reads the data source `name` with the schema's
+columns, like Ecto's `from e in {"page_views_test", MyApp.PageView}`. Before
+the query is sent, every column it reads (dimensions, filter columns,
 aggregator fields and scan columns) is checked to be a field of the schema, a
 virtual column or an output the query names, and an `ArgumentError` names any
 that aren't. An expression written with `Ecto.Druid.Native.Expression.expr/1`
