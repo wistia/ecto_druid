@@ -10,6 +10,7 @@ defmodule InsertAllIntegrationTest do
   @data_source "ecto_druid_insert_all_test"
   @copy "ecto_druid_insert_all_copy_test"
   @extern "ecto_druid_insert_all_extern_test"
+  @schema_source "ecto_druid_insert_all_schema_test"
 
   # SQL-based ingestion runs as tasks, which take a while in the test cluster
   @moduletag timeout: 600_000
@@ -24,11 +25,22 @@ defmodule InsertAllIntegrationTest do
     end
   end
 
+  defmodule PageView do
+    use Ecto.Druid.Schema
+    @primary_key false
+    schema "ecto_druid_insert_all_schema_test" do
+      timestamp :time
+      dimension :page, :string
+      metric :views, :integer, aggregate: :sum
+    end
+  end
+
   setup do
     on_exit(fn ->
-      Ecto.Druid.TestTasks.shutdown_all([@data_source, @copy, @extern])
+      data_sources = [@data_source, @copy, @extern, @schema_source]
+      Ecto.Druid.TestTasks.shutdown_all(data_sources)
 
-      for data_source <- [@data_source, @copy, @extern] do
+      for data_source <- data_sources do
         Druid.Client.DataSource.mark_unused(data_source) |> Druid.Client.request(@druid)
       end
     end)
@@ -158,5 +170,47 @@ defmodule InsertAllIntegrationTest do
 
   defp extern_rows do
     IntegrationRepo.all(from e in @extern, select: {e.channel, e.added, e.tags}) |> Enum.sort()
+  end
+
+  test "inserts into, reads and deletes from an Ecto.Druid.Schema with a timestamp" do
+    rows = [
+      %{time: ~U[2026-01-01 00:00:00Z], page: "a", views: 1},
+      %{time: ~U[2026-01-01 01:00:00Z], page: "b", views: 2},
+      %{time: ~U[2026-01-02 00:00:00Z], page: "c", views: 3}
+    ]
+
+    assert {3, nil} =
+             IntegrationRepo.insert_all(PageView, rows,
+               partitioned_by: :day,
+               wait_for_segments: true
+             )
+
+    page_views = fn ->
+      IntegrationRepo.all(from p in PageView, select: {p.time, p.page, p.views})
+      |> Enum.sort_by(&elem(&1, 1))
+    end
+
+    assert page_views.() == [
+             {~U[2026-01-01 00:00:00.000Z], "a", 1},
+             {~U[2026-01-01 01:00:00.000Z], "b", 2},
+             {~U[2026-01-02 00:00:00.000Z], "c", 3}
+           ]
+
+    cutoff = ~U[2026-01-01 00:30:00Z]
+
+    assert IntegrationRepo.all(from p in PageView, where: p.time > ^cutoff, select: p.page)
+           |> Enum.sort() == ["b", "c"]
+
+    assert {0, nil} =
+             IntegrationRepo.delete_all(from(p in PageView, where: p.time < ^cutoff),
+               interval: "2026-01-01/2026-01-02",
+               partitioned_by: :day,
+               wait_for_segments: true
+             )
+
+    assert page_views.() == [
+             {~U[2026-01-01 01:00:00.000Z], "b", 2},
+             {~U[2026-01-02 00:00:00.000Z], "c", 3}
+           ]
   end
 end

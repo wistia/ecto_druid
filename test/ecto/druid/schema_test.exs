@@ -13,7 +13,7 @@ defmodule Ecto.Druid.SchemaTest do
                  [:watch_time, :max_duration, :sessions, :visitors, :load_times] ++
                  [:scroll_depth, :page_title]
 
-      assert PageViews.__schema__(:type, :time) == Ecto.Druid.DateTime
+      assert PageViews.__schema__(:type, :time) == Ecto.Druid.Timestamp
       assert PageViews.__schema__(:field_source, :time) == :__time
       assert PageViews.__schema__(:field_source, :browser) == :browser_name
       assert PageViews.__schema__(:type, :visitors) == Ecto.Druid.HLLSketch

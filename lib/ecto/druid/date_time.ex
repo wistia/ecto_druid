@@ -2,6 +2,10 @@ defmodule Ecto.Druid.DateTime do
   @moduledoc """
   Druid returns dates as strings in ISO8601 format with a time zone. This module provides an Ecto type to cast, load,
   and dump these strings as Elixir DateTime structs.
+
+  Values dump as strings, for columns that hold times as strings, such as
+  those of the system tables. For `__time`, use `Ecto.Druid.Timestamp`, which
+  SQL-based ingestion needs.
   """
 
   @behaviour Ecto.Type

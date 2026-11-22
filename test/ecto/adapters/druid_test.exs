@@ -19,6 +19,15 @@ defmodule Ecto.Adapters.DruidTest do
       assert Ecto.Type.adapter_dump(Druid, Ecto.Druid.DateTime, ~U[2016-06-27 00:00:00Z]) ==
                {:ok, "2016-06-27T00:00:00Z"}
     end
+
+    # SQL-based ingestion rejects a VARCHAR __time
+    test "dumps an Ecto.Druid.Timestamp as a DateTime, sent as a TIMESTAMP" do
+      assert {:ok, value} =
+               Ecto.Type.adapter_dump(Druid, Ecto.Druid.Timestamp, ~U[2016-06-27 00:00:00Z])
+
+      assert Ecto.Adapters.Druid.Types.to_db(value) ==
+               %{type: "TIMESTAMP", value: "2016-06-27T00:00:00Z"}
+    end
   end
 
   describe "Types.to_db/1" do
@@ -98,6 +107,22 @@ defmodule Ecto.Adapters.DruidTest do
   describe "loading Druid's ISO 8601 strings" do
     defp load(type, value) do
       Ecto.Type.adapter_load(Druid, type, value)
+    end
+
+    test "into an Ecto.Druid.Timestamp, keeping Druid's precision" do
+      assert load(Ecto.Druid.Timestamp, "2016-06-27T01:02:03.004Z") ==
+               {:ok, ~U[2016-06-27 01:02:03.004Z]}
+
+      assert load(Ecto.Druid.Timestamp, nil) == {:ok, nil}
+      assert load(Ecto.Druid.Timestamp, "not a time") == :error
+    end
+
+    test "casting an Ecto.Druid.Timestamp from strings, DateTimes and Unix seconds" do
+      for value <- ["2016-06-27T00:00:00Z", ~U[2016-06-27 00:00:00Z], 1_466_985_600] do
+        assert Ecto.Type.cast(Ecto.Druid.Timestamp, value) == {:ok, ~U[2016-06-27 00:00:00Z]}
+      end
+
+      assert Ecto.Type.cast(Ecto.Druid.Timestamp, "yesterday") == :error
     end
 
     test "into dates and datetimes" do

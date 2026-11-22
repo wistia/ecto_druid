@@ -139,6 +139,19 @@ defmodule Ecto.Adapters.Druid.IngestTest do
              ]
     end
 
+    test "sends an Ecto.Druid.Schema timestamp as a TIMESTAMP" do
+      TestRepo.insert_all(
+        DruidEvent,
+        [%{time: ~U[2026-01-01 00:00:00Z], channel: "#en"}],
+        [partitioned_by: :day] ++ druid()
+      )
+
+      %{"query" => sql, "parameters" => params} = submitted()
+
+      assert [%{"__time" => %{"type" => "TIMESTAMP", "value" => "2026-01-01T00:00:00Z"}}] =
+               sent_rows(sql, params)
+    end
+
     test "sends placeholders once for each row that uses them" do
       rows = [
         %{time: {:placeholder, :time}, channel: "#en"},
