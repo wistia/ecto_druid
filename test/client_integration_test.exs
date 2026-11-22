@@ -44,4 +44,20 @@ defmodule ClientIntegrationTest do
     assert is_map(ok!(Metadata.load_queue(simple: true)))
     assert is_list(ok!(Metadata.servers(simple: true)))
   end
+
+  # Druid 32 to 39 route shutdownAllTasks to a resource without that method
+  # (apache/druid#18419), so it 404s even with active tasks. When this fails
+  # after a Druid upgrade, drop the warning from `Task.shutdown_all/1`'s docs.
+  test "shutdown_all/1 returns a 404 while the data source has active tasks" do
+    data_source = "ecto_druid_shutdown_all_test"
+    task = %{"type" => "noop", "dataSource" => data_source, "runTime" => 60_000}
+    %{"task" => task_id} = ok!(Task.submit(task))
+    on_exit(fn -> Client.request(Task.shutdown(task_id), @router) end)
+
+    assert [%{"id" => ^task_id, "statusCode" => "RUNNING"}] =
+             ok!(Task.all(datasource: data_source))
+
+    assert {:error, %Client.RequestError{status: 404}} =
+             Client.request(Task.shutdown_all(data_source), @router)
+  end
 end

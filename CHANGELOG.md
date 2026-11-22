@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- `Druid.Client.Task.shutdown_all/1` documents that Druid 32 to 39 answer its
+  request with a 404 even when the data source has active tasks
+  ([apache/druid#18419](https://github.com/apache/druid/issues/18419)), and
+  how to shut the tasks down one by one instead.
+
 ## 0.6.0 (2026-11-21)
 
 Targets Apache Druid 38 (up from 28). See [Upgrading](guides/upgrading.md)

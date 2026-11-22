@@ -166,7 +166,25 @@ defmodule Druid.Client.Task do
   end
 
   @doc """
-  Builds a request to shut down every task for a data source.
+  Builds a request to shut down every active task for a data source. Druid
+  responds with `%{"dataSource" => data_source}`, or a 404 when the data
+  source has no active tasks.
+
+  > #### Broken in Druid 32 to 39 {: .warning}
+  >
+  > From Druid 32.0.0 this endpoint returns a 404 even when the data source
+  > has active tasks, because another Overlord resource shadows its path
+  > ([apache/druid#18419](https://github.com/apache/druid/issues/18419)).
+  > The fix, [apache/druid#20824](https://github.com/apache/druid/pull/20824),
+  > is planned for Druid 40.0.0. On an affected version, list the data
+  > source's tasks with `all/1` and shut each one down with `shutdown/1`:
+  >
+  >     druid = [host: "localhost", port: 8888]
+  >
+  >     Druid.Client.Task.all(datasource: "wikipedia")
+  >     |> Druid.Client.request!(druid)
+  >     |> Enum.filter(&(&1["statusCode"] == "RUNNING"))
+  >     |> Enum.each(&(Druid.Client.Task.shutdown(&1["id"]) |> Druid.Client.request!(druid)))
   """
   @spec shutdown_all(String.t()) :: Req.Request.t()
   def shutdown_all(data_source) do
