@@ -8,6 +8,14 @@
   request with a 404 even when the data source has active tasks
   ([apache/druid#18419](https://github.com/apache/druid/issues/18419)), and
   how to shut the tasks down one by one instead.
+- The Testing guide explains why tests that query Druid don't need a case
+  template of their own, and why `use Ecto.Druid.Query` doesn't belong in
+  one.
+- The Testing guide's setup for stubbed and real-Druid tests makes
+  `DRUID_TESTS` the only switch: `test/test_helper.exs` runs just the
+  `:druid` tests when it's set, so `DRUID_TESTS=1 mix test` no longer sends
+  the stubbed tests' queries to Druid. It replaces
+  `DRUID_TESTS=1 mix test --only druid`.
 
 ## 0.6.0 (2026-11-21)
 
