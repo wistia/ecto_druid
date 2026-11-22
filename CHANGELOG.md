@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.6.0)
+## 0.6.0 (2026-11-21)
 
 Targets Apache Druid 38 (up from 28). See [Upgrading](guides/upgrading.md)
 for how to move code from 0.5.x.
@@ -20,8 +20,9 @@ for how to move code from 0.5.x.
   `theta_sketch_estimate_with_error_bounds` load as an `Ecto.Druid.Estimate`
   struct.
 - Sketch types cast and dump Base64 strings, and load Druid's JSON-encoded
-  form or a bare string. `tdigest_generate_sketch` loads as a
-  `Ecto.Druid.TDigestSketch` and `DSHistogram` as a list of floats.
+  form or a bare string. A pinned sketch is sent as the Base64 string rather
+  than JSON-encoded. `tdigest_generate_sketch` loads as a Base64 string,
+  through a new `Ecto.Druid.TDigestSketch` type, rather than JSON-encoded.
 - Each repo starts its own Finch pool, named after the repo
   (`MyApp.Repo.Finch`) or the `:finch` option, instead of
   `Ecto.Adapters.Druid.Finch`.
