@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- `Ecto.Druid.Test.expect/3` answers the next queries sent to a repo and
+  fails the test unless they're all sent, checked with
+  `Ecto.Druid.Test.verify!/1` or `setup {Ecto.Druid.Test, :verify_on_exit!}`.
+  It counts queries, not the follow-up requests the stub answers itself.
+
 ### Documentation
 
 - `Druid.Client.Task.shutdown_all/1` documents that Druid 32 to 39 answer its

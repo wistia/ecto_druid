@@ -96,21 +96,28 @@ Ecto.Druid.Test.stub(MyApp.DruidRepo, fn %{query: sql, params: [interval]} ->
 end)
 ```
 
-To check that a query was sent at all, or how many times, send a message
-from the stub:
+To check that a query is sent, and how many times, use
+`Ecto.Druid.Test.expect/3`. It answers that many queries, and
+`Ecto.Druid.Test.verify_on_exit!/1` fails the test unless they were all
+sent:
 
 ```elixir
-test = self()
+setup {Ecto.Druid.Test, :verify_on_exit!}
 
-Ecto.Druid.Test.stub(MyApp.DruidRepo, fn request ->
-  send(test, {:druid, request})
-  []
-end)
+test "sends one query" do
+  Ecto.Druid.Test.expect(MyApp.DruidRepo, 1, fn %{type: :sql} ->
+    [["#en.wikipedia", 11549]]
+  end)
 
-MyApp.Wiki.edits_by_channel(~D[2016-06-27])
-assert_received {:druid, %{type: :sql}}
-refute_received {:druid, _}
+  MyApp.Wiki.edits_by_channel(~D[2016-06-27])
+end
 ```
+
+A second query raises in the code under test. Each query counts once,
+whatever its type: the requests the stub answers itself, such as polling
+an ingestion task, don't count. Expectations answer before the function
+given to `Ecto.Druid.Test.stub/2`, so a test can stub every query and
+expect a few.
 
 A stub only checks your side. It accepts SQL that Druid can't plan, so
 keep a test against a real Druid for queries where that's a risk.

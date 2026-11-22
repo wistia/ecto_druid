@@ -34,18 +34,20 @@ if Code.ensure_loaded?(Plug.Conn) do
 
     A request the function has no clause for raises `FunctionClauseError` in
     the code under test, or, from `native_query/2`, is the returned
-    `Ecto.Adapters.Druid.NativeQueryError`'s `:reason`. To assert that a
-    query was sent, send a message from the stub:
+    `Ecto.Adapters.Druid.NativeQueryError`'s `:reason`.
 
-        test = self()
+    To check that a query is sent, and how many times, use `expect/3`, which
+    answers that many queries and fails the test unless they're all sent:
 
-        Ecto.Druid.Test.stub(MyApp.DruidRepo, fn request ->
-          send(test, {:druid, request})
-          []
-        end)
+        setup {Ecto.Druid.Test, :verify_on_exit!}
 
-        MyApp.Wiki.counts("#en.wikipedia")
-        assert_received {:druid, %{type: :sql}}
+        test "counts edits by channel" do
+          Ecto.Druid.Test.expect(MyApp.DruidRepo, fn %{type: :sql} ->
+            [["#en.wikipedia", 3]]
+          end)
+
+          assert MyApp.Wiki.counts("#en.wikipedia") == [{"#en.wikipedia", 3}]
+        end
 
     Tasks the test starts, and LiveViews under `Phoenix.LiveViewTest`, find
     the test's stub. Another process that queries the repo, such as a
@@ -66,8 +68,9 @@ if Code.ensure_loaded?(Plug.Conn) do
 
     The requests Druid needs to finish these, such as polling a task or
     fetching a statement's results, are answered by the stub without calling
-    the function. So are cancels. Any other request, such as one to the
-    supervisor API, raises. Stub those with your own plug and `Req.Test`.
+    the function, so `expect/3` doesn't count them. So are cancels. Any
+    other request, such as one to the supervisor API, raises. Stub those with
+    your own plug and `Req.Test`.
 
     ## Return values
 
@@ -160,21 +163,119 @@ if Code.ensure_loaded?(Plug.Conn) do
     Answers the requests sent to `name` with `fun` in this test. `name` is
     the name in the repo's `plug: {Req.Test, name}` config.
 
-    Replaces any stub this process set for `name` before.
+    Replaces any stub this process set for `name` before. Functions given to
+    `expect/3` answer before it.
     """
     @spec stub(term(), stub()) :: :ok
     def stub(name, fun) when is_function(fun, 1) do
-      # Holds the statements and tasks the stub has answered, which Druid's
-      # follow-up requests ask about. It belongs to the test process, so it
-      # goes away with the test, and is public so the processes the test
-      # allows can use it.
-      table = :ets.new(__MODULE__, [:set, :public])
-      Req.Test.stub(name, &call(&1, fun, table))
+      Req.Test.stub(key(name), answer(fun))
+      install(name, true)
+      :ok
     end
 
-    defp call(conn, fun, table) do
+    @doc """
+    Answers the next `n` queries sent to `name` with `fun`, then fails the
+    test unless `verify!/1` or `verify_on_exit!/1` finds they were all sent.
+
+    Each `:sql`, `:statement`, `:ingest` or `:native` request counts once.
+    The requests the stub answers itself, such as polling a task or
+    fetching a statement's results, don't count.
+
+    Expectations answer in the order they were given, and before the
+    function given to `stub/2`. A query sent once they are used up goes to
+    that stub, or, without one, raises in the code under test, or, from
+    `native_query/2`, is the returned error's `:reason`.
+
+        setup {Ecto.Druid.Test, :verify_on_exit!}
+
+        test "caches the counts" do
+          Ecto.Druid.Test.expect(MyApp.DruidRepo, fn %{type: :sql} ->
+            [["#en.wikipedia", 3]]
+          end)
+
+          assert MyApp.Wiki.cached_counts() == [{"#en.wikipedia", 3}]
+          assert MyApp.Wiki.cached_counts() == [{"#en.wikipedia", 3}]
+        end
+
+    Returns `name`, so calls can be piped.
+    """
+    @spec expect(name, pos_integer(), stub()) :: name when name: term()
+    def expect(name, n \\ 1, fun) when is_integer(n) and n > 0 and is_function(fun, 1) do
+      Req.Test.expect(key(name), n, answer(fun))
+      install(name, false)
+      name
+    end
+
+    @doc """
+    Raises unless the queries given to `expect/3` for `name` in this process
+    have all been sent.
+    """
+    @spec verify!(term()) :: :ok
+    def verify!(name), do: Req.Test.verify!(key(name))
+
+    @doc """
+    Checks, when the test exits, that the queries given to `expect/3` have
+    all been sent. Use it as a setup callback:
+
+        setup {Ecto.Druid.Test, :verify_on_exit!}
+
+    It's `Req.Test.verify_on_exit!/1`, so it checks expectations set with
+    `Req.Test.expect/3` too.
+    """
+    @spec verify_on_exit!(term()) :: :ok
+    defdelegate verify_on_exit!(context \\ %{}), to: Req.Test
+
+    # The test's functions are kept in Req.Test under a name of their own, so
+    # Req.Test hands out expectations before the stub, per process, and
+    # verifies them. Under `name` is the plug that answers every request,
+    # which calls them only for queries, so an expectation counts queries,
+    # not HTTP requests.
+    defp key(name), do: {__MODULE__, name}
+
+    defp install(name, stubbed?) do
+      # The table holds the statements and tasks the stub has answered, which
+      # Druid's follow-up requests ask about. It belongs to the test process,
+      # so it goes away with the test, and is public so the processes the
+      # test allows can use it.
+      {table, stubbed_before?} =
+        Process.get(key(name)) || {:ets.new(__MODULE__, [:set, :public]), false}
+
+      stubbed? = stubbed? or stubbed_before?
+      Process.put(key(name), {table, stubbed?})
+
+      # Req.Test's own error for running out names the key, not the repo
+      if not stubbed?, do: Req.Test.stub(key(name), answer(&unexpected!(name, &1)))
+
+      owner = self()
+      Req.Test.stub(name, &call(&1, name, owner, table))
+    end
+
+    defp call(conn, name, owner, table) do
       {body, conn} = read_body(conn, "")
-      route(conn.method, conn.path_info, conn, body, fun, table)
+      route(conn.method, conn.path_info, conn, body, &ask(conn, name, owner, &1), table)
+    end
+
+    # Gets the answer to a query from the test's next function
+    defp ask(conn, name, owner, request) do
+      # A process the test allowed to use `name` may use its functions too.
+      # In shared mode this returns an error, and isn't needed.
+      if owner not in [self() | Process.get(:"$callers", [])],
+        do: Req.Test.allow(key(name), owner, self())
+
+      conn
+      |> Conn.put_private(:ecto_druid_request, request)
+      |> Plug.run([{Req.Test, key(name)}])
+      |> Map.fetch!(:private)
+      |> Map.fetch!(:ecto_druid_answer)
+    end
+
+    defp answer(fun) do
+      &Conn.put_private(&1, :ecto_druid_answer, fun.(&1.private.ecto_druid_request))
+    end
+
+    defp unexpected!(name, request) do
+      raise "#{inspect(name)} got a #{inspect(request.type)} query after the ones given to " <>
+              "Ecto.Druid.Test.expect/3 were all sent, and has no stub:\n\n#{inspect(request)}"
     end
 
     defp read_body(conn, acc) do
