@@ -14,6 +14,10 @@ defmodule Ecto.Druid.Util do
         sql_function :my_function, [:arg1, :arg2], type: :integer
       end
 
+  The SQL function is the macro's name in upper case, without a trailing
+  `_`. The underscore lets a macro avoid a `Kernel` name: `length_(expr)`
+  emits `LENGTH(expr)`.
+
   Look at `Ecto.Druid.Query`'s source for more examples.
   """
   defmacro sql_function({name, _, args}, opts \\ []) do
@@ -22,7 +26,7 @@ defmodule Ecto.Druid.Util do
 
   @doc false
   def sql_function(name, args, opts) do
-    fun = name |> Atom.to_string() |> String.upcase()
+    fun = name |> Atom.to_string() |> String.trim_trailing("_") |> String.upcase()
     type = Keyword.get(opts, :type, nil)
     placeholders = Keyword.get(opts, :placeholders, nil)
     wrapper = Keyword.get(opts, :wrapper, {"(", ")"})

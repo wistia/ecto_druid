@@ -22,9 +22,10 @@ defmodule Ecto.Druid.Query do
   * `Ecto.Druid.Query.JSON` - JSON functions
   * `Ecto.Druid.Query.Table` - table functions (TABLE, EXTERN, EXTEND, APPEND, UNNEST)
 
-  `use Ecto.Druid.Query` imports all of them, along with `import Kernel,
-  except: [...]` for the handful of names that clash with `Kernel` (`abs`,
-  `ceil`, `floor`, `div`, `length`, `trunc`, `round`):
+  `use Ecto.Druid.Query` imports all of them. Functions whose names clash
+  with `Kernel` or a special form end in `_` instead (`abs_`, `ceil_`,
+  `floor_`, `div_`, `length_`, `trunc_`, `round_` and `case_`), so importing
+  them hides nothing from the rest of the module:
 
       import Ecto.Query
       use Ecto.Druid.Query
@@ -87,11 +88,6 @@ defmodule Ecto.Druid.Query do
         end
       end
 
-    quote do
-      import Kernel,
-        except: [abs: 1, ceil: 1, floor: 1, div: 2, length: 1, trunc: 1, round: 1]
-
-      unquote_splicing(imports)
-    end
+    {:__block__, [], imports}
   end
 end

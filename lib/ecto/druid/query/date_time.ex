@@ -138,8 +138,8 @@ defmodule Ecto.Druid.Query.DateTime do
   end
 
   @doc "Rounds down a timestamp, returning it as a new timestamp. Unit can be SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, or YEAR."
-  @spec floor(Macro.t(), Macro.t()) :: Macro.t()
-  defmacro floor(timestamp_expr, unit) when unit in @extended_time_unit do
+  @spec floor_(Macro.t(), Macro.t()) :: Macro.t()
+  defmacro floor_(timestamp_expr, unit) when unit in @extended_time_unit do
     Ecto.Druid.Util.sql_function_body(
       "FLOOR",
       "? TO #{unit}",
@@ -148,8 +148,8 @@ defmodule Ecto.Druid.Query.DateTime do
   end
 
   @doc "Rounds up a timestamp, returning it as a new timestamp. Unit can be SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, QUARTER, or YEAR."
-  @spec ceil(Macro.t(), Macro.t()) :: Macro.t()
-  defmacro ceil(timestamp_expr, unit) when unit in @extended_time_unit do
+  @spec ceil_(Macro.t(), Macro.t()) :: Macro.t()
+  defmacro ceil_(timestamp_expr, unit) when unit in @extended_time_unit do
     Ecto.Druid.Util.sql_function_body(
       "CEIL",
       "? TO #{unit}",

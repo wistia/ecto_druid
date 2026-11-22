@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- SQL function macros whose names clash with `Kernel` or a special form now
+  end in `_`: `abs_`, `ceil_`, `floor_`, `div_`, `length_`, `trunc_`,
+  `round_` and `case_` (was `sql_case`). `use Ecto.Druid.Query` no longer
+  excludes anything from `Kernel`, so `length/1`, `round/1` and the rest keep
+  working in modules that use it. See [Upgrading](guides/upgrading.md).
+
 ### Documentation
 
 - `Druid.Client.Task.shutdown_all/1` documents that Druid 32 to 39 answer its
@@ -9,8 +17,7 @@
   ([apache/druid#18419](https://github.com/apache/druid/issues/18419)), and
   how to shut the tasks down one by one instead.
 - The Testing guide explains why tests that query Druid don't need a case
-  template of their own, and why `use Ecto.Druid.Query` doesn't belong in
-  one.
+  template of their own.
 - The Testing guide's setup for stubbed and real-Druid tests makes
   `DRUID_TESTS` the only switch: `test/test_helper.exs` runs just the
   `:druid` tests when it's set, so `DRUID_TESTS=1 mix test` no longer sends

@@ -173,13 +173,6 @@ share, and a test's stubs go away with it. So a test that queries Druid
 doesn't need a Druid case template. It can use `ExUnit.Case`, or the
 template it already uses, such as your `ConnCase` for a LiveView.
 
-If you add Druid helpers to a case template, leave `use Ecto.Druid.Query`
-out of it. It replaces a few `Kernel` functions, such as `length/1`,
-`div/2` and `round/1`, with SQL macros that compile only inside a query, so
-every test that calls `length(rows)` would fail to compile. Build queries in
-your app's modules and call those from tests, or `use Ecto.Druid.Query` only
-in the test modules that build queries.
-
 ## Stubbed and real-Druid tests
 
 We suggest keeping both kinds of test in one suite and running them
