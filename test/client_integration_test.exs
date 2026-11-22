@@ -54,8 +54,10 @@ defmodule ClientIntegrationTest do
     %{"task" => task_id} = ok!(Task.submit(task))
     on_exit(fn -> Client.request(Task.shutdown(task_id), @router) end)
 
-    assert [%{"id" => ^task_id, "statusCode" => "RUNNING"}] =
-             ok!(Task.all(datasource: data_source))
+    # Earlier runs on the same stack leave FAILED tasks behind, so look this
+    # one up by id rather than matching the whole list.
+    tasks = ok!(Task.all(datasource: data_source))
+    assert %{"statusCode" => "RUNNING"} = Enum.find(tasks, &(&1["id"] == task_id))
 
     assert {:error, %Client.RequestError{status: 404}} =
              Client.request(Task.shutdown_all(data_source), @router)
