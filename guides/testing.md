@@ -308,13 +308,74 @@ A few things keep fixture data useful:
 
 * **Tests only read it.** A test that writes to a fixture data source
   changes it for every test after it. Tests that ingest should use a data
-  source of their own, and remove it when they're done.
+  source of their own, and remove it when they're done (see
+  [Tests that write](#tests-that-write)).
 * **Dates are fixed.** Code that asks for "the last 7 days" should take its
   time window as an argument, so a test can pass one that holds the
   fixtures.
 * **Fixtures stay small.** The rows are sent inside the task spec, which
   Druid stores in its metadata database, so thousands of rows are fine but
   millions aren't.
+
+## Tests that write
+
+A test of `insert_all/3`, `delete_all/2`, `update_all/3` or an ingestion
+task should write to a data source of its own, not to one that fixtures
+load or other tests read, and remove it when it exits with
+`Ecto.Druid.Fixtures.drop!/3`:
+
+```elixir
+defmodule MyApp.EditWritesTest do
+  use ExUnit.Case, async: true
+  import Ecto.Query
+
+  @moduletag :druid
+  @data_source "edits_write_test"
+
+  setup do
+    on_exit(fn -> Ecto.Druid.Fixtures.drop!(MyApp.DruidRepo, @data_source) end)
+  end
+
+  test "deletes a channel's edits" do
+    edits = {@data_source, MyApp.Edit}
+    write = [partitioned_by: :day, wait_for_segments: true]
+
+    rows = [
+      %{time: ~U[2016-06-27 01:00:00Z], channel: "#en.wikipedia", page: "Elixir"},
+      %{time: ~U[2016-06-27 02:00:00Z], channel: "#de.wikipedia", page: "Berlin"}
+    ]
+
+    MyApp.DruidRepo.insert_all(edits, rows, write)
+
+    MyApp.DruidRepo.delete_all(
+      from(e in edits, where: e.channel == "#de.wikipedia"),
+      [interval: :all] ++ write
+    )
+
+    assert MyApp.DruidRepo.all(from e in edits, select: e.page) == ["Elixir"]
+  end
+end
+```
+
+Ecto's `{source, schema}` form reads and writes the data source `source`
+with the schema's fields. Code that always writes to a schema's own source
+can't be pointed elsewhere, so a test of it drops that source instead. Make
+sure no fixture loads into it.
+
+`drop!/3` shuts down the data source's running tasks, so one left behind by
+a test that failed or timed out doesn't hold a task slot, then deletes its
+segments and waits until the Broker no longer lists it, so the next test
+starts from nothing. A data source that was never created is fine.
+
+ExUnit runs a module's tests one at a time, so they can share a data source.
+Give each module a name of its own, and modules that write can be
+`async: true`.
+
+> #### `drop!/3` deletes data permanently {: .warning}
+>
+> It removes every segment of the data source from Druid's metadata store
+> and deep storage, and that can't be undone. Run it only against a test
+> cluster, and only on data sources your tests create.
 
 ## Other Druid APIs
 

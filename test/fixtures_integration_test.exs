@@ -7,17 +7,14 @@ defmodule FixturesIntegrationTest do
   import Ecto.Query
   alias Ecto.Adapters.Druid.{IntegrationRepo, PageViews}
 
-  @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_fixtures_test"
   @named "ecto_druid_fixtures_named_test"
+  @dropped "ecto_druid_fixtures_drop_test"
+  @router [host: "localhost", port: 9888]
 
   setup do
     on_exit(fn ->
-      Ecto.Druid.TestTasks.shutdown_all([@data_source, @named])
-
-      for data_source <- [@data_source, @named] do
-        Druid.Client.DataSource.mark_unused(data_source) |> Druid.Client.request(@druid)
-      end
+      Ecto.Druid.Fixtures.drop!(IntegrationRepo, [@data_source, @named, @dropped])
     end)
   end
 
@@ -68,5 +65,40 @@ defmodule FixturesIntegrationTest do
              ])
 
     assert page_views() == [{"FR", "c", 1}]
+  end
+
+  defp segments(state) do
+    path = if state == :used, do: "segments", else: "unusedSegments"
+    url = "/druid/coordinator/v1/metadata/datasources/#{@dropped}/#{path}"
+
+    case Druid.Client.request(Req.new(url: url), @router) do
+      {:ok, segments} -> segments
+      {:error, %Druid.Client.RequestError{status: 404}} -> []
+    end
+  end
+
+  test "drop! deletes every segment, and the Broker stops listing the data source" do
+    # PARTITIONED BY ALL makes one segment over Druid's whole timeline
+    sql = """
+    INSERT INTO "#{@dropped}"
+    SELECT TIME_PARSE('2026-01-01T00:00:00Z') AS __time, 'a' AS page
+    PARTITIONED BY ALL
+    """
+
+    %{"taskId" => task_id} = Druid.Client.SQL.insert(sql) |> Druid.Client.request!(@router)
+    {:ok, _} = Druid.Tasks.await(IntegrationRepo, task_id, wait_for_segments: true)
+    assert IntegrationRepo.all(from e in @dropped, select: e.page) == ["a"]
+
+    assert :ok = Ecto.Druid.Fixtures.drop!(IntegrationRepo, @dropped)
+
+    assert segments(:used) == []
+    assert segments(:unused) == []
+
+    assert_raise Druid.Client.RequestError, ~r/not found/i, fn ->
+      IntegrationRepo.all(from e in @dropped, select: e.page)
+    end
+
+    # A data source that's gone is fine
+    assert :ok = Ecto.Druid.Fixtures.drop!(IntegrationRepo, @dropped)
   end
 end

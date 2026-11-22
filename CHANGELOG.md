@@ -8,6 +8,11 @@
   fails the test unless they're all sent, checked with
   `Ecto.Druid.Test.verify!/1` or `setup {Ecto.Druid.Test, :verify_on_exit!}`.
   It counts queries, not the follow-up requests the stub answers itself.
+- `Ecto.Druid.Fixtures.drop!/3` permanently deletes data sources, for tests
+  that write to one of their own: it shuts down their running tasks, marks
+  their segments unused, runs a `kill` task, and waits until the Broker no
+  longer lists them. See "Tests that write" in the
+  [Testing guide](guides/testing.md).
 
 ### Fixed
 

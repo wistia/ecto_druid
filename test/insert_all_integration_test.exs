@@ -6,7 +6,6 @@ defmodule InsertAllIntegrationTest do
   import Ecto.Query
   alias Ecto.Adapters.Druid.IntegrationRepo
 
-  @druid [host: "localhost", port: 9888]
   @data_source "ecto_druid_insert_all_test"
   @copy "ecto_druid_insert_all_copy_test"
   @extern "ecto_druid_insert_all_extern_test"
@@ -37,12 +36,7 @@ defmodule InsertAllIntegrationTest do
 
   setup do
     on_exit(fn ->
-      data_sources = [@data_source, @copy, @extern, @schema_source]
-      Ecto.Druid.TestTasks.shutdown_all(data_sources)
-
-      for data_source <- data_sources do
-        Druid.Client.DataSource.mark_unused(data_source) |> Druid.Client.request(@druid)
-      end
+      Ecto.Druid.Fixtures.drop!(IntegrationRepo, [@data_source, @copy, @extern, @schema_source])
     end)
   end
 

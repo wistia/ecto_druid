@@ -62,12 +62,17 @@ defmodule Ecto.Druid.Fixtures do
 
   Tests should only read fixture data sources. A test that writes to one
   changes it for the tests that run after, until the next run reloads it.
+  A test that writes should use a data source of its own, and delete it with
+  `drop!/3` when it exits.
   """
 
   alias Druid.Tasks.{Error, Run}
 
   # Every time chunk, so the task drops data outside the fixture's own rows
   @all_time "1000-01-01/3000-01-01"
+  # Druid's whole timeline. A kill task only deletes segments that lie
+  # inside its interval, and one written with PARTITIONED BY ALL covers it all.
+  @eternity "-146136543-09-08T08:23:32.096Z/146140482-04-24T15:36:27.903Z"
   @data_schema_opts [
     :data_source,
     :segment_granularity,
@@ -121,6 +126,186 @@ defmodule Ecto.Druid.Fixtures do
           reason: Map.get(first.error, :reason),
           task_id: first.task_id,
           status: first.status
+    end
+  end
+
+  @doc """
+  Permanently deletes data sources from Druid, and waits until the Broker no
+  longer lists them.
+
+  > #### This deletes data {: .warning}
+  >
+  > The data sources' segments are removed from the metadata store and from
+  > deep storage, and can't be recovered. Only point this at a test cluster,
+  > and only at data sources your tests create.
+
+  Use it to remove a data source a test wrote to, when the test exits:
+
+      setup do
+        on_exit(fn -> Ecto.Druid.Fixtures.drop!(MyApp.DruidRepo, "edits_test") end)
+      end
+
+  For each data source, it shuts down the ingestion tasks that are running
+  or waiting to, marks every segment unused so Historicals drop them, and
+  runs a `kill` task over Druid's whole timeline. Shutting tasks down first
+  matters when a test fails or times out while it waits on one: the task
+  keeps running, holding a task slot, and could publish segments after the
+  drop. Waiting for the Broker means a test that writes to the same name
+  next doesn't read the old rows.
+
+  It doesn't terminate supervisors, or remove compaction configs, retention
+  rules or lookups. A data source that doesn't exist is fine, so it can run
+  after a test that failed before writing anything.
+
+  Returns `:ok`. Raises `Druid.Tasks.Error` if a request or the `kill` task
+  fails, or it doesn't finish in time.
+
+  ## Options
+
+    * `:timeout` - How long to wait for all of it, in milliseconds. Defaults
+      to `120_000`.
+    * `:poll_interval` - How often to check, in milliseconds. Defaults to
+      `500`.
+    * `:host`, `:port`, `:scheme` and the other connection options of
+      `Druid.Tasks`. Tasks and segments are managed on the repo's `:tasks`
+      host, and the Broker is asked on the repo's own host.
+  """
+  @spec drop!(Ecto.Repo.t(), String.t() | [String.t()], Keyword.t()) :: :ok
+  def drop!(repo, data_sources, opts \\ []) do
+    data_sources = data_sources |> List.wrap() |> Enum.map(&data_source_name!/1)
+    deadline = Druid.Poll.deadline(Keyword.get(opts, :timeout, 120_000))
+    poll_interval = Keyword.get(opts, :poll_interval, 500)
+    tasks_opts = Keyword.drop(opts, [:timeout, :poll_interval])
+
+    request_opts =
+      Druid.SpecTemplates.request_opts(repo, Druid.SpecTemplates.config(repo, :tasks, tasks_opts))
+
+    # SQL goes to the host the repo queries, since the :tasks host can be an
+    # Overlord, which doesn't serve SQL
+    broker_opts = Druid.SpecTemplates.request_opts(repo, Keyword.take(opts, [:plug, :adapter]))
+
+    shutdown_tasks!(data_sources, deadline, poll_interval, request_opts)
+
+    kills =
+      for data_source <- data_sources do
+        Druid.Client.DataSource.mark_unused(data_source)
+        |> drop_request!(request_opts, data_source)
+
+        {data_source, submit_kill!(repo, data_source, tasks_opts)}
+      end
+
+    await_opts = Keyword.merge(tasks_opts, poll_interval: poll_interval)
+
+    for {data_source, task_id} <- kills do
+      opts = Keyword.put(await_opts, :timeout, Druid.Poll.remaining(deadline))
+
+      case Druid.Tasks.await(repo, task_id, opts) do
+        {:ok, _status} -> :ok
+        {:error, error} -> raise drop_error(data_source, error)
+      end
+    end
+
+    await_unlisted!(data_sources, deadline, poll_interval, broker_opts)
+  end
+
+  defp data_source_name!(name) when is_binary(name) and name != "", do: name
+
+  defp data_source_name!(other) do
+    raise ArgumentError, "expected a data source name, got: #{inspect(other)}"
+  end
+
+  @active_states ~w(running pending waiting)
+
+  defp shutdown_tasks!(data_sources, deadline, poll_interval, request_opts) do
+    # Druid 32 to 39 answer shutdownAllTasks with a 404, so each task is shut
+    # down by id. One that has just finished answers with an error, which is
+    # fine here.
+    for task_id <- active_tasks!(data_sources, request_opts) do
+      Druid.Client.Task.shutdown(task_id) |> Druid.Client.request(request_opts)
+    end
+
+    # Shutting down is asynchronous, and a task still running could publish
+    # segments after the kill
+    check = fn ->
+      case active_tasks!(data_sources, request_opts) do
+        [] -> {:done, :ok}
+        task_ids -> {:wait, task_ids}
+      end
+    end
+
+    case Druid.Poll.poll(deadline, poll_interval, check) do
+      {:ok, :ok} ->
+        :ok
+
+      {:timeout, task_ids} ->
+        raise Error,
+          message: "timed out shutting down tasks #{inspect(task_ids)} to drop data sources",
+          reason: :timeout
+    end
+  end
+
+  defp active_tasks!(data_sources, request_opts) do
+    for data_source <- data_sources,
+        state <- @active_states,
+        %{"id" => id} <-
+          Druid.Client.Task.all(state: state, datasource: data_source)
+          |> drop_request!(request_opts, data_source),
+        uniq: true,
+        do: id
+  end
+
+  defp submit_kill!(repo, data_source, opts) do
+    task = %{"type" => "kill", "dataSource" => data_source, "interval" => @eternity}
+
+    case Druid.Tasks.submit(repo, task, opts) do
+      {:ok, task_id} -> task_id
+      {:error, error} -> raise drop_error(data_source, error)
+    end
+  end
+
+  # Historicals drop the segments on the Coordinator's next run, and the
+  # Broker stops listing the data source once none are served
+  defp await_unlisted!(data_sources, deadline, poll_interval, broker_opts) do
+    sql = Druid.Tasks.broker_lists_sql()
+
+    listed? = fn data_source ->
+      Druid.Client.SQL.query(sql, [%{type: "VARCHAR", value: data_source}])
+      |> drop_request!(broker_opts, data_source)
+      |> Enum.any?()
+    end
+
+    check = fn ->
+      case Enum.filter(data_sources, listed?) do
+        [] -> {:done, :ok}
+        listed -> {:wait, listed}
+      end
+    end
+
+    case Druid.Poll.poll(deadline, poll_interval, check) do
+      {:ok, :ok} ->
+        :ok
+
+      {:timeout, listed} ->
+        raise Error,
+          message: "timed out waiting for the Broker to stop listing #{Enum.join(listed, ", ")}",
+          reason: :timeout
+    end
+  end
+
+  defp drop_request!(request, request_opts, data_source) do
+    case Druid.Client.request(request, request_opts) do
+      {:ok, body} -> body
+      {:error, error} -> raise drop_error(data_source, error)
+    end
+  end
+
+  # Keeps a failed or timed out kill task's details
+  defp drop_error(data_source, error) do
+    message = "couldn't drop #{data_source}: #{Exception.message(error)}"
+
+    case error do
+      %Error{} -> %{error | message: message}
+      _ -> %Error{message: message}
     end
   end
 
