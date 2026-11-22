@@ -166,19 +166,28 @@ async:
 setup {Req.Test, :set_req_test_to_shared}
 ```
 
+## Case templates
+
+Stubs need no setup: there's no sandbox to check out or connection to
+share, and a test's stubs go away with it. So a test that queries Druid
+doesn't need a Druid case template. It can use `ExUnit.Case`, or the
+template it already uses, such as your `ConnCase` for a LiveView.
+
+If you add Druid helpers to a case template, leave `use Ecto.Druid.Query`
+out of it. It replaces a few `Kernel` functions, such as `length/1`,
+`div/2` and `round/1`, with SQL macros that compile only inside a query, so
+every test that calls `length(rows)` would fail to compile. Build queries in
+your app's modules and call those from tests, or `use Ecto.Druid.Query` only
+in the test modules that build queries.
+
 ## Stubbed and real-Druid tests
 
 We suggest keeping both kinds of test in one suite and running them
 separately: the stubbed tests on every `mix test`, and the real-Druid tests
 when a cluster is available, such as in CI. The plug is repo config, so a run
-is one or the other.
+is one or the other, and one environment variable picks which.
 
-Tag the tests that need Druid, and exclude them by default:
-
-```elixir
-# test/test_helper.exs
-ExUnit.start(exclude: [:druid])
-```
+Tag the tests that need Druid:
 
 ```elixir
 defmodule MyApp.WikiDruidTest do
@@ -191,7 +200,7 @@ defmodule MyApp.WikiDruidTest do
 end
 ```
 
-Then turn the stub off with an environment variable:
+When `DRUID_TESTS` is set, turn the stub off:
 
 ```elixir
 # config/test.exs
@@ -200,6 +209,21 @@ config :my_app, MyApp.DruidRepo,
   port: 8888,
   plug: if(System.get_env("DRUID_TESTS"), do: nil, else: {Req.Test, MyApp.DruidRepo})
 ```
+
+And run only the `:druid` tests:
+
+```elixir
+# test/test_helper.exs
+if System.get_env("DRUID_TESTS") do
+  ExUnit.start(include: [:druid], exclude: [:test])
+else
+  ExUnit.start(exclude: [:druid])
+end
+```
+
+Excluding `:test` excludes every test, and including `:druid` brings the
+tagged ones back. Without it, the stubbed tests would run in the same pass,
+with their queries going to Druid, and fail or, worse, pass by accident.
 
 Run the stubbed tests:
 
@@ -210,13 +234,15 @@ mix test
 And the tests against Druid:
 
 ```sh
-DRUID_TESTS=1 mix test --only druid
+DRUID_TESTS=1 mix test
 ```
 
 With `plug: nil`, the repo, `insert_all` and the template modules send
-their requests to the configured host. In the stubbed run, the `:druid`
-tests are excluded, and any other test that queries the repo without a
-stub fails rather than reaching Druid.
+their requests to the configured host. In the stubbed run, any test that
+queries the repo without a stub fails rather than reaching Druid. A line
+number given to `mix test` overrides the exclusions, so
+`DRUID_TESTS=1 mix test test/my_app/wiki_test.exs:12` runs that test
+against Druid even when it's a stubbed one.
 
 Don't try to mix the two in one run with a second repo started without the
 plug. `insert_all`, `Druid.Tasks` and the other template modules read the
@@ -234,9 +260,11 @@ if System.get_env("DRUID_TESTS") do
   Ecto.Druid.Fixtures.load!(MyApp.DruidRepo, [
     {MyApp.Edit, "test/fixtures/edits.jsonl"}
   ])
-end
 
-ExUnit.start(exclude: [:druid])
+  ExUnit.start(include: [:druid], exclude: [:test])
+else
+  ExUnit.start(exclude: [:druid])
+end
 ```
 
 `MyApp.Edit` is an `Ecto.Druid.Schema` whose source is `"wikipedia"`. The
