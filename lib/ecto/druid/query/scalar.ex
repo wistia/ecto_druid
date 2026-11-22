@@ -22,7 +22,7 @@ defmodule Ecto.Druid.Query.Scalar do
   sql_function bloom_filter_test(expr, serialized_filter)
 
   @doc "Simple CASE."
-  defmacro sql_case(expr, clauses) do
+  defmacro case_(expr, clauses) do
     placeholders =
       clauses
       |> Keyword.keys()
@@ -39,7 +39,7 @@ defmodule Ecto.Druid.Query.Scalar do
   end
 
   @doc "Searched CASE."
-  defmacro sql_case(clauses) do
+  defmacro case_(clauses) do
     placeholders =
       clauses
       |> Keyword.keys()

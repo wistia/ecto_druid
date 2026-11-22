@@ -22,7 +22,7 @@ defmodule Ecto.Druid.Query.String do
   @doc "Returns the rightmost length characters from expr."
   sql_function right(expr, length)
   @doc "Length of expr in UTF-16 code units."
-  sql_function length(expr)
+  sql_function length_(expr)
   @doc "Alias for LENGTH."
   sql_function char_length(expr)
   @doc "Alias for LENGTH."

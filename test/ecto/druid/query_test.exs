@@ -11,6 +11,16 @@ defmodule Ecto.Druid.QueryTest do
     :ok
   end
 
+  test "use Ecto.Druid.Query leaves Kernel's functions in place" do
+    assert length([1, 2]) == 2
+    assert div(7, 2) == 3
+    assert abs(-1) == 1
+    assert round(1.6) == 2
+    assert trunc(1.6) == 1
+    assert floor(1.6) == 1
+    assert ceil(1.2) == 2
+  end
+
   describe "aggregate filters" do
     test "filter/2" do
       sql = from(t in "test", select: count(t.id) |> filter(t.id > 1)) |> to_sql()
@@ -56,13 +66,13 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT PI() FROM \"test\" AS t0", []}
     end
 
-    test "abs/1" do
-      sql = from("test", select: abs(1)) |> to_sql()
+    test "abs_/1" do
+      sql = from("test", select: abs_(1)) |> to_sql()
       assert sql == {"SELECT ABS(1) FROM \"test\" AS t0", []}
     end
 
-    test "ceil/1" do
-      sql = from("test", select: ceil(1.1)) |> to_sql()
+    test "ceil_/1" do
+      sql = from("test", select: ceil_(1.1)) |> to_sql()
       assert sql == {"SELECT CEIL(1.1) FROM \"test\" AS t0", []}
     end
 
@@ -71,8 +81,8 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT EXP(1) FROM \"test\" AS t0", []}
     end
 
-    test "floor/1" do
-      sql = from("test", select: floor(1.1)) |> to_sql()
+    test "floor_/1" do
+      sql = from("test", select: floor_(1.1)) |> to_sql()
       assert sql == {"SELECT FLOOR(1.1) FROM \"test\" AS t0", []}
     end
 
@@ -106,23 +116,23 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT TRUNCATE(1.1, 1) FROM \"test\" AS t0", []}
     end
 
-    test "trunc/1" do
-      sql = from("test", select: trunc(1.1)) |> to_sql()
+    test "trunc_/1" do
+      sql = from("test", select: trunc_(1.1)) |> to_sql()
       assert sql == {"SELECT TRUNC(1.1) FROM \"test\" AS t0", []}
     end
 
-    test "trunc/2" do
-      sql = from("test", select: trunc(1.1, 1)) |> to_sql()
+    test "trunc_/2" do
+      sql = from("test", select: trunc_(1.1, 1)) |> to_sql()
       assert sql == {"SELECT TRUNC(1.1, 1) FROM \"test\" AS t0", []}
     end
 
-    test "round/1" do
-      sql = from("test", select: round(1.1)) |> to_sql()
+    test "round_/1" do
+      sql = from("test", select: round_(1.1)) |> to_sql()
       assert sql == {"SELECT ROUND(1.1) FROM \"test\" AS t0", []}
     end
 
-    test "round/2" do
-      sql = from("test", select: round(1.1, 1)) |> to_sql()
+    test "round_/2" do
+      sql = from("test", select: round_(1.1, 1)) |> to_sql()
       assert sql == {"SELECT ROUND(1.1, 1) FROM \"test\" AS t0", []}
     end
 
@@ -221,8 +231,8 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT BITWISE_XOR(1, 2) FROM \"test\" AS t0", []}
     end
 
-    test "div/2" do
-      sql = from("test", select: div(1, 2)) |> to_sql()
+    test "div_/2" do
+      sql = from("test", select: div_(1, 2)) |> to_sql()
       assert sql == {"SELECT DIV(1, 2) FROM \"test\" AS t0", []}
     end
 
@@ -303,8 +313,8 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT RIGHT('a', 1) FROM \"test\" AS t0", []}
     end
 
-    test "length/1" do
-      sql = from("test", select: length("a")) |> to_sql()
+    test "length_/1" do
+      sql = from("test", select: length_("a")) |> to_sql()
       assert sql == {"SELECT LENGTH('a') FROM \"test\" AS t0", []}
     end
 
@@ -695,13 +705,13 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT EXTRACT(DAY FROM t0.\"time\") FROM \"test\" AS t0", []}
     end
 
-    test "floor/2" do
-      sql = from(t in "test", select: floor(t.time, "DAY")) |> to_sql()
+    test "floor_/2" do
+      sql = from(t in "test", select: floor_(t.time, "DAY")) |> to_sql()
       assert sql == {"SELECT FLOOR(t0.\"time\" TO DAY) FROM \"test\" AS t0", []}
     end
 
-    test "ceil/2" do
-      sql = from(t in "test", select: ceil(t.time, "DAY")) |> to_sql()
+    test "ceil_/2" do
+      sql = from(t in "test", select: ceil_(t.time, "DAY")) |> to_sql()
       assert sql == {"SELECT CEIL(t0.\"time\" TO DAY) FROM \"test\" AS t0", []}
     end
 
@@ -969,16 +979,16 @@ defmodule Ecto.Druid.QueryTest do
       assert sql == {"SELECT BLOOM_FILTER_TEST('a', 'b') FROM \"test\" AS t0", []}
     end
 
-    test "sql_case/2" do
-      sql = from("test", select: sql_case("a", when: "a", then: true, else: false)) |> to_sql()
+    test "case_/2" do
+      sql = from("test", select: case_("a", when: "a", then: true, else: false)) |> to_sql()
 
       assert sql ==
                {"SELECT CASE 'a' WHEN 'a' THEN TRUE ELSE FALSE END FROM \"test\" AS t0", []}
     end
 
-    test "sql_case/1" do
+    test "case_/1" do
       sql =
-        from("test", select: sql_case(when: 1 == 1, then: true, else: false))
+        from("test", select: case_(when: 1 == 1, then: true, else: false))
         |> to_sql()
 
       assert sql ==

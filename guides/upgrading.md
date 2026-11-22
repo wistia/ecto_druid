@@ -1,5 +1,39 @@
 # Upgrading
 
+## From 0.6.x to 0.7.0
+
+### SQL functions that clash with Kernel
+
+The SQL function macros named like a `Kernel` function or a special form
+now end in `_`, and `use Ecto.Druid.Query` no longer excludes those
+functions from `Kernel`. Rename them in your queries:
+
+| 0.6 | 0.7 |
+| --- | --- |
+| `abs/1` | `abs_/1` |
+| `ceil/1`, `ceil/2` | `ceil_/1`, `ceil_/2` |
+| `floor/1`, `floor/2` | `floor_/1`, `floor_/2` |
+| `div/2` | `div_/2` |
+| `length/1` | `length_/1` |
+| `trunc/1`, `trunc/2` | `trunc_/1`, `trunc_/2` |
+| `round/1`, `round/2` | `round_/1`, `round_/2` |
+| `sql_case/1`, `sql_case/2` | `case_/1`, `case_/2` |
+
+```elixir
+# 0.6
+from e in "wikipedia", select: %{page: e.page, len: length(e.page), day: floor(e.__time, "DAY")}
+
+# 0.7
+from e in "wikipedia", select: %{page: e.page, len: length_(e.page), day: floor_(e.__time, "DAY")}
+```
+
+The SQL they produce is unchanged. A query that still uses an old name
+fails to compile, with "is not a valid query expression".
+
+`Kernel.length/1` and the others now work as usual in a module that does
+`use Ecto.Druid.Query`, so you can drop any `Kernel.` prefixes you added
+for them.
+
 ## From 0.5.x to 0.6.0
 
 ### Druid and Ecto versions

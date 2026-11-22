@@ -6,13 +6,13 @@ defmodule Ecto.Druid.Query.Numeric do
   @doc "Constant Pi."
   sql_function pi()
   @doc "Absolute value."
-  sql_function abs(expr)
+  sql_function abs_(expr)
   @doc "Ceiling."
-  sql_function ceil(expr)
+  sql_function ceil_(expr)
   @doc "e to the power of expr."
   sql_function exp(expr)
   @doc "Floor."
-  sql_function floor(expr)
+  sql_function floor_(expr)
   @doc "Logarithm (base e)."
   sql_function ln(expr)
   @doc "Logarithm (base 10)."
@@ -26,13 +26,13 @@ defmodule Ecto.Druid.Query.Numeric do
   @doc "Truncate expr to a specific number of decimal digits."
   sql_function truncate(expr, digits)
   @doc "Alias for TRUNCATE."
-  sql_function trunc(expr)
+  sql_function trunc_(expr)
   @doc "Alias for TRUNCATE."
-  sql_function trunc(expr, digits)
+  sql_function trunc_(expr, digits)
   @doc "ROUND(x, y) would return the value of the x rounded to the y decimal places."
-  sql_function round(expr)
+  sql_function round_(expr)
   @doc "ROUND(x, y) would return the value of the x rounded to the y decimal places."
-  sql_function round(expr, digits)
+  sql_function round_(expr, digits)
   @doc "Modulo (remainder of x divided by y)."
   sql_function mod(x, y)
   @doc "Trigonometric sine of an angle expr."
@@ -76,7 +76,7 @@ defmodule Ecto.Druid.Query.Numeric do
   @doc "Returns the result of expr1 ^ expr2."
   sql_function bitwise_xor(x, y)
   @doc "Returns the result of integer division of x by y"
-  sql_function div(x, y)
+  sql_function div_(x, y)
   @doc "Format a number in human-readable IEC format."
   sql_function human_readable_binary_byte_format(value)
   @doc "Format a number in human-readable IEC format."
