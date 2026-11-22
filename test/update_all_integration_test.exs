@@ -27,6 +27,7 @@ defmodule UpdateAllIntegrationTest do
 
   setup do
     on_exit(fn ->
+      Ecto.Druid.TestTasks.shutdown_all(@data_source)
       Druid.Client.DataSource.mark_unused(@data_source) |> Druid.Client.request(@druid)
     end)
   end

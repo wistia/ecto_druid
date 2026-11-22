@@ -13,6 +13,8 @@ defmodule FixturesIntegrationTest do
 
   setup do
     on_exit(fn ->
+      Ecto.Druid.TestTasks.shutdown_all([@data_source, @named])
+
       for data_source <- [@data_source, @named] do
         Druid.Client.DataSource.mark_unused(data_source) |> Druid.Client.request(@druid)
       end

@@ -27,6 +27,11 @@ defmodule SketchIntegrationTest do
   end
 
   setup_all do
+    on_exit(fn ->
+      Ecto.Druid.TestTasks.shutdown_all(@data_source)
+      Druid.Client.DataSource.mark_unused(@data_source) |> Druid.Client.request(@druid)
+    end)
+
     query =
       from w in "wikipedia",
         where: w.page in ["Black Dahlia", "(1094) Siberia"],
@@ -45,10 +50,6 @@ defmodule SketchIntegrationTest do
         overwrite: :all,
         wait_for_segments: true
       )
-
-    on_exit(fn ->
-      Druid.Client.DataSource.mark_unused(@data_source) |> Druid.Client.request(@druid)
-    end)
 
     :ok
   end

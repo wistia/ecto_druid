@@ -35,6 +35,8 @@ defmodule DeepStorageIntegrationTest do
   """
 
   setup_all do
+    on_exit(fn -> Ecto.Druid.TestTasks.shutdown_all(@data_source) end)
+
     Druid.Client.Retention.set(@data_source, @rules) |> Druid.Client.request!(@druid)
     ingest!()
 
