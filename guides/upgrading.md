@@ -2,7 +2,7 @@
 
 ## From 0.5.x to 0.6.0
 
-### Druid and Ecto versions
+### Druid, Ecto and Req versions
 
 0.6.0 targets and is tested against Apache Druid 38.0.0, up from 28. It isn't
 tested against older versions, and some of what's new needs a newer Druid:
@@ -21,6 +21,30 @@ from e in "events", where: "a" in e.tags
 ```
 
 Ecto 3.12 or later is required (`ecto_sql ~> 3.12`).
+
+Req 0.7.5 or later and Finch 0.24 or later are required, up from Req 0.5.8.
+Earlier Finch versions reuse a connection after a receive timeout under Mint
+1.11, so a query that timed out couldn't be canceled. If your app depends on
+Req itself, raise its requirement, then update the lock:
+
+```elixir
+# mix.exs, 0.5
+{:req, "~> 0.5"}
+
+# mix.exs, 0.6
+{:req, "~> 0.7.5"}
+```
+
+```sh
+mix deps.update req finch mint
+```
+
+Req 0.7 has breaking changes of its own, which matter if your app calls Req
+directly. See its [changelog](https://hexdocs.pm/req/changelog.html). Options
+that ecto_druid passes through to Req, such as `:plug` and `:adapter`, follow
+Req 0.7's rules: an `:adapter` function still works but is deprecated in
+favour of a module. `Druid.Client`'s `:finch` option takes a pool name, as
+before, or Req's `finch:` keyword options.
 
 ### SQL function imports
 

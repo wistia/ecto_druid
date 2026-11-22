@@ -47,7 +47,9 @@ defmodule Druid.Client do
       Some requests set their own default: the `Druid.Client.Status` checks
       don't retry, and `Druid.Client.Task.statuses/1` retries even though
       it is a POST. `retry: false` turns retries off.
-    * `:plug`, `:adapter`, `:finch` - Passed to `Req`.
+    * `:finch` - The name of a running Finch pool to send the request
+      through, or a keyword list of Req's `finch:` options.
+    * `:plug`, `:adapter` - Passed to `Req`.
     * `:telemetry_metadata` - A map merged into the metadata of this
       request's telemetry events.
 
@@ -211,7 +213,7 @@ defmodule Druid.Client do
       [base_url: URI.to_string(base_url)]
       |> put_present(:plug, Keyword.get(opts, :plug))
       |> put_present(:adapter, Keyword.get(opts, :adapter))
-      |> put_present(:finch, Keyword.get(opts, :finch))
+      |> put_present(:finch, opts |> Keyword.get(:finch) |> finch())
       |> put_present(:auth, opts |> Keyword.get(:auth) |> auth())
       |> put_present(:redirect_trusted, Keyword.get(opts, :redirect_trusted))
       |> put_present(:receive_timeout, Keyword.get(opts, :receive_timeout))
@@ -408,6 +410,10 @@ defmodule Druid.Client do
       put_present(acc, key, Keyword.get(opts, key))
     end)
   end
+
+  # Req 0.7 takes the pool name inside its finch: options
+  defp finch(name) when is_atom(name) and not is_nil(name), do: [name: name]
+  defp finch(finch), do: finch
 
   defp put_present(opts, key, value) do
     case value do

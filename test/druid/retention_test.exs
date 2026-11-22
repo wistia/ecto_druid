@@ -166,7 +166,7 @@ defmodule Druid.RetentionTest do
       # Req runs a :plug in place of any adapter, so this adapter runs it
       adapter = fn request ->
         send(test, {:options, request.options[:receive_timeout], request.options[:max_retries]})
-        Req.Steps.run_plug(%{request | options: Map.put(request.options, :plug, plug)})
+        Req.Plug.run(%{request | options: Map.put(request.options, :plug, plug)})
       end
 
       opts = opts(dir, adapter: adapter, receive_timeout: 60_000, max_retries: 1)

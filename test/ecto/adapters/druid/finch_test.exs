@@ -62,6 +62,19 @@ defmodule Ecto.Adapters.Druid.FinchTest do
     assert_receive {:finch, __MODULE__.CustomFinch}
   end
 
+  test "Druid.Client takes Req's finch: options as well as a pool name" do
+    start_supervised!({Finch, name: __MODULE__.ListFinch})
+    request = Druid.Client.Status.health()
+    opts = @closed ++ [retry: false]
+
+    for finch <- [__MODULE__.ListFinch, [name: __MODULE__.ListFinch]] do
+      assert {:error, %Req.TransportError{}} =
+               Druid.Client.request(request, Keyword.put(opts, :finch, finch))
+
+      assert_receive {:finch, __MODULE__.ListFinch}
+    end
+  end
+
   describe "Druid.SpecTemplates.request_opts/2" do
     alias Druid.SpecTemplates
 

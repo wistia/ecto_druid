@@ -34,7 +34,8 @@ defmodule Ecto.Adapters.Druid.MixProject do
     [
       {:ecto_sql, "~> 3.12"},
       {:telemetry, "~> 1.3"},
-      {:req, "~> 0.5.18"},
+      {:req, "~> 0.7.5"},
+      {:finch, "~> 0.24"},
       {:jason, "~> 1.0"},
       {:plug, "~> 1.15", optional: true},
       {:ex_doc, "~> 0.36", only: :dev, runtime: false}
