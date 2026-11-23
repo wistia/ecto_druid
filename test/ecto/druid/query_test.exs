@@ -1355,16 +1355,6 @@ defmodule Ecto.Druid.QueryTest do
                 []}
     end
 
-    test "fixed_buckets_histogram_quantiles/2" do
-      sql =
-        from(t in "test", select: fixed_buckets_histogram_quantiles(t.histogram, [0.25, 0.75]))
-        |> to_sql()
-
-      assert sql ==
-               {"SELECT FIXED_BUCKETS_HISTOGRAM_QUANTILES(t0.\"histogram\", 0.25, 0.75) FROM \"test\" AS t0",
-                []}
-    end
-
     test "fixed_buckets_histogram_min/1" do
       sql = from(t in "test", select: fixed_buckets_histogram_min(t.histogram)) |> to_sql()
 

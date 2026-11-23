@@ -11,13 +11,13 @@ defmodule Ecto.Druid.Query.FixedBucketsHistogram do
       from p in "page_views",
         select: %{
           depth: fixed_buckets_histogram(p.scroll_depth, 100, 0, 100),
-          quartiles:
-            fixed_buckets_histogram_quantiles(
+          median:
+            fixed_buckets_histogram_quantile(
               fixed_buckets_histogram(p.scroll_depth, 100, 0, 100),
-              [0.25, 0.5, 0.75]
+              0.5
             )
         }
-      #=> %{depth: "AQEAAAA...", quartiles: [24.0, 51.0, 77.0]}
+      #=> %{depth: "AQEAAAA...", median: 51.0}
 
   `approx_quantile_fixed_buckets` in `Ecto.Druid.Query.Aggregations` computes
   a single quantile in one step.
@@ -40,9 +40,6 @@ defmodule Ecto.Druid.Query.FixedBucketsHistogram do
 
   @doc "Returns the quantile estimate corresponding to fraction from a fixed buckets histogram. expr must return a fixed buckets histogram."
   sql_function fixed_buckets_histogram_quantile(expr, fraction)
-
-  @doc "Returns an array of quantile estimates corresponding to a list of fractions from a fixed buckets histogram. expr must return a fixed buckets histogram."
-  sql_function fixed_buckets_histogram_quantiles(expr, fractions), type: Ecto.Druid.DSHistogram
 
   @doc "Returns the minimum value seen by a fixed buckets histogram. expr must return a fixed buckets histogram."
   sql_function fixed_buckets_histogram_min(expr)
