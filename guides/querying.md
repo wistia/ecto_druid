@@ -101,9 +101,11 @@ functions' results load as Elixir values:
 * Estimates with error bounds, from `hll_sketch_estimate_with_error_bounds`
   and `theta_sketch_estimate_with_error_bounds`, load as an
   `Ecto.Druid.Estimate` struct with `value`, `lower_bound` and `upper_bound`.
-* `ds_get_quantiles`, `ds_histogram` and `ds_cdf` load as lists of floats.
+* `ds_get_quantiles`, `ds_histogram`, `ds_cdf` and
+  `fixed_buckets_histogram_quantiles` load as lists of floats.
 * A sketch itself, selected from a column or built by an aggregation such as
-  `ds_hll` or `tdigest_generate_sketch`, loads as its Base64 string.
+  `ds_hll`, `tdigest_generate_sketch` or `fixed_buckets_histogram`, loads as
+  its Base64 string.
 
 ```elixir
 from p in MyApp.PageViewsHourly,

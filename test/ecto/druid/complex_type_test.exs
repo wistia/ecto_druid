@@ -6,6 +6,7 @@ defmodule Ecto.Druid.ComplexTypeTest do
   alias Ecto.Druid.{
     DSHistogram,
     Estimate,
+    FixedBucketsHistogram,
     HLLSketch,
     QuantilesSketch,
     TDigestSketch,
@@ -15,7 +16,14 @@ defmodule Ecto.Druid.ComplexTypeTest do
 
   @sketch "AgEHDAMIAQAiw2QM"
 
-  for type <- [HLLSketch, ThetaSketch, QuantilesSketch, TupleSketch, TDigestSketch] do
+  for type <- [
+        HLLSketch,
+        ThetaSketch,
+        QuantilesSketch,
+        TupleSketch,
+        TDigestSketch,
+        FixedBucketsHistogram
+      ] do
     describe inspect(type) do
       test "casts and dumps Base64 strings" do
         assert Ecto.Type.cast(unquote(type), @sketch) == {:ok, @sketch}

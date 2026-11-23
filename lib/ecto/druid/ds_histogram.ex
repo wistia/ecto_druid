@@ -1,7 +1,7 @@
 defmodule Ecto.Druid.DSHistogram do
   @moduledoc """
   An `Ecto.Type` for the arrays of doubles that `DS_GET_QUANTILES`,
-  `DS_HISTOGRAM` and `DS_CDF` return.
+  `DS_HISTOGRAM`, `DS_CDF` and `FIXED_BUCKETS_HISTOGRAM_QUANTILES` return.
 
   Its database type is `:complex`, like the sketches, so the adapter doesn't
   wrap those functions in a `CAST`.

@@ -1326,6 +1326,73 @@ defmodule Ecto.Druid.QueryTest do
     end
   end
 
+  describe "fixed buckets histogram functions" do
+    test "fixed_buckets_histogram/4" do
+      sql = from(t in "test", select: fixed_buckets_histogram(t.depth, 10, 0, 100)) |> to_sql()
+
+      assert sql ==
+               {"SELECT FIXED_BUCKETS_HISTOGRAM(t0.\"depth\", 10, 0, 100) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "fixed_buckets_histogram/5" do
+      sql =
+        from(t in "test", select: fixed_buckets_histogram(t.depth, 10, 0, 100, "clip"))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT FIXED_BUCKETS_HISTOGRAM(t0.\"depth\", 10, 0, 100, 'clip') FROM \"test\" AS t0",
+                []}
+    end
+
+    test "fixed_buckets_histogram_quantile/2" do
+      sql =
+        from(t in "test", select: fixed_buckets_histogram_quantile(t.histogram, 0.5))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT FIXED_BUCKETS_HISTOGRAM_QUANTILE(t0.\"histogram\", 0.5) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "fixed_buckets_histogram_quantiles/2" do
+      sql =
+        from(t in "test", select: fixed_buckets_histogram_quantiles(t.histogram, [0.25, 0.75]))
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT FIXED_BUCKETS_HISTOGRAM_QUANTILES(t0.\"histogram\", 0.25, 0.75) FROM \"test\" AS t0",
+                []}
+    end
+
+    test "fixed_buckets_histogram_min/1" do
+      sql = from(t in "test", select: fixed_buckets_histogram_min(t.histogram)) |> to_sql()
+
+      assert sql ==
+               {"SELECT FIXED_BUCKETS_HISTOGRAM_MIN(t0.\"histogram\") FROM \"test\" AS t0", []}
+    end
+
+    test "fixed_buckets_histogram_max/1" do
+      sql = from(t in "test", select: fixed_buckets_histogram_max(t.histogram)) |> to_sql()
+
+      assert sql ==
+               {"SELECT FIXED_BUCKETS_HISTOGRAM_MAX(t0.\"histogram\") FROM \"test\" AS t0", []}
+    end
+
+    test "nests a built histogram" do
+      sql =
+        from(t in "test",
+          select:
+            fixed_buckets_histogram_quantile(fixed_buckets_histogram(t.depth, 10, 0, 100), 0.5)
+        )
+        |> to_sql()
+
+      assert sql ==
+               {"SELECT FIXED_BUCKETS_HISTOGRAM_QUANTILE(FIXED_BUCKETS_HISTOGRAM(t0.\"depth\", 10, 0, 100), 0.5) FROM \"test\" AS t0",
+                []}
+    end
+  end
+
   describe "array functions" do
     test "array/1" do
       sql = from(t in "test", select: array([1, 2, 3])) |> to_sql()

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Ecto.Druid.Query.FixedBucketsHistogram`, imported by `use Ecto.Druid.Query`,
+  with macros for the `druid-histogram` extension's fixed buckets histogram
+  SQL functions: `fixed_buckets_histogram/4,5` builds or merges a histogram,
+  and `fixed_buckets_histogram_quantile/2`,
+  `fixed_buckets_histogram_quantiles/2`, `fixed_buckets_histogram_min/1` and
+  `fixed_buckets_histogram_max/1` read one. They need a Druid version that
+  has these functions. A histogram loads as its Base64 string through the new
+  `Ecto.Druid.FixedBucketsHistogram` type, and
+  `fixed_buckets_histogram_quantiles` loads as a list of floats.
+
 ## 0.6.0 (2026-11-22)
 
 Targets Apache Druid 38 (up from 28). See [Upgrading](guides/upgrading.md)

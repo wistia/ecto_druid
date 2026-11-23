@@ -17,6 +17,7 @@ defmodule Ecto.Druid.Query do
   * `Ecto.Druid.Query.Quantiles` - Quantiles sketch functions and aggregations
   * `Ecto.Druid.Query.Tuple` - Tuple sketch functions and aggregations
   * `Ecto.Druid.Query.TDigest` - T-Digest sketch aggregations
+  * `Ecto.Druid.Query.FixedBucketsHistogram` - fixed buckets histogram functions and aggregations
   * `Ecto.Druid.Query.Array` - array functions
   * `Ecto.Druid.Query.MultiValue` - multi-value string functions
   * `Ecto.Druid.Query.JSON` - JSON functions
@@ -70,6 +71,7 @@ defmodule Ecto.Druid.Query do
     Ecto.Druid.Query.Quantiles,
     Ecto.Druid.Query.Tuple,
     Ecto.Druid.Query.TDigest,
+    Ecto.Druid.Query.FixedBucketsHistogram,
     Ecto.Druid.Query.Array,
     Ecto.Druid.Query.MultiValue,
     Ecto.Druid.Query.JSON,

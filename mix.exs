@@ -102,6 +102,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Ecto.Druid.Query.Quantiles,
           Ecto.Druid.Query.Tuple,
           Ecto.Druid.Query.TDigest,
+          Ecto.Druid.Query.FixedBucketsHistogram,
           Ecto.Druid.Query.Array,
           Ecto.Druid.Query.MultiValue,
           Ecto.Druid.Query.JSON,
@@ -119,6 +120,7 @@ defmodule Ecto.Adapters.Druid.MixProject do
           Ecto.Druid.ThetaSketch,
           Ecto.Druid.TDigestSketch,
           Ecto.Druid.TupleSketch,
+          Ecto.Druid.FixedBucketsHistogram,
           Ecto.Druid.JSON
         ],
         "System Tables": [
